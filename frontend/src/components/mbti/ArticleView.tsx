@@ -54,11 +54,12 @@ interface Props {
 // 에디터 정보 (심플하게)
 const editors: Record<MbtiGroupId, {
   name: string;
+  mbti: string;
 }> = {
-  NT: { name: "시현" },
-  NF: { name: "지원" },
-  ST: { name: "정훈" },
-  SF: { name: "하은" },
+  NT: { name: "시현", mbti: "NT" },
+  NF: { name: "지원", mbti: "NF" },
+  ST: { name: "정훈", mbti: "ST" },
+  SF: { name: "하은", mbti: "SF" },
 };
 
 const groups: MbtiGroupId[] = ["NT", "NF", "ST", "SF"];
@@ -169,8 +170,10 @@ export function ArticleView({ article, currentGroup, onClose, onChangeGroup }: P
             >
               ← 목록
             </button>
-            <span className="text-[13px] text-gray-500">
-              {editor.name}의 시선
+            <span className="text-[13px] text-gray-500 flex items-center gap-1.5">
+              {editor.name}
+              <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-400 rounded">{editor.mbti}</span>
+              의 시선
             </span>
             <a
               href={article.original_link}
@@ -211,7 +214,7 @@ export function ArticleView({ article, currentGroup, onClose, onChangeGroup }: P
         {/* Version Selector - 심플하게 텍스트로 */}
         <div className="flex items-center gap-4 mb-8 text-[13px]">
           <span className="text-gray-400">다른 시선</span>
-          <div className="flex gap-3">
+          <div className="flex gap-4">
             {groups.map((group) => {
               const ed = editors[group];
               const isSelected = selectedVersion === group;
@@ -219,13 +222,16 @@ export function ArticleView({ article, currentGroup, onClose, onChangeGroup }: P
                 <button
                   key={group}
                   onClick={() => setSelectedVersion(group)}
-                  className={`transition-colors ${
+                  className={`flex items-center gap-1 transition-colors ${
                     isSelected
-                      ? "text-gray-900 font-semibold underline underline-offset-4"
+                      ? "text-gray-900 font-semibold"
                       : "text-gray-400 hover:text-gray-600"
                   }`}
                 >
-                  {ed.name}
+                  <span className={isSelected ? "underline underline-offset-4" : ""}>{ed.name}</span>
+                  <span className={`text-[9px] px-1 py-0.5 rounded ${
+                    isSelected ? "bg-gray-200 text-gray-600" : "bg-gray-100 text-gray-400"
+                  }`}>{ed.mbti}</span>
                 </button>
               );
             })}
@@ -359,9 +365,10 @@ export function ArticleView({ article, currentGroup, onClose, onChangeGroup }: P
                 <button
                   key={group}
                   onClick={() => setSelectedVersion(group)}
-                  className="text-gray-400 hover:text-gray-700 transition-colors"
+                  className="flex items-center gap-1 text-gray-400 hover:text-gray-700 transition-colors"
                 >
                   {editors[group].name}
+                  <span className="text-[9px] px-1 py-0.5 bg-gray-100 rounded">{editors[group].mbti}</span>
                 </button>
               ))}
             </div>

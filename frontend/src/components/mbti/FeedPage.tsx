@@ -58,22 +58,27 @@ interface Props {
 // 에디터 정보 (심플하게)
 const editors: Record<MbtiGroupId, {
   name: string;
+  mbti: string;
   emptyMessage: string;
 }> = {
   NT: {
     name: "시현",
+    mbti: "NT",
     emptyMessage: "아직 뉴스가 없습니다.",
   },
   NF: {
     name: "지원",
+    mbti: "NF",
     emptyMessage: "아직 뉴스가 없습니다.",
   },
   ST: {
     name: "정훈",
+    mbti: "ST",
     emptyMessage: "아직 뉴스가 없습니다.",
   },
   SF: {
     name: "하은",
+    mbti: "SF",
     emptyMessage: "아직 뉴스가 없습니다.",
   },
 };
@@ -172,8 +177,9 @@ export function FeedPage({ selectedGroup, onChangeGroup }: Props) {
             <h1 className="text-[18px] font-bold text-gray-900 tracking-tight">
               K-Stock Insight
             </h1>
-            <span className="text-[13px] text-gray-500">
+            <span className="text-[13px] text-gray-500 flex items-center gap-1.5">
               by <span className="font-medium text-gray-700">{editor.name}</span>
+              <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">{editor.mbti}</span>
             </span>
           </div>
           <div className="flex items-center gap-4">
