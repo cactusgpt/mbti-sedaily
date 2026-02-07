@@ -1,0 +1,11 @@
+# Google AdSense
+# Seoul Economic Daily English (en.sedaily.com)
+# Publisher ID: ca-pub-1326078912759552
+# Updated: 2025-12-31
+
+google.com, pub-1326078912759552, DIRECT, f08c47fec0942fa0
+
+# Instructions:
+# This file has been configured for Seoul Economic Daily
+# Accessible at: https://en.sedaily.com/ads.txt
+# Verify in AdSense dashboard: Sites > Manage sites > en.sedaily.com

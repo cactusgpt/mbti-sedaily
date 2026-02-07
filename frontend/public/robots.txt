@@ -1,0 +1,119 @@
+# Seoul Economic Daily - English Edition
+# Optimized for AI Search Engines (GEO/AEO)
+# Last updated: 2025-12-25
+
+# =============================================================================
+# AI SEARCH CRAWLERS (Allow - for answering user queries)
+# =============================================================================
+
+# ChatGPT Search (user queries - NOT training)
+User-agent: ChatGPT-User
+Allow: /
+Crawl-delay: 1
+
+# Claude Search (Anthropic)
+User-agent: Claude-Web
+Allow: /
+Crawl-delay: 1
+
+# Perplexity AI Search
+User-agent: PerplexityBot
+Allow: /
+Crawl-delay: 1
+
+# Google AI Overview / SGE (Search Generative Experience)
+User-agent: Google-Extended
+Allow: /
+Crawl-delay: 1
+
+# Gemini (Google AI)
+User-agent: GoogleOther
+Allow: /
+Crawl-delay: 1
+
+# =============================================================================
+# AI TRAINING CRAWLERS (Allow - for model training)
+# =============================================================================
+
+# OpenAI GPTBot (training data collection)
+User-agent: GPTBot
+Allow: /
+Crawl-delay: 2
+
+# Anthropic AI (training)
+User-agent: anthropic-ai
+Allow: /
+Crawl-delay: 2
+
+# Common Crawl
+User-agent: CCBot
+Allow: /
+Crawl-delay: 2
+
+# =============================================================================
+# TRADITIONAL SEARCH ENGINES
+# =============================================================================
+
+# Google
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 1
+
+# Bing
+User-agent: Bingbot
+Allow: /
+Crawl-delay: 1
+
+# Yandex
+User-agent: Yandex
+Allow: /
+Crawl-delay: 1
+
+# Naver (Korean search engine)
+User-agent: Yeti
+Allow: /
+Crawl-delay: 1
+
+# Daum (Korean search engine)
+User-agent: Daumoa
+Allow: /
+Crawl-delay: 1
+
+# =============================================================================
+# SOCIAL MEDIA CRAWLERS
+# =============================================================================
+
+# Facebook
+User-agent: facebookexternalhit
+Allow: /
+
+# Twitter
+User-agent: Twitterbot
+Allow: /
+
+# LinkedIn
+User-agent: LinkedInBot
+Allow: /
+
+# =============================================================================
+# DEFAULT (All other bots)
+# =============================================================================
+
+User-agent: *
+Allow: /
+Crawl-delay: 2
+
+# =============================================================================
+# DISALLOW PATTERNS (Block sensitive/admin areas)
+# =============================================================================
+
+Disallow: /api/
+Disallow: /admin/
+Disallow: /_next/static/
+Disallow: /*.json$
+
+# =============================================================================
+# SITEMAP LOCATION
+# =============================================================================
+
+Sitemap: https://en.sedaily.com/sitemap.xml

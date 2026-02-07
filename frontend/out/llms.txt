@@ -1,0 +1,49 @@
+# Seoul Economic Daily - English Edition
+> South Korea's first economic newspaper, founded in 1960
+> English news service: https://en.sedaily.com
+> Korean main site: https://www.sedaily.com
+
+## About
+Seoul Economic Daily (서울경제신문) is South Korea's first economic newspaper established in 1960. We provide comprehensive coverage of Korean business, finance, technology, and economic news for international readers.
+
+## Publisher
+- Company: Seoul Economic Daily Co., Ltd.
+- CEO: Son Dong-young (손동영)
+- Location: Seoul, South Korea
+- Contact: webmaster@sedaily.com
+
+## News Categories
+- /finance - South Korea finance, markets, banking, investments
+- /technology - Korean tech industry, semiconductors, AI, startups
+- /politics - Government policy, regulations, diplomacy
+- /society - Demographics, labor, education, social issues
+- /culture - K-culture, entertainment, creative industries
+- /sports - Korean sports, athletes, international competitions
+- /international - Korea in global affairs, trade, diplomacy
+
+## Key Topics
+- KOSPI and KOSDAQ stock markets
+- Samsung, Hyundai, SK, LG and major Korean conglomerates
+- Korean semiconductor industry
+- K-pop and Korean Wave (Hallyu)
+- North-South Korea relations
+- US-Korea trade and alliance
+- Korean economic policy
+
+## Content Guidelines
+- Original reporting from Seoul-based journalists
+- English translations of selected Korean articles
+- Daily updates on Korean business news
+- In-depth analysis of Korean economy
+
+## Pages
+- /about - Company information and history
+- /contact - Contact details and office location
+- /terms - Terms of service
+- /privacy - Privacy policy
+- /search - Article search
+
+## Technical
+- Language: English (en-US)
+- Update frequency: Daily
+- RSS/Sitemap: https://en.sedaily.com/sitemap.xml
