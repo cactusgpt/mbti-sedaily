@@ -244,20 +244,35 @@ export function TimelineNewsFeed({ userGroup, onChangeGroup }: Props) {
               if (slotArticles.length === 0) return null;
 
               return (
-                <section key={slot.id} className={`rounded-2xl bg-gradient-to-br ${slot.gradient} p-6`}>
+                <section
+                  key={slot.id}
+                  className="rounded-2xl p-6 transition-all duration-300"
+                  style={{
+                    background: `linear-gradient(135deg, ${slot.bgColor}80, ${slot.bgColor}40)`,
+                    borderTop: `4px solid ${slot.color}`,
+                  }}
+                >
                   {/* Section Header */}
-                  <div className="flex items-center gap-3 mb-4">
-                    <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-xl shadow-sm"
-                      style={{ backgroundColor: slot.bgColor }}
-                    >
-                      {slot.emoji}
+                  <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shadow-md"
+                        style={{ backgroundColor: slot.color, color: "white" }}
+                      >
+                        {slot.emoji}
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold" style={{ color: slot.color }}>{slot.label}</h2>
+                        <p className="text-xs text-gray-500">
+                          {slot.startHour}:00 - {slot.endHour === 6 ? "06" : slot.endHour}:00
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h2 className="text-lg font-bold text-gray-900">{slot.label}</h2>
-                      <p className="text-xs text-gray-500">
-                        {slot.startHour}:00 - {slot.endHour === 6 ? "06" : slot.endHour}:00 · {slotArticles.length}개 기사
-                      </p>
+                    <div
+                      className="px-3 py-1 rounded-full text-sm font-bold"
+                      style={{ backgroundColor: slot.color, color: "white" }}
+                    >
+                      {slotArticles.length}개
                     </div>
                   </div>
 
@@ -273,7 +288,10 @@ export function TimelineNewsFeed({ userGroup, onChangeGroup }: Props) {
                           href={article.original_link}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow group"
+                          className="bg-white rounded-xl overflow-hidden shadow-sm hover:shadow-lg transition-all duration-300 group hover:-translate-y-1"
+                          style={{
+                            borderLeft: `3px solid ${slot.color}`,
+                          }}
                         >
                           {/* Thumbnail */}
                           {article.image_url && (
@@ -283,7 +301,10 @@ export function TimelineNewsFeed({ userGroup, onChangeGroup }: Props) {
                                 alt=""
                                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                               />
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                              <div
+                                className="absolute inset-0 opacity-20 group-hover:opacity-30 transition-opacity"
+                                style={{ background: `linear-gradient(to top, ${slot.color}, transparent)` }}
+                              />
                               <span
                                 className="absolute bottom-2 left-2 px-2 py-0.5 text-[10px] font-bold text-white rounded"
                                 style={{ backgroundColor: slot.color }}
@@ -295,7 +316,7 @@ export function TimelineNewsFeed({ userGroup, onChangeGroup }: Props) {
 
                           {/* Content */}
                           <div className="p-3">
-                            <div className="flex items-center gap-1.5 text-[10px] text-gray-400 mb-1">
+                            <div className="flex items-center gap-1.5 text-[10px] mb-1" style={{ color: slot.color }}>
                               <Clock className="w-3 h-3" />
                               <span>{formatTime(article.published_at)}</span>
                               <span>·</span>
@@ -308,7 +329,13 @@ export function TimelineNewsFeed({ userGroup, onChangeGroup }: Props) {
 
                           {/* Footer */}
                           <div className="px-3 pb-3">
-                            <div className="flex items-center justify-center gap-1 py-1.5 bg-gray-50 rounded-lg text-[10px] font-medium text-gray-500 group-hover:bg-gray-100 transition-colors">
+                            <div
+                              className="flex items-center justify-center gap-1 py-1.5 rounded-lg text-[10px] font-medium transition-colors"
+                              style={{
+                                backgroundColor: slot.bgColor,
+                                color: slot.color,
+                              }}
+                            >
                               <ExternalLink className="w-3 h-3" />
                               원문 보기
                             </div>
