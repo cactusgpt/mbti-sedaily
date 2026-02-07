@@ -311,7 +311,7 @@ export function TimelineNewsFeed({ userGroup, onChangeGroup }: Props) {
   return (
     <div
       ref={containerRef}
-      className="min-h-screen transition-all duration-1000 ease-in-out"
+      className="min-h-screen flex flex-col transition-all duration-1000 ease-in-out"
       style={{ background: activeSlot.bgGradient }}
     >
       {/* Header */}
@@ -452,7 +452,7 @@ export function TimelineNewsFeed({ userGroup, onChangeGroup }: Props) {
       </div>
 
       {/* Main Content */}
-      <main className="max-w-5xl mx-auto px-4 py-6">
+      <main className="flex-1 max-w-5xl mx-auto px-4 py-6 w-full">
         {loading ? (
           <div className="flex justify-center py-20">
             <div className="flex flex-col items-center gap-3">
@@ -651,7 +651,7 @@ export function TimelineNewsFeed({ userGroup, onChangeGroup }: Props) {
 
       {/* Footer */}
       <footer
-        className="border-t mt-8 transition-all duration-700"
+        className="border-t transition-all duration-700 mt-auto"
         style={{
           borderColor: isNightMode ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)",
           backgroundColor: isNightMode ? "rgba(26,31,60,0.5)" : "rgba(255,255,255,0.5)",
