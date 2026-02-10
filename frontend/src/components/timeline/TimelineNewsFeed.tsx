@@ -454,20 +454,7 @@ export function TimelineNewsFeed({ userGroup, onChangeGroup }: Props) {
       {/* Main Content */}
       <main className="flex-1 max-w-5xl mx-auto px-4 py-6 w-full">
         {loading ? (
-          <div className="flex justify-center py-20">
-            <div className="flex flex-col items-center gap-3">
-              <div
-                className="w-10 h-10 border-2 rounded-full animate-spin"
-                style={{
-                  borderColor: isNightMode ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.1)",
-                  borderTopColor: activeSlot.accentColor,
-                }}
-              />
-              <p style={{ color: activeSlot.textColor, opacity: 0.7 }} className="text-sm">
-                불러오는 중...
-              </p>
-            </div>
-          </div>
+          <div className="py-20" />
         ) : articles.length === 0 ? (
           <div className="text-center py-20">
             <div

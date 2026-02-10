@@ -13,7 +13,7 @@ from .constants import (
     AWS_REGION_S3,
     DYNAMODB_TABLE_ARTICLES_DEV,
     BIGKINDS_API_URL_DEFAULT,
-    ANTHROPIC_MODEL_ID_DEFAULT,
+    BEDROCK_MODEL_ID_DEFAULT,
     FRONTEND_URL_DEFAULT,
     CACHE_TTL_DEFAULT,
 )
@@ -29,7 +29,7 @@ class Settings:
 
     # Anthropic API
     anthropic_api_key: str = ''
-    anthropic_model_id: str = ANTHROPIC_MODEL_ID_DEFAULT
+    anthropic_model_id: str = BEDROCK_MODEL_ID_DEFAULT
 
     # AWS Configuration
     region: str = AWS_REGION_DEFAULT
@@ -72,7 +72,7 @@ class Settings:
 
             # Anthropic
             anthropic_api_key=os.getenv('ANTHROPIC_API_KEY', ''),
-            anthropic_model_id=os.getenv('ANTHROPIC_MODEL_ID', ANTHROPIC_MODEL_ID_DEFAULT),
+            anthropic_model_id=os.getenv('ANTHROPIC_MODEL_ID', BEDROCK_MODEL_ID_DEFAULT),
 
             # AWS
             region=os.getenv('AWS_REGION', os.getenv('REGION', AWS_REGION_DEFAULT)),

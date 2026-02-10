@@ -1,37 +1,34 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import type { MbtiGroupId } from "@/data/mbtiGroups";
-import { ConversationalOnboarding, UserPreferences } from "@/components/onboarding/ConversationalOnboarding";
 import { TimelineNewsFeed } from "@/components/timeline/TimelineNewsFeed";
 import { MbtiChatBot } from "@/components/mbti/MbtiChatBot";
-import { useAuth } from "@/contexts/AuthContext";
+
+// useNavigate는 handleChangeGroup에서 사용
 
 type AppState = "loading" | "onboarding" | "feed";
 
 export default function TimelinePage() {
   const navigate = useNavigate();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [appState, setAppState] = useState<AppState>("loading");
   const [userGroup, setUserGroup] = useState<MbtiGroupId | null>(null);
   const [userTags, setUserTags] = useState<string[]>([]);
 
   // Check saved preferences on mount
   useEffect(() => {
-    if (authLoading) return;
-
     const savedGroup = localStorage.getItem("mbti-group") as MbtiGroupId | null;
     const savedTags = localStorage.getItem("user-tags");
-    const hasCompletedOnboarding = localStorage.getItem("onboarding-completed");
 
-    if (isAuthenticated && savedGroup && hasCompletedOnboarding) {
+    // 타임라인은 로그인 없이도 접근 가능, MBTI 그룹만 있으면 됨
+    if (savedGroup) {
       setUserGroup(savedGroup);
       setUserTags(savedTags ? JSON.parse(savedTags) : []);
-      setAppState("feed");
     } else {
-      // Redirect to home for onboarding
-      navigate("/");
+      // MBTI 그룹이 없으면 기본값 SF로 설정
+      setUserGroup("SF");
     }
-  }, [authLoading, isAuthenticated, navigate]);
+    setAppState("feed");
+  }, []);
 
   const handleChangeGroup = () => {
     // Reset and go back to home for onboarding
@@ -47,16 +44,9 @@ export default function TimelinePage() {
     setUserGroup(group);
   };
 
-  // Loading state
-  if (appState === "loading" || authLoading) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin w-8 h-8 border-2 border-gray-300 border-t-gray-900 rounded-full mx-auto mb-4" />
-          <p className="text-gray-400">...</p>
-        </div>
-      </div>
-    );
+  // Loading state - 빈 화면으로 빠르게 전환
+  if (appState === "loading") {
+    return <div className="min-h-screen bg-white" />;
   }
 
   // Should not reach here if not authenticated

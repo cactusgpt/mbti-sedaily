@@ -35,8 +35,9 @@ MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 30
 MAX_RETRY_DELAY = 300
 
-# AWS Bedrock Claude Sonnet 4.5 inference profile ID
-BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+# AWS Bedrock Claude Haiku 3.5 - Cost optimized model
+# Cost: $0.25/$1.25 per 1M tokens (input/output)
+BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
 
 # Prompt file names for each MBTI group
 PROMPT_FILES = {

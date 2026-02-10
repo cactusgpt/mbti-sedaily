@@ -1,10 +1,18 @@
 """
 ArticleHandler Lambda Function
-Handles article detail retrieval with translation and caching
+Handles article detail retrieval.
+
+When user views an article:
+1. Fetch from DynamoDB
+2. Return article with MBTI versions (if available) or original content
+
+NOTE: MBTI transformation is done in article_collector.py for top 10 articles only.
+Articles without MBTI versions will display original content.
 """
 import logging
 from typing import Optional
 from dataclasses import dataclass
+from datetime import datetime
 
 from clients.dynamodb_client import DynamoDBClient
 
@@ -67,9 +75,9 @@ class ArticleHandlerError(Exception):
 
 class ArticleHandler:
     """
-    Handles article detail retrieval with translation and caching
+    Handles article detail retrieval from DynamoDB
     """
-    
+
     def __init__(self, dynamodb_client: DynamoDBClient):
         """
         Initialize ArticleHandler with DynamoDB client
@@ -84,23 +92,26 @@ class ArticleHandler:
         article_id: str
     ) -> ArticleDetailResponse:
         """
-        Handle article detail request with translation and caching
+        Handle article detail request.
+
+        Returns article with MBTI versions if available, otherwise original content.
+        MBTI transformation is done in article_collector.py for top 10 articles.
 
         Args:
-            article_id: BigKinds article ID
+            article_id: Article ID (news_id)
 
         Returns:
-            ArticleDetailResponse with translated title and content
+            ArticleDetailResponse with MBTI transformed versions (if available)
 
         Raises:
-            ArticleHandlerError: If retrieval or translation fails with user-friendly message
+            ArticleHandlerError: If retrieval fails
         """
         try:
             # Validate article_id
             if not article_id or not article_id.strip():
                 raise ArticleHandlerError("Article ID is required")
 
-            # ONLY retrieve from DynamoDB - no BigKinds fallback
+            # Retrieve from DynamoDB
             cached_article = await self.dynamodb_client.get_article(article_id)
             if not cached_article:
                 logger.warning(f"Article {article_id} not found in DynamoDB")
@@ -109,6 +120,18 @@ class ArticleHandler:
                 )
 
             logger.info(f"Retrieved article {article_id} from DynamoDB")
+
+            # Check if MBTI versions exist
+            has_versions = (
+                cached_article.get('version_NT') and
+                cached_article.get('version_NF') and
+                cached_article.get('version_ST') and
+                cached_article.get('version_SF')
+            )
+
+            if not has_versions:
+                logger.info(f"Article {article_id} has no MBTI versions - returning original content")
+
             return ArticleDetailResponse(
                 news_id=cached_article['news_id'],
                 title_ko=cached_article.get('title_ko', ''),
@@ -146,13 +169,13 @@ class ArticleHandler:
         slug: str
     ) -> ArticleDetailResponse:
         """
-        Handle article detail request by SEO-friendly slug
+        Handle article detail request by SEO-friendly slug.
 
         Args:
             slug: Article slug (e.g., 'samsung-reports-strong-q4-earnings')
 
         Returns:
-            ArticleDetailResponse with translated title and content
+            ArticleDetailResponse with MBTI transformed versions (if available)
 
         Raises:
             ArticleHandlerError: If retrieval fails with user-friendly message
@@ -170,7 +193,20 @@ class ArticleHandler:
                     "Article not found. This article may have been removed or the URL is incorrect."
                 )
 
-            logger.info(f"Retrieved article with slug '{slug}' from DynamoDB (news_id: {cached_article.get('news_id')})")
+            article_id = cached_article.get('news_id')
+            logger.info(f"Retrieved article with slug '{slug}' from DynamoDB (news_id: {article_id})")
+
+            # Check if MBTI versions exist
+            has_versions = (
+                cached_article.get('version_NT') and
+                cached_article.get('version_NF') and
+                cached_article.get('version_ST') and
+                cached_article.get('version_SF')
+            )
+
+            if not has_versions:
+                logger.info(f"Article {article_id} has no MBTI versions - returning original content")
+
             return ArticleDetailResponse(
                 news_id=cached_article['news_id'],
                 title_ko=cached_article.get('title_ko', ''),

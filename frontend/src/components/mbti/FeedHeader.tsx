@@ -1,5 +1,8 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { MbtiGroupId } from "@/data/mbtiGroups";
+import { MyPage } from "@/components/user/MyPage";
+import { getTodayReadCount } from "@/lib/readingTracker";
 
 interface Props {
   selectedGroup: MbtiGroupId;
@@ -19,8 +22,12 @@ const groupLabels: Record<MbtiGroupId, { label: string; color: string }> = {
 
 export function FeedHeader({ selectedGroup, selectedCategory, onSelectCategory, onChangeGroup }: Props) {
   const group = groupLabels[selectedGroup];
+  const [showMyPage, setShowMyPage] = useState(false);
+  const todayCount = getTodayReadCount();
 
   return (
+    <>
+    {showMyPage && <MyPage onClose={() => setShowMyPage(false)} />}
     <header className="bg-white sticky top-0 z-50 border-b border-gray-200">
       {/* Top bar */}
       <div className="border-b border-gray-100">
@@ -51,14 +58,25 @@ export function FeedHeader({ selectedGroup, selectedCategory, onSelectCategory, 
             </span>
           </Link>
 
-          {/* MBTI Type indicator */}
-          <button
-            onClick={onChangeGroup}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${group.color} text-white text-[13px] font-medium hover:opacity-90 transition-opacity`}
-          >
-            <span>{group.label}</span>
-            <span className="text-white/70">변경</span>
-          </button>
+          <div className="flex items-center gap-3">
+            {/* 읽기 통계 버튼 */}
+            <button
+              onClick={() => setShowMyPage(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 text-[13px] font-medium hover:bg-gray-200 transition-colors"
+            >
+              <span>🔥</span>
+              <span>{todayCount}</span>
+            </button>
+
+            {/* MBTI Type indicator */}
+            <button
+              onClick={onChangeGroup}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${group.color} text-white text-[13px] font-medium hover:opacity-90 transition-opacity`}
+            >
+              <span>{group.label}</span>
+              <span className="text-white/70">변경</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -84,5 +102,6 @@ export function FeedHeader({ selectedGroup, selectedCategory, onSelectCategory, 
         </nav>
       </div>
     </header>
+    </>
   );
 }

@@ -1,11 +1,13 @@
-
-
 import { useState, useEffect } from "react";
 import type { MbtiGroupId } from "@/data/mbtiGroups";
 import { ArticleReactions } from "./ArticleReactions";
 import { ArticlePodcast } from "./ArticlePodcast";
 import { useAuth } from "@/contexts/AuthContext";
 import { recordArticleRead } from "@/lib/userApi";
+import { trackArticleRead } from "@/lib/readingTracker";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { API_URL } from "@/config/api";
 
 interface MbtiVersion {
   title: string;
@@ -16,18 +18,12 @@ interface MbtiVersion {
   tone: string;
 }
 
-// ** 볼드 마크다운 제거
-function cleanMarkdown(text: string): string {
-  return text.replace(/\*\*/g, '');
-}
-
-// body를 문단 배열로 변환
-function parseBody(body: string | string[]): string[] {
+// body를 문자열로 변환 (배열인 경우 합침)
+function normalizeBody(body: string | string[]): string {
   if (Array.isArray(body)) {
-    return body.map(p => cleanMarkdown(p));
+    return body.join("\n\n");
   }
-  // 문자열인 경우 줄바꿈으로 문단 분리 후 마크다운 제거
-  return body.split("\n\n").filter(p => p.trim()).map(p => cleanMarkdown(p));
+  return body;
 }
 
 interface Article {
@@ -102,25 +98,181 @@ function generateQuestions(article: Article, group: MbtiGroupId): string[] {
   return [...baseQuestions, ...groupQuestions[group]];
 }
 
-export function ArticleView({ article, currentGroup, onClose, onChangeGroup }: Props) {
+export function ArticleView({ article: initialArticle, currentGroup, onClose, onChangeGroup }: Props) {
   const { user, isAuthenticated } = useAuth();
+  const [article, setArticle] = useState<Article>(initialArticle);
   const [selectedVersion, setSelectedVersion] = useState<MbtiGroupId>(currentGroup);
   const [expandedQuestion, setExpandedQuestion] = useState<number | null>(null);
   const [aiAnswers, setAiAnswers] = useState<Record<number, string>>({});
   const [loadingAnswer, setLoadingAnswer] = useState<number | null>(null);
+  const [isLoadingContent, setIsLoadingContent] = useState(false);
 
-  const version = article.versions[selectedVersion];
+  const version = article.versions?.[selectedVersion];
   const editor = editors[selectedVersion];
   const questions = generateQuestions(article, selectedVersion);
 
+  // 선택된 MBTI 버전이 없으면 detail API 호출해서 전체 content 및 MBTI 버전 가져오기
+  useEffect(() => {
+    const currentVersion = article.versions?.[selectedVersion];
+    console.log('[ArticleView] Check:', { news_id: article.news_id, currentVersion: !!currentVersion, isLoadingContent });
+
+    // 선택된 버전이 없으면 API 호출
+    if (!currentVersion && !isLoadingContent) {
+      setIsLoadingContent(true);
+      console.log('[ArticleView] Fetching article:', article.news_id);
+      fetch(`${API_URL}/api/article/${article.news_id}`)
+        .then((res) => res.json())
+        .then((data) => {
+          console.log('[ArticleView] API Response:', { content_ko_length: data.content_ko?.length, has_versions: !!data.version_NT?.body });
+          setArticle((prev) => ({
+            ...prev,
+            // 전체 content 업데이트
+            content: data.content_ko || prev.content,
+            // MBTI 버전이 있으면 추가 (body가 있는 경우만)
+            ...(data.version_NT?.body && data.version_NF?.body && data.version_ST?.body && data.version_SF?.body
+              ? {
+                  versions: {
+                    NT: data.version_NT,
+                    NF: data.version_NF,
+                    ST: data.version_ST,
+                    SF: data.version_SF,
+                  },
+                }
+              : {}),
+          }));
+        })
+        .catch((err) => console.error("[ArticleView] Failed to load full content:", err))
+        .finally(() => setIsLoadingContent(false));
+    }
+  }, [article.news_id, selectedVersion]);
+
   // Record article read when component mounts
   useEffect(() => {
+    // 로컬 트래킹 (로그인 없이도 동작)
+    trackArticleRead(article.news_id);
+
+    // 서버 트래킹 (로그인한 경우)
     if (isAuthenticated && user) {
       recordArticleRead(user.userId, article.news_id, version?.title || article.title);
     }
   }, [article.news_id, isAuthenticated, user]);
 
-  if (!version) return null;
+  // MBTI 버전이 없으면 원본 표시
+  if (!version) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-white overflow-y-auto">
+        <header className="sticky top-0 bg-white border-b border-gray-200 z-10">
+          <div className="max-w-[720px] mx-auto px-5">
+            <div className="flex items-center justify-between h-14">
+              <button onClick={onClose} className="text-gray-500 hover:text-gray-900 text-[14px]">
+                ← 목록
+              </button>
+              <span className="text-[13px] text-gray-400">원본 기사</span>
+              <a href={article.original_link} target="_blank" className="text-[13px] text-gray-400 hover:text-gray-600">
+                원문
+              </a>
+            </div>
+          </div>
+        </header>
+        <article className="max-w-[720px] mx-auto px-5 py-8">
+          <p className="text-[12px] text-gray-400 mb-3">{article.category} · {formatDate(article.published_at)}</p>
+          <h1 className="text-[24px] font-bold text-gray-900 mb-4">{article.title}</h1>
+          {article.sub_title && <p className="text-[16px] text-gray-500 mb-6">{article.sub_title}</p>}
+
+          {/* Meta */}
+          <div className="flex items-center gap-3 text-[12px] text-gray-400 mb-8 pb-6 border-b border-gray-200">
+            <span>{article.byline || '서울경제'}</span>
+          </div>
+
+          {/* Podcast Player - 원본 기사용 */}
+          <div className="mb-8 p-4 bg-gray-50 rounded-lg">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[13px] font-medium text-gray-700">음성으로 듣기</span>
+              <span className="text-[11px] text-gray-400">TTS</span>
+            </div>
+            <ArticlePodcast
+              articleTitle={article.title}
+              articleBody={article.content || ''}
+              mbtiGroup={selectedVersion}
+            />
+          </div>
+
+          {article.image_url && <img src={article.image_url} alt="" className="w-full rounded-lg mb-6" />}
+          <p className="text-[16px] text-gray-800 leading-[1.9] whitespace-pre-line mb-10">{article.content}</p>
+
+          {/* AI 질문 섹션 - 원본 기사용 */}
+          <div className="mb-10 pb-8 border-b border-gray-200">
+            <h3 className="text-[15px] font-semibold text-gray-900 mb-4">
+              더 알아보기
+            </h3>
+
+            <div className="space-y-2">
+              {questions.map((question, idx) => (
+                <div key={idx} className="border border-gray-200 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => handleQuestionClick(idx)}
+                    className="w-full px-4 py-3 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+                  >
+                    <span className="text-[14px] text-gray-700">{question}</span>
+                    <span className="text-gray-400 text-[12px]">
+                      {expandedQuestion === idx ? "−" : "+"}
+                    </span>
+                  </button>
+
+                  {expandedQuestion === idx && (
+                    <div className="px-4 py-4 bg-gray-50 border-t border-gray-100">
+                      {loadingAnswer === idx ? (
+                        <div className="text-[13px] text-gray-500">
+                          답변 생성 중...
+                        </div>
+                      ) : (
+                        <div className="text-[14px] text-gray-700 leading-relaxed whitespace-pre-wrap">
+                          {aiAnswers[idx]}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <p className="mt-3 text-[11px] text-gray-400">
+              AI가 생성한 답변입니다
+            </p>
+          </div>
+
+          {/* 반응 섹션 - 원본 기사용 */}
+          <ArticleReactions articleId={article.news_id} mbtiGroup={selectedVersion} />
+
+          {/* Original Article Info */}
+          <div className="pt-8 mt-8 border-t border-gray-200">
+            <a
+              href={article.original_link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[13px] text-gray-500 hover:text-gray-700 transition-colors"
+            >
+              원문 보기 →
+            </a>
+          </div>
+        </article>
+
+        {/* Bottom Navigation */}
+        <div className="sticky bottom-0 bg-white border-t border-gray-200">
+          <div className="max-w-[720px] mx-auto px-5 py-3">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={onClose}
+                className="text-gray-500 text-[14px] hover:text-gray-900 transition-colors"
+              >
+                ← 목록
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Handle AI question click
   const handleQuestionClick = async (index: number) => {
@@ -258,13 +410,20 @@ export function ArticleView({ article, currentGroup, onClose, onChangeGroup }: P
           </div>
         )}
 
-        {/* Body */}
-        <div className="space-y-5 mb-10">
-          {parseBody(version.body).map((paragraph, idx) => (
-            <p key={idx} className="text-[16px] text-gray-800 leading-[1.9]">
-              {paragraph}
-            </p>
-          ))}
+        {/* Body - Markdown 렌더링 */}
+        <div className="prose prose-gray max-w-none mb-10
+          prose-p:text-[16px] prose-p:text-gray-800 prose-p:leading-[1.9] prose-p:mb-5
+          prose-strong:font-bold prose-strong:text-gray-900
+          prose-h2:text-[18px] prose-h2:font-semibold prose-h2:text-gray-900 prose-h2:mt-8 prose-h2:mb-4
+          prose-h3:text-[16px] prose-h3:font-semibold prose-h3:text-gray-800 prose-h3:mt-6 prose-h3:mb-3
+          prose-ul:my-4 prose-ul:pl-5 prose-li:text-[15px] prose-li:text-gray-700 prose-li:mb-2
+          prose-table:w-full prose-table:my-6 prose-table:border-collapse
+          prose-th:bg-gray-100 prose-th:text-[14px] prose-th:font-semibold prose-th:text-gray-700 prose-th:p-3 prose-th:border prose-th:border-gray-200 prose-th:text-left
+          prose-td:text-[14px] prose-td:text-gray-700 prose-td:p-3 prose-td:border prose-td:border-gray-200
+        ">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            {normalizeBody(version.body)}
+          </ReactMarkdown>
         </div>
 
         {/* Key Points - 심플한 박스 */}

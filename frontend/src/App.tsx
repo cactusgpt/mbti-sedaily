@@ -7,7 +7,7 @@ import AuthCallbackPage from './pages/AuthCallbackPage'
 
 function App() {
   return (
-    <>
+    <div className="min-h-screen flex flex-col">
       <a href="#main-content" className="skip-link">
         본문 바로가기
       </a>
@@ -19,7 +19,7 @@ function App() {
         <Route path="/listen" element={<ElderlyPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
       </Routes>
-    </>
+    </div>
   )
 }
 

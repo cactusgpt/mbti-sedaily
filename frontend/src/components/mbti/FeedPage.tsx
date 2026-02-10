@@ -1,9 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import type { MbtiGroupId } from "@/data/mbtiGroups";
 import { API_URL } from "@/config/api";
 import { ArticleView } from "./ArticleView";
 import { UserMenu } from "@/components/auth/UserMenu";
+
+// 프리페칭 캐시 (전역)
+const prefetchCache = new Map<string, Article>();
 
 interface MbtiVersion {
   title: string;
@@ -53,6 +56,7 @@ interface Article {
 interface Props {
   selectedGroup: MbtiGroupId;
   onChangeGroup: () => void;
+  onSwitchToStory?: () => void;
 }
 
 // 에디터 정보 (심플하게)
@@ -103,16 +107,53 @@ function categoryToApi(cat: string): string[] {
   return [cat];
 }
 
-export function FeedPage({ selectedGroup, onChangeGroup }: Props) {
+export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Props) {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState("전체");
   const [viewArticle, setViewArticle] = useState<Article | null>(null);
 
   const editor = editors[selectedGroup];
+  const prefetchingRef = useRef<Set<string>>(new Set());
+
+  // 프리페칭 함수 - hover 시 호출
+  const prefetchArticle = useCallback((article: Article) => {
+    const id = article.news_id;
+    // 이미 캐시에 있거나 로딩 중이면 스킵
+    if (prefetchCache.has(id) || prefetchingRef.current.has(id)) return;
+    // MBTI 버전이 이미 있으면 스킵
+    if (article.versions && Object.keys(article.versions).length === 4) return;
+
+    prefetchingRef.current.add(id);
+    fetch(`${API_URL}/api/article/${id}`)
+      .then(res => res.json())
+      .then(data => {
+        const enrichedArticle: Article = {
+          ...article,
+          content: data.content_ko || article.content,
+          ...(data.version_NT?.body && data.version_NF?.body && data.version_ST?.body && data.version_SF?.body
+            ? {
+                versions: {
+                  NT: data.version_NT,
+                  NF: data.version_NF,
+                  ST: data.version_ST,
+                  SF: data.version_SF,
+                },
+              }
+            : {}),
+        };
+        prefetchCache.set(id, enrichedArticle);
+      })
+      .catch(() => {})
+      .finally(() => {
+        prefetchingRef.current.delete(id);
+      });
+  }, []);
 
   const openArticle = useCallback((article: Article) => {
-    setViewArticle(article);
+    // 캐시된 데이터가 있으면 사용
+    const cachedArticle = prefetchCache.get(article.news_id);
+    setViewArticle(cachedArticle || article);
     window.history.pushState({ articleId: article.news_id }, "", `#article-${article.news_id}`);
   }, []);
 
@@ -132,29 +173,53 @@ export function FeedPage({ selectedGroup, onChangeGroup }: Props) {
     }
   }, [viewArticle]);
 
+  // 카테고리별 캐시
+  const categoryCache = useRef<Record<string, Article[]>>({});
+
+  const fetchCategoryArticles = useCallback(async (category: string) => {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+    const res = await fetch(`${API_URL}/api/search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        query: "*",
+        filters: {
+          published_from: sevenDaysAgo,
+          published_until: tomorrow,
+          categories: categoryToApi(category),
+        },
+        page: 1,
+        page_size: 30,
+      }),
+    });
+    const data = await res.json();
+    return data.articles || [];
+  }, []);
+
+  // 카테고리 hover 시 프리페칭
+  const prefetchCategory = useCallback((category: string) => {
+    if (categoryCache.current[category]) return;
+    fetchCategoryArticles(category).then(articles => {
+      categoryCache.current[category] = articles;
+    }).catch(() => {});
+  }, [fetchCategoryArticles]);
+
   useEffect(() => {
     async function fetchArticles() {
+      // 캐시에 있으면 즉시 사용
+      if (categoryCache.current[selectedCategory]) {
+        setArticles(categoryCache.current[selectedCategory]);
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
-        const res = await fetch(`${API_URL}/api/search`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            query: "*",
-            filters: {
-              published_from: new Date().toISOString().slice(0, 10),
-              published_until: new Date(Date.now() + 86400000).toISOString().slice(0, 10),
-              categories: categoryToApi(selectedCategory),
-            },
-            page: 1,
-            page_size: 30,
-          }),
-        });
-        const data = await res.json();
-        const withVersions = (data.articles || []).filter(
-          (a: Article) => a.versions && Object.keys(a.versions).length === 4
-        );
-        setArticles(withVersions);
+        const articles = await fetchCategoryArticles(selectedCategory);
+        categoryCache.current[selectedCategory] = articles;
+        setArticles(articles);
       } catch (e) {
         console.error("Failed to fetch articles:", e);
       } finally {
@@ -162,13 +227,13 @@ export function FeedPage({ selectedGroup, onChangeGroup }: Props) {
       }
     }
     fetchArticles();
-  }, [selectedCategory]);
+  }, [selectedCategory, fetchCategoryArticles]);
 
   const heroArticle = articles[0];
   const gridArticles = articles.slice(1);
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white flex flex-col">
       {/* Header */}
       <header className="sticky top-0 bg-white border-b border-gray-200 z-40">
         {/* Top bar */}
@@ -183,12 +248,6 @@ export function FeedPage({ selectedGroup, onChangeGroup }: Props) {
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <Link
-              to="/timeline"
-              className="text-[12px] text-gray-500 hover:text-gray-700 font-medium"
-            >
-              타임라인
-            </Link>
             <a
               href="https://sedaily.com"
               target="_blank"
@@ -209,50 +268,66 @@ export function FeedPage({ selectedGroup, onChangeGroup }: Props) {
           </div>
         </div>
 
-        {/* Category tabs */}
+        {/* Category tabs + 우측 메뉴 탭 */}
         <div className="max-w-[1000px] mx-auto px-5">
-          <nav className="flex gap-6 overflow-x-auto scrollbar-hide">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setSelectedCategory(cat)}
-                className={`py-3 text-[14px] whitespace-nowrap border-b-2 transition-colors ${
-                  selectedCategory === cat
-                    ? "border-gray-900 text-gray-900 font-semibold"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
-                }`}
+          <nav className="flex items-center justify-between">
+            {/* 좌측: 카테고리 탭 */}
+            <div className="flex gap-6 overflow-x-auto scrollbar-hide">
+              {categories.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  onMouseEnter={() => prefetchCategory(cat)}
+                  className={`py-3 text-[14px] whitespace-nowrap border-b-2 transition-colors ${
+                    selectedCategory === cat
+                      ? "border-gray-900 text-gray-900 font-semibold"
+                      : "border-transparent text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* 우측: 뉴스 여정 + 타임라인 탭 */}
+            <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+              {onSwitchToStory && (
+                <button
+                  onClick={onSwitchToStory}
+                  className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                >
+                  <span>🐱</span>
+                  <span>뉴스 여정</span>
+                </button>
+              )}
+              <Link
+                to="/timeline"
+                className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                {cat}
-              </button>
-            ))}
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span>타임라인</span>
+              </Link>
+            </div>
           </nav>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-[1000px] mx-auto px-5 py-8">
-        {loading ? (
-          <div className="space-y-6 animate-pulse">
-            <div className="flex gap-6">
-              <div className="w-1/2 h-[220px] bg-gray-100 rounded-lg" />
-              <div className="w-1/2 space-y-3 py-4">
-                <div className="h-6 bg-gray-200 rounded w-3/4" />
-                <div className="h-4 bg-gray-100 rounded w-full" />
-                <div className="h-4 bg-gray-100 rounded w-2/3" />
-              </div>
-            </div>
-          </div>
-        ) : articles.length === 0 ? (
+      <main className={`max-w-[1000px] mx-auto px-5 py-8 flex-1 transition-opacity duration-150 ${loading ? "opacity-60" : "opacity-100"}`}>
+        {articles.length === 0 && !loading ? (
           <div className="text-center py-20">
             <p className="text-gray-500">{editor.emptyMessage}</p>
           </div>
         ) : (
           <>
             {/* Hero Article */}
-            {heroArticle && heroArticle.versions[selectedGroup] && (
+            {heroArticle && (
               <article
                 className="flex flex-col md:flex-row gap-6 mb-12 cursor-pointer group"
                 onClick={() => openArticle(heroArticle)}
+                onMouseEnter={() => prefetchArticle(heroArticle)}
               >
                 {heroArticle.image_url && (
                   <div className="md:w-1/2 rounded-lg overflow-hidden">
@@ -268,10 +343,12 @@ export function FeedPage({ selectedGroup, onChangeGroup }: Props) {
                     {heroArticle.category} · {formatTimeAgo(heroArticle.published_at)}
                   </p>
                   <h3 className="text-[22px] md:text-[26px] font-bold text-gray-900 leading-tight mb-3 group-hover:text-gray-600 transition-colors">
-                    {heroArticle.versions[selectedGroup].title}
+                    {heroArticle.versions?.[selectedGroup]?.title || heroArticle.title}
                   </h3>
                   <p className="text-[15px] text-gray-600 leading-relaxed line-clamp-3">
-                    {getBodyText(heroArticle.versions[selectedGroup].body)}
+                    {heroArticle.versions?.[selectedGroup]?.body
+                      ? getBodyText(heroArticle.versions[selectedGroup].body)
+                      : heroArticle.content?.slice(0, 200) || heroArticle.sub_title || ""}
                   </p>
                 </div>
               </article>
@@ -283,13 +360,19 @@ export function FeedPage({ selectedGroup, onChangeGroup }: Props) {
             {/* Grid */}
             <div className="grid md:grid-cols-2 gap-x-10 gap-y-10">
               {gridArticles.map((article) => {
-                const v = article.versions[selectedGroup];
-                if (!v) return null;
+                const v = article.versions?.[selectedGroup];
+                // MBTI 버전 없는 기사도 원본 제목으로 표시 (클릭 시 On-Demand 변환)
+                const title = v?.title || article.title;
+                const content = v?.body
+                  ? getBodyText(v.body).slice(0, 100)
+                  : (article.content?.slice(0, 100) || article.sub_title || "");
+
                 return (
                   <article
                     key={article.news_id}
                     className="flex gap-5 cursor-pointer group"
                     onClick={() => openArticle(article)}
+                    onMouseEnter={() => prefetchArticle(article)}
                   >
                     {article.image_url && (
                       <div className="shrink-0 w-[140px] h-[100px] rounded-lg overflow-hidden">
@@ -305,10 +388,10 @@ export function FeedPage({ selectedGroup, onChangeGroup }: Props) {
                         {article.category}
                       </p>
                       <h4 className="text-[15px] font-semibold text-gray-900 leading-snug mb-2 line-clamp-2 group-hover:text-gray-600 transition-colors">
-                        {v.title}
+                        {title}
                       </h4>
                       <p className="text-[13px] text-gray-500 leading-relaxed line-clamp-2">
-                        {getBodyText(v.body).slice(0, 100)}
+                        {content}
                       </p>
                     </div>
                   </article>
@@ -319,8 +402,8 @@ export function FeedPage({ selectedGroup, onChangeGroup }: Props) {
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-gray-200 mt-16">
+      {/* Footer - fixed to bottom */}
+      <footer className="border-t border-gray-200 mt-auto">
         <div className="max-w-[1000px] mx-auto px-5 py-6 text-center text-[12px] text-gray-400">
           © 서울경제신문
         </div>

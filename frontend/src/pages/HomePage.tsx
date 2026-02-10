@@ -3,55 +3,22 @@ import { StoryNewsFeed } from "@/components/story/StoryNewsFeed";
 import { FeedPage } from "@/components/mbti/FeedPage";
 import { MbtiChatBot } from "@/components/mbti/MbtiChatBot";
 import { OnboardingPage } from "@/components/mbti/OnboardingPage";
+import { BriefingPage } from "@/components/mbti/BriefingPage";
 import type { MbtiGroupId } from "@/data/mbtiGroups";
 
-type ViewMode = "story" | "feed" | "editor-select";
+type ViewMode = "story" | "feed" | "editor-select" | "briefing";
 
 export default function HomePage() {
   const [viewMode, setViewMode] = useState<ViewMode>("feed"); // 기본값: 피드 모드 (메인)
-  const [userInterests, setUserInterests] = useState<string[]>([]);
   const [userGroup, setUserGroup] = useState<MbtiGroupId>("SF");
 
   // 저장된 설정 확인
   useEffect(() => {
-    const savedInterests = localStorage.getItem("user-interests");
     const savedGroup = localStorage.getItem("mbti-group") as MbtiGroupId | null;
-
-    if (savedInterests) {
-      setUserInterests(JSON.parse(savedInterests));
-    }
-
     if (savedGroup) {
       setUserGroup(savedGroup);
     }
   }, []);
-
-  // 관심사 선택 핸들러
-  const handleInterestSelect = (interests: string[]) => {
-    setUserInterests(interests);
-    localStorage.setItem("user-interests", JSON.stringify(interests));
-
-    // 관심사 기반으로 MBTI 그룹 추천 (간단한 로직)
-    // 경제/금융 → NT (분석적), 생활/건강 → SF (따뜻한), 세상 이야기 → NF (인사이트), 문화 → SF
-    if (interests.includes("economy")) {
-      setUserGroup("NT");
-      localStorage.setItem("mbti-group", "NT");
-    } else if (interests.includes("world")) {
-      setUserGroup("NF");
-      localStorage.setItem("mbti-group", "NF");
-    }
-  };
-
-  // 오디오 경험 핸들러
-  const handleAudioTry = () => {
-    // TODO: TTS 재생 기능 구현
-    console.log("Audio experience triggered");
-  };
-
-  // 공유 핸들러
-  const handleShare = () => {
-    console.log("Share to parents triggered");
-  };
 
   // 스토리 모드에서 피드 모드로 전환 (목록으로)
   const handleSwitchToFeed = () => {
@@ -75,16 +42,40 @@ export default function HomePage() {
     setViewMode("feed"); // 선택 후 피드로 돌아가기
   };
 
+  // 브리핑 시작 (에디터와 대화하기)
+  const handleStartBriefing = (group: MbtiGroupId) => {
+    setUserGroup(group);
+    localStorage.setItem("mbti-group", group);
+    setViewMode("briefing");
+  };
+
+  // 브리핑 완료
+  const handleFinishBriefing = () => {
+    setViewMode("feed");
+  };
+
   const handleMbtiChange = (group: MbtiGroupId) => {
     localStorage.setItem("mbti-group", group);
     setUserGroup(group);
   };
+
+  // 브리핑 모드 (에디터와 대화하기)
+  if (viewMode === "briefing") {
+    return (
+      <BriefingPage
+        groupId={userGroup}
+        onFinish={handleFinishBriefing}
+        onBack={handleChangeGroup}
+      />
+    );
+  }
 
   // 에디터 선택 모드
   if (viewMode === "editor-select") {
     return (
       <OnboardingPage
         onSelectGroup={handleSelectGroup}
+        onStartBriefing={handleStartBriefing}
         onBack={handleSwitchToFeed}
       />
     );
@@ -94,9 +85,20 @@ export default function HomePage() {
   if (viewMode === "story") {
     return (
       <StoryNewsFeed
-        onInterestSelect={handleInterestSelect}
-        onAudioTry={handleAudioTry}
-        onShare={handleShare}
+        onComplete={(preferences) => {
+          // 좋아요한 카테고리 기반으로 MBTI 그룹 추천
+          if (preferences.categories.includes("경제") || preferences.categories.includes("IT_과학")) {
+            setUserGroup("NT");
+            localStorage.setItem("mbti-group", "NT");
+          } else if (preferences.categories.includes("국제") || preferences.categories.includes("정치")) {
+            setUserGroup("NF");
+            localStorage.setItem("mbti-group", "NF");
+          } else if (preferences.categories.includes("산업")) {
+            setUserGroup("ST");
+            localStorage.setItem("mbti-group", "ST");
+          }
+          setViewMode("feed");
+        }}
         onSwitchToFeed={handleSwitchToFeed}
       />
     );
@@ -108,20 +110,12 @@ export default function HomePage() {
       <FeedPage
         selectedGroup={userGroup}
         onChangeGroup={handleChangeGroup}
+        onSwitchToStory={handleSwitchToStory}
       />
       <MbtiChatBot
         mbtiGroup={userGroup}
         onMbtiChange={handleMbtiChange}
       />
-
-      {/* 뉴스 여정 탐색하기 버튼 */}
-      <button
-        onClick={handleSwitchToStory}
-        className="fixed bottom-24 right-6 z-50 flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-orange-400 to-amber-500 text-white rounded-full shadow-lg font-medium hover:opacity-90 transition-all animate-pulse hover:animate-none"
-      >
-        <span className="text-lg">🐱</span>
-        <span>뉴스 여정</span>
-      </button>
     </>
   );
 }

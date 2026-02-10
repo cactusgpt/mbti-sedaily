@@ -191,7 +191,7 @@ class PromptService:
                         "content-type": "application/json"
                     },
                     json={
-                        "model": "claude-opus-4-5-20251101",
+                        "model": "claude-3-5-haiku-20241022",
                         "max_tokens": 4096,
                         "system": prompt,
                         "messages": [{"role": "user", "content": user_message}]

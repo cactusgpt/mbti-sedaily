@@ -1,18 +1,7 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { ChevronLeft, ChevronRight, Heart, Share2, ExternalLink, Volume2, RefreshCw, Sparkles, MapPin } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { X, Heart, ExternalLink, TrendingUp, Clock, Zap } from "lucide-react";
 import { API_URL } from "@/config/api";
 import { Character2D } from "@/components/character/Character3D";
-
-// 여정 메시지 - 고양이 캐릭터가 말하는 컨셉
-const JOURNEY_MESSAGES = [
-  { index: 0, mood: "waving" as const, message: "냥! 반가워요~ 🐱 오늘 세상에 무슨 일이 있었는지 같이 볼까요?" },
-  { index: 3, mood: "happy" as const, message: "벌써 3번째 소식이에요! 잘 따라오고 있어요 ✨" },
-  { index: 6, mood: "thinking" as const, message: "흠... 다음엔 어떤 이야기가 있을까냥? 🐾" },
-  { index: 9, mood: "excited" as const, message: "냐옹! 10번째 소식이에요! 귀로도 들어볼까요? 🎧" },
-  { index: 12, mood: "happy" as const, message: "여기까지 오시다니 대단해요! 물고기 드릴게요 🐟" },
-  { index: 15, mood: "excited" as const, message: "이 좋은 소식, 부모님께도 들려드릴까요? 💝" },
-  { index: 18, mood: "happy" as const, message: "거의 끝에 도착했어요! 조금만 더 가요~ 🎉" },
-];
 
 interface Article {
   news_id: string;
@@ -27,25 +16,25 @@ interface Article {
   versions?: Record<string, { title: string; body: string | string[] }>;
 }
 
-// 카테고리 매핑
-const categoryMap: Record<string, { label: string; color: string; emoji: string }> = {
-  "경제": { label: "경제", color: "#3B82F6", emoji: "💰" },
-  "정치": { label: "정치", color: "#EF4444", emoji: "🏛️" },
-  "사회": { label: "사회", color: "#10B981", emoji: "🏘️" },
-  "국제": { label: "세상", color: "#8B5CF6", emoji: "🌍" },
-  "IT_과학": { label: "테크", color: "#F59E0B", emoji: "💡" },
-  "산업": { label: "산업", color: "#6366F1", emoji: "🏭" },
-  "문화": { label: "문화", color: "#EC4899", emoji: "🎨" },
-  "스포츠": { label: "스포츠", color: "#14B8A6", emoji: "⚽" },
+// 카테고리 매핑 - 더 세련된 색상
+const categoryMap: Record<string, { label: string; color: string; gradient: string; icon: string }> = {
+  "경제": { label: "경제", color: "#3B82F6", gradient: "from-blue-500 to-cyan-400", icon: "chart" },
+  "정치": { label: "정치", color: "#EF4444", gradient: "from-red-500 to-orange-400", icon: "flag" },
+  "사회": { label: "사회", color: "#10B981", gradient: "from-emerald-500 to-teal-400", icon: "users" },
+  "국제": { label: "국제", color: "#8B5CF6", gradient: "from-violet-500 to-purple-400", icon: "globe" },
+  "IT_과학": { label: "IT/과학", color: "#F59E0B", gradient: "from-amber-500 to-yellow-400", icon: "cpu" },
+  "산업": { label: "산업", color: "#6366F1", gradient: "from-indigo-500 to-blue-400", icon: "building" },
+  "문화": { label: "문화", color: "#EC4899", gradient: "from-pink-500 to-rose-400", icon: "palette" },
+  "스포츠": { label: "스포츠", color: "#14B8A6", gradient: "from-teal-500 to-cyan-400", icon: "trophy" },
 };
 
 function getCategoryInfo(category: string) {
-  return categoryMap[category] || { label: category, color: "#6B7280", emoji: "📰" };
+  return categoryMap[category] || { label: category, color: "#6B7280", gradient: "from-gray-500 to-gray-400", icon: "news" };
 }
 
 function getBodyText(body: string | string[]): string {
   const text = Array.isArray(body) ? body.join("\n\n") : body;
-  const clean = text.replace(/\*\*/g, "");
+  const clean = text.replace(/\*\*/g, "").replace(/[^\uAC00-\uD7AF\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uD7B0-\uD7FF\w\s.,!?]/g, "");
   const paragraphs = clean.split("\n\n").filter(p => p.trim());
 
   for (const p of paragraphs) {
@@ -55,7 +44,7 @@ function getBodyText(body: string | string[]): string {
     if (trimmed.includes("|")) continue;
     if (trimmed.startsWith("---")) continue;
     if (trimmed.length < 20) continue;
-    return trimmed;
+    return trimmed.slice(0, 120) + (trimmed.length > 120 ? "..." : "");
   }
   return "";
 }
@@ -73,61 +62,36 @@ function formatTimeAgo(dateStr: string): string {
   return date.toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
 }
 
-// 특수 카드 타입
-type SpecialCard =
-  | { type: "interest"; id: string }
-  | { type: "audio"; id: string }
-  | { type: "share"; id: string };
-
 interface Props {
-  onInterestSelect?: (interests: string[]) => void;
-  onAudioTry?: () => void;
-  onShare?: () => void;
+  onComplete?: (preferences: { liked: string[]; categories: string[] }) => void;
   onSwitchToFeed?: () => void;
 }
 
-export function StoryNewsFeed({ onInterestSelect, onAudioTry, onShare, onSwitchToFeed }: Props) {
+const MAX_CARDS = 10;
+
+export function StoryNewsFeed({ onComplete, onSwitchToFeed }: Props) {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [likedArticles, setLikedArticles] = useState<Set<string>>(new Set());
-  const [selectedInterests, setSelectedInterests] = useState<string[]>([]);
-  const [showInterestCard, setShowInterestCard] = useState(false);
-  const [showAudioCard, setShowAudioCard] = useState(false);
-  const [showShareCard, setShowShareCard] = useState(false);
-  const [interestDismissed, setInterestDismissed] = useState(false);
-  const [audioDismissed, setAudioDismissed] = useState(false);
-  const [shareDismissed, setShareDismissed] = useState(false);
-  const [showJourneyMessage, setShowJourneyMessage] = useState(true);
-  const [characterMood, setCharacterMood] = useState<"happy" | "excited" | "thinking" | "waving" | "neutral">("waving");
+  const [likedArticles, setLikedArticles] = useState<string[]>([]);
+  const [likedCategories, setLikedCategories] = useState<string[]>([]);
+  const [showComplete, setShowComplete] = useState(false);
+
+  // 스와이프 상태
+  const [swipeDirection, setSwipeDirection] = useState<"left" | "right" | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragX, setDragX] = useState(0);
+  const [cardEnter, setCardEnter] = useState(true);
+
+  // 고양이 상태
+  const [catMood, setCatMood] = useState<"waving" | "happy" | "excited" | "thinking" | "neutral">("waving");
+  const [catMessage, setCatMessage] = useState("오늘 어떤 뉴스가 끌리는지 같이 볼까요?");
+  const [catBounce, setCatBounce] = useState(false);
+  const [catPosition, setCatPosition] = useState<"center" | "left" | "right">("center");
+  const [catJump, setCatJump] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const touchStartX = useRef(0);
-  const touchEndX = useRef(0);
-  const isDragging = useRef(false);
-
-  // 현재 인덱스에 맞는 여정 메시지 찾기
-  const currentJourneyMessage = useMemo(() => {
-    const message = JOURNEY_MESSAGES.find(m => m.index === currentIndex);
-    return message || null;
-  }, [currentIndex]);
-
-  // 캐릭터 무드 업데이트
-  useEffect(() => {
-    if (currentJourneyMessage) {
-      setCharacterMood(currentJourneyMessage.mood);
-      setShowJourneyMessage(true);
-    } else {
-      // 좋아요가 많으면 excited
-      if (likedArticles.size >= 5) {
-        setCharacterMood("excited");
-      } else if (likedArticles.size >= 2) {
-        setCharacterMood("happy");
-      } else {
-        setCharacterMood("neutral");
-      }
-    }
-  }, [currentIndex, currentJourneyMessage, likedArticles.size]);
+  const startX = useRef(0);
 
   // Fetch articles
   useEffect(() => {
@@ -147,11 +111,11 @@ export function StoryNewsFeed({ onInterestSelect, onAudioTry, onShare, onSwitchT
               published_until: tomorrow,
             },
             page: 1,
-            page_size: 30,
+            page_size: MAX_CARDS,
           }),
         });
         const data = await res.json();
-        setArticles(data.articles || []);
+        setArticles(data.articles?.slice(0, MAX_CARDS) || []);
       } catch (e) {
         console.error("Failed to fetch:", e);
       } finally {
@@ -161,165 +125,253 @@ export function StoryNewsFeed({ onInterestSelect, onAudioTry, onShare, onSwitchT
     fetchArticles();
   }, []);
 
-  // Check for special cards based on index
+  // 카드 입장 애니메이션
   useEffect(() => {
-    if (!interestDismissed && currentIndex === 4) {
-      setShowInterestCard(true);
+    if (!loading && articles.length > 0) {
+      setCardEnter(true);
+      const timer = setTimeout(() => setCardEnter(false), 500);
+      return () => clearTimeout(timer);
     }
-    if (!audioDismissed && currentIndex === 9) {
-      setShowAudioCard(true);
-    }
-    if (!shareDismissed && currentIndex === 14) {
-      setShowShareCard(true);
-    }
-  }, [currentIndex, interestDismissed, audioDismissed, shareDismissed]);
+  }, [currentIndex, loading, articles.length]);
 
-  const goNext = useCallback(() => {
-    if (showInterestCard || showAudioCard || showShareCard) return;
-    if (currentIndex < articles.length - 1) {
-      setCurrentIndex(prev => prev + 1);
-    }
-  }, [currentIndex, articles.length, showInterestCard, showAudioCard, showShareCard]);
+  // 고양이 메시지 업데이트
+  const updateCatReaction = useCallback((action: "like" | "pass", category: string) => {
+    setCatBounce(true);
+    setCatJump(true);
 
-  const goPrev = useCallback(() => {
-    if (showInterestCard || showAudioCard || showShareCard) return;
-    if (currentIndex > 0) {
-      setCurrentIndex(prev => prev - 1);
-    }
-  }, [currentIndex, showInterestCard, showAudioCard, showShareCard]);
-
-  // Touch handlers
-  const handleTouchStart = (e: React.TouchEvent) => {
-    touchStartX.current = e.touches[0].clientX;
-    touchEndX.current = e.touches[0].clientX;
-    isDragging.current = true;
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!isDragging.current) return;
-    touchEndX.current = e.touches[0].clientX;
-  };
-
-  const handleTouchEnd = () => {
-    if (!isDragging.current) return;
-    isDragging.current = false;
-
-    const diff = touchStartX.current - touchEndX.current;
-    if (Math.abs(diff) > 50) {
-      if (diff > 0) goNext();
-      else goPrev();
-    }
-  };
-
-  // Click navigation (tap left/right side of screen)
-  const handleClick = (e: React.MouseEvent) => {
-    if (showInterestCard || showAudioCard || showShareCard) return;
-
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const clickX = e.clientX - rect.left;
-    const width = rect.width;
-
-    // Left 30% = prev, Right 30% = next
-    if (clickX < width * 0.3) {
-      goPrev();
-    } else if (clickX > width * 0.7) {
-      goNext();
-    }
-  };
-
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "ArrowRight") goNext();
-      if (e.key === "ArrowLeft") goPrev();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [goNext, goPrev]);
-
-  const toggleLike = (articleId: string) => {
-    setLikedArticles(prev => {
-      const next = new Set(prev);
-      if (next.has(articleId)) next.delete(articleId);
-      else next.add(articleId);
-      return next;
-    });
-  };
-
-  const handleInterestSelect = (interest: string) => {
-    setSelectedInterests(prev =>
-      prev.includes(interest)
-        ? prev.filter(i => i !== interest)
-        : [...prev, interest]
-    );
-  };
-
-  const confirmInterests = () => {
-    onInterestSelect?.(selectedInterests);
-    setShowInterestCard(false);
-    setInterestDismissed(true);
-  };
-
-  const skipInterests = () => {
-    setShowInterestCard(false);
-    setInterestDismissed(true);
-  };
-
-  const handleAudioTry = () => {
-    onAudioTry?.();
-    setShowAudioCard(false);
-    setAudioDismissed(true);
-  };
-
-  const skipAudio = () => {
-    setShowAudioCard(false);
-    setAudioDismissed(true);
-  };
-
-  const handleShare = () => {
-    onShare?.();
-    const shareUrl = `${window.location.origin}/listen`;
-    // Try native share API
-    if (navigator.share) {
-      navigator.share({
-        title: "세상 이야기 - 음성 뉴스",
-        text: "엄마/아빠, 이거 틀어놓으면 매일 세상 소식 들려줘요 🎧",
-        url: shareUrl,
-      });
+    // 액션에 따라 고양이가 해당 방향으로 이동
+    if (action === "like") {
+      setCatPosition("right");
     } else {
-      // Fallback: copy to clipboard
-      navigator.clipboard.writeText(`엄마/아빠, 이거 틀어놓으면 매일 세상 소식 들려줘요 🎧\n${shareUrl}`);
-      alert("링크가 복사되었어요! 카카오톡이나 문자로 보내주세요.");
+      setCatPosition("left");
     }
-    setShowShareCard(false);
-    setShareDismissed(true);
+
+    setTimeout(() => {
+      setCatBounce(false);
+      setCatJump(false);
+      setCatPosition("center");
+    }, 600);
+
+    if (action === "like") {
+      const likeCount = likedArticles.length + 1;
+      const catLabel = getCategoryInfo(category).label;
+
+      if (likeCount === 1) {
+        setCatMood("happy");
+        setCatMessage(`${catLabel}에 관심 있으시군요`);
+      } else if (likeCount === 3) {
+        setCatMood("excited");
+        setCatMessage("취향이 점점 보여요");
+      } else if (likeCount >= 5) {
+        setCatMood("excited");
+        setCatMessage("뉴스 취향이 확실하시네요");
+      } else {
+        setCatMood("happy");
+        setCatMessage("좋아요, 기억해둘게요");
+      }
+    } else {
+      setCatMood("neutral");
+      const passMessages = [
+        "다음 거 볼게요",
+        "넘어갈게요",
+        "다른 건 어때요?",
+      ];
+      setCatMessage(passMessages[Math.floor(Math.random() * passMessages.length)]);
+    }
+  }, [likedArticles.length]);
+
+  // 좋아요 처리
+  const handleLike = useCallback(() => {
+    if (currentIndex >= articles.length) return;
+
+    const article = articles[currentIndex];
+    setLikedArticles(prev => [...prev, article.news_id]);
+    setLikedCategories(prev => [...prev, article.category]);
+    updateCatReaction("like", article.category);
+
+    setSwipeDirection("right");
+    setTimeout(() => {
+      setSwipeDirection(null);
+      if (currentIndex < articles.length - 1) {
+        setCurrentIndex(prev => prev + 1);
+      } else {
+        setShowComplete(true);
+      }
+    }, 400);
+  }, [currentIndex, articles, updateCatReaction]);
+
+  // 패스 처리
+  const handlePass = useCallback(() => {
+    if (currentIndex >= articles.length) return;
+
+    const article = articles[currentIndex];
+    updateCatReaction("pass", article.category);
+
+    setSwipeDirection("left");
+    setTimeout(() => {
+      setSwipeDirection(null);
+      if (currentIndex < articles.length - 1) {
+        setCurrentIndex(prev => prev + 1);
+      } else {
+        setShowComplete(true);
+      }
+    }, 400);
+  }, [currentIndex, articles, updateCatReaction]);
+
+  // 터치/마우스 핸들러
+  const handleDragStart = (clientX: number) => {
+    startX.current = clientX;
+    setIsDragging(true);
   };
 
-  const skipShare = () => {
-    setShowShareCard(false);
-    setShareDismissed(true);
+  const handleDragMove = (clientX: number) => {
+    if (!isDragging) return;
+    const diff = clientX - startX.current;
+    setDragX(diff);
+
+    // 드래그에 따라 고양이가 따라 기울어짐
+    if (diff > 50) {
+      setCatMood("excited");
+    } else if (diff < -50) {
+      setCatMood("thinking");
+    } else {
+      setCatMood("waving");
+    }
   };
 
+  const handleDragEnd = () => {
+    if (!isDragging) return;
+    setIsDragging(false);
+
+    if (dragX > 100) {
+      handleLike();
+    } else if (dragX < -100) {
+      handlePass();
+    }
+    setDragX(0);
+  };
+
+  const onTouchStart = (e: React.TouchEvent) => handleDragStart(e.touches[0].clientX);
+  const onTouchMove = (e: React.TouchEvent) => handleDragMove(e.touches[0].clientX);
+  const onTouchEnd = () => handleDragEnd();
+  const onMouseDown = (e: React.MouseEvent) => handleDragStart(e.clientX);
+  const onMouseMove = (e: React.MouseEvent) => handleDragMove(e.clientX);
+  const onMouseUp = () => handleDragEnd();
+  const onMouseLeave = () => { if (isDragging) handleDragEnd(); };
+
+  // 완료 처리
+  const handleCompleteClick = () => {
+    const categoryCount: Record<string, number> = {};
+    likedCategories.forEach(cat => {
+      categoryCount[cat] = (categoryCount[cat] || 0) + 1;
+    });
+
+    const topCategories = Object.entries(categoryCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([cat]) => cat);
+
+    onComplete?.({ liked: likedArticles, categories: topCategories });
+  };
+
+  // 로딩
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-gray-900 flex items-center justify-center">
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin w-10 h-10 border-3 border-white/30 border-t-white rounded-full mx-auto mb-4" />
-          <p className="text-white/70">오늘의 소식을 가져오는 중...</p>
+          <div className="relative">
+            <div className="w-32 h-32 mx-auto animate-float">
+              <Character2D mood="thinking" size="large" />
+            </div>
+            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-20 h-3 bg-white/10 rounded-full blur-sm" />
+          </div>
+          <p className="text-white/70 mt-6 text-lg">뉴스를 가져오는 중...</p>
         </div>
       </div>
     );
   }
 
+  // 뉴스 없음
   if (articles.length === 0) {
     return (
-      <div className="fixed inset-0 bg-gray-900 flex items-center justify-center">
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
         <div className="text-center px-8">
-          <div className="text-6xl mb-4">📰</div>
-          <h2 className="text-xl font-bold text-white mb-2">아직 오늘의 소식이 없어요</h2>
+          <Character2D mood="thinking" size="large" />
+          <h2 className="text-xl font-bold text-white mt-6 mb-2">아직 오늘의 뉴스가 없어요</h2>
           <p className="text-white/60">잠시 후 다시 확인해주세요</p>
+        </div>
+      </div>
+    );
+  }
+
+  // 완료 화면
+  if (showComplete) {
+    const categoryCount: Record<string, number> = {};
+    likedCategories.forEach(cat => {
+      categoryCount[cat] = (categoryCount[cat] || 0) + 1;
+    });
+
+    const topCategories = Object.entries(categoryCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+
+    return (
+      <div className="fixed inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-6">
+        <div className="max-w-sm w-full text-center animate-fadeIn">
+          <div className="w-40 h-40 mx-auto animate-bounce-slow">
+            <Character2D mood="excited" size="large" />
+          </div>
+
+          <h2 className="text-3xl font-bold text-white mt-6 mb-3">
+            탐색 완료
+          </h2>
+
+          {likedArticles.length > 0 ? (
+            <>
+              <p className="text-white/70 text-lg mb-8">
+                {likedArticles.length}개 뉴스에 관심을 보이셨네요
+              </p>
+
+              {topCategories.length > 0 && (
+                <div className="bg-white/10 backdrop-blur rounded-3xl p-6 mb-8">
+                  <p className="text-white/50 text-sm mb-4">관심 분야</p>
+                  <div className="flex flex-wrap justify-center gap-3">
+                    {topCategories.map(([cat]) => {
+                      const info = getCategoryInfo(cat);
+                      return (
+                        <span
+                          key={cat}
+                          className={`px-5 py-2.5 rounded-full text-white font-medium bg-gradient-to-r ${info.gradient}`}
+                        >
+                          {info.label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-white/70 text-lg mb-8">
+              다음엔 더 맞는 뉴스를 찾아볼게요
+            </p>
+          )}
+
+          <button
+            onClick={handleCompleteClick}
+            className="w-full py-4 bg-white text-slate-900 font-bold rounded-2xl hover:bg-white/90 transition-all text-lg"
+          >
+            맞춤 뉴스 보러가기
+          </button>
+
+          {onSwitchToFeed && (
+            <button
+              onClick={onSwitchToFeed}
+              className="w-full py-3 text-white/50 mt-4 hover:text-white/70"
+            >
+              전체 뉴스 목록 보기
+            </button>
+          )}
         </div>
       </div>
     );
@@ -327,378 +379,286 @@ export function StoryNewsFeed({ onInterestSelect, onAudioTry, onShare, onSwitchT
 
   const article = articles[currentIndex];
   const catInfo = getCategoryInfo(article.category);
-  const isLiked = likedArticles.has(article.news_id);
   const summary = article.versions?.SF
     ? getBodyText(article.versions.SF.body)
-    : article.content?.slice(0, 200) || article.sub_title;
+    : article.content?.slice(0, 120) || article.sub_title;
+  const title = article.versions?.SF?.title || article.title;
+  // 이모지 제거
+  const cleanTitle = title.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
+
+  // 카드 스타일
+  const getCardStyle = () => {
+    if (swipeDirection === "right") {
+      return {
+        transform: "translateX(150%) rotate(30deg) scale(0.9)",
+        opacity: 0,
+        transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+      };
+    }
+    if (swipeDirection === "left") {
+      return {
+        transform: "translateX(-150%) rotate(-30deg) scale(0.9)",
+        opacity: 0,
+        transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
+      };
+    }
+    if (cardEnter) {
+      return {
+        transform: "translateY(30px) scale(0.95)",
+        opacity: 0,
+        transition: "all 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)",
+      };
+    }
+    return {
+      transform: `translateX(${dragX}px) rotate(${dragX * 0.08}deg)`,
+      transition: isDragging ? "none" : "transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)",
+    };
+  };
+
+  const likeOpacity = Math.min(Math.max(dragX / 100, 0), 1);
+  const passOpacity = Math.min(Math.max(-dragX / 100, 0), 1);
 
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 bg-black select-none"
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
-      onClick={handleClick}
+      className="fixed inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col overflow-hidden"
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onMouseLeave={onMouseLeave}
     >
-      {/* Progress Bar */}
-      <div className="absolute top-0 left-0 right-0 z-50 flex gap-1 p-2 pt-safe">
-        {articles.slice(0, 20).map((_, idx) => (
+      {/* 배경 장식 */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className={`absolute top-20 -left-20 w-60 h-60 bg-gradient-to-r ${catInfo.gradient} rounded-full blur-3xl opacity-20`} />
+        <div className="absolute bottom-40 -right-20 w-80 h-80 bg-purple-500 rounded-full blur-3xl opacity-10" />
+      </div>
+
+      {/* 상단 진행 바 */}
+      <div className="relative z-10 flex gap-1.5 p-4 pt-safe">
+        {articles.map((_, idx) => (
           <div
             key={idx}
-            className="h-1 flex-1 rounded-full overflow-hidden bg-white/30"
+            className="h-1 flex-1 rounded-full overflow-hidden bg-white/20"
           >
             <div
-              className="h-full bg-white transition-all duration-300"
-              style={{ width: idx < currentIndex ? "100%" : idx === currentIndex ? "100%" : "0%" }}
+              className={`h-full rounded-full transition-all duration-500 bg-gradient-to-r ${catInfo.gradient}`}
+              style={{ width: idx <= currentIndex ? "100%" : "0%" }}
             />
           </div>
         ))}
       </div>
 
-      {/* Main Card */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        {/* Background Image */}
-        {article.image_url && (
+      {/* 메인 영역: 좌측 고양이 + 우측 카드 */}
+      <div className="flex-1 flex flex-row items-center justify-center gap-6 px-4 pb-4 relative z-10">
+
+        {/* 좌측: 고양이 영역 - 카드만큼 크게 */}
+        <div className="flex-shrink-0 flex flex-col items-center justify-center">
+          {/* 고양이 캐릭터 - 카드 크기만큼 */}
           <div
-            className="absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: `url(${article.image_url})` }}
+            className="transition-transform duration-300 ease-out"
+            style={{
+              transform: isDragging
+                ? `translateX(${Math.min(Math.max(dragX * 0.2, -30), 30)}px)`
+                : catPosition === "left"
+                  ? "translateX(-20px)"
+                  : catPosition === "right"
+                    ? "translateX(20px)"
+                    : "translateX(0)"
+            }}
           >
-            <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/90" />
-          </div>
-        )}
-
-        {!article.image_url && (
-          <div className="absolute inset-0 bg-gradient-to-br from-gray-800 to-gray-900" />
-        )}
-
-        {/* Content */}
-        <div className="relative z-10 w-full h-full flex flex-col justify-end p-6 pb-24">
-          {/* Character & Journey Message */}
-          {(currentJourneyMessage || currentIndex === 0) && showJourneyMessage && (
-            <div className="absolute top-16 left-4 right-4 animate-slideDown z-30">
-              <div className="flex items-start gap-3 max-w-[320px]">
-                {/* 캐릭터 아바타 */}
-                <div className="flex-shrink-0 animate-bounceIn">
-                  <Character2D mood={characterMood} size="medium" />
-                </div>
-
-                {/* 말풍선 */}
-                <div className="flex-1 bg-white/95 backdrop-blur-md rounded-2xl rounded-tl-sm p-4 shadow-xl animate-fadeIn">
-                  <p className="text-gray-800 text-sm font-medium leading-relaxed">
-                    {currentJourneyMessage?.message || "안녕하세요! 👋 저와 함께 오늘의 세상 이야기를 떠나볼까요?"}
-                  </p>
-
-                  {/* 여정 진행률 */}
-                  <div className="mt-3 flex items-center gap-2">
-                    <MapPin className="w-3.5 h-3.5 text-violet-500" />
-                    <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-violet-500 to-purple-500 rounded-full transition-all duration-500"
-                        style={{ width: `${Math.min((currentIndex / 20) * 100, 100)}%` }}
-                      />
-                    </div>
-                    <span className="text-xs text-gray-500">{Math.min(currentIndex + 1, 20)}/20</span>
-                  </div>
-                </div>
-
-                {/* 닫기 버튼 */}
-                <button
-                  onClick={(e) => { e.stopPropagation(); setShowJourneyMessage(false); }}
-                  className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full bg-white/80 text-gray-400 hover:text-gray-600 transition-colors"
-                >
-                  ×
-                </button>
+            <div className={`animate-cat-sway ${catBounce ? 'animate-bounce-cat' : ''}`}>
+              <div className="w-64 h-64 md:w-80 md:h-80 relative">
+                <Character2D mood={catMood} size="large" />
+                {/* 그림자 */}
+                <div
+                  className="absolute -bottom-4 left-1/2 w-48 h-6 bg-black/20 rounded-full blur-md transition-all duration-300"
+                  style={{
+                    transform: `translateX(-50%) scaleX(${catJump ? 0.6 : 1})`,
+                    opacity: catJump ? 0.3 : 0.5
+                  }}
+                />
               </div>
             </div>
-          )}
-
-          {/* 미니 캐릭터 (여정 메시지 없을 때) */}
-          {!currentJourneyMessage && !showJourneyMessage && currentIndex > 0 && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setShowJourneyMessage(true); }}
-              className="absolute top-16 left-4 z-30 animate-bounceIn"
-            >
-              <Character2D mood={characterMood} size="medium" className="opacity-90 hover:opacity-100 transition-opacity" />
-            </button>
-          )}
-
-          {/* Category Badge */}
-          <div className="mb-3">
-            <span
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-white text-sm font-medium"
-              style={{ backgroundColor: catInfo.color }}
-            >
-              <span>{catInfo.emoji}</span>
-              <span>{catInfo.label}</span>
-            </span>
-            <span className="ml-2 text-white/60 text-sm">
-              {formatTimeAgo(article.published_at)}
-            </span>
           </div>
 
-          {/* Title */}
-          <h1 className="text-2xl md:text-3xl font-bold text-white leading-tight mb-4">
-            {article.versions?.SF?.title || article.title}
-          </h1>
-
-          {/* Summary */}
-          <p className="text-white/80 text-base leading-relaxed line-clamp-4 mb-6">
-            {summary}
-          </p>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-4" onClick={(e) => e.stopPropagation()}>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleLike(article.news_id);
-              }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all ${
-                isLiked
-                  ? "bg-red-500 text-white"
-                  : "bg-white/20 text-white hover:bg-white/30"
-              }`}
-            >
-              <Heart className={`w-5 h-5 ${isLiked ? "fill-current" : ""}`} />
-              <span className="text-sm font-medium">유용해요</span>
-            </button>
-
-            <a
-              href={article.original_link}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/20 text-white hover:bg-white/30 transition-all"
-            >
-              <ExternalLink className="w-5 h-5" />
-              <span className="text-sm font-medium">더 알아보기</span>
-            </a>
+          {/* 말풍선 */}
+          <div className="bg-white/10 backdrop-blur-md rounded-2xl px-5 py-4 border border-white/10 max-w-[220px] mt-4">
+            <p className="text-white text-base leading-relaxed text-center">{catMessage}</p>
           </div>
         </div>
 
-        {/* Navigation Arrows (Desktop) */}
-        <button
-          onClick={goPrev}
-          disabled={currentIndex === 0}
-          className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all disabled:opacity-0 hidden md:block"
-        >
-          <ChevronLeft className="w-6 h-6" />
-        </button>
-        <button
-          onClick={goNext}
-          disabled={currentIndex === articles.length - 1}
-          className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/10 text-white hover:bg-white/20 transition-all disabled:opacity-0 hidden md:block"
-        >
-          <ChevronRight className="w-6 h-6" />
-        </button>
-
-        {/* Click/Tap Zones */}
+        {/* 우측: 카드 영역 */}
         <div
-          className="absolute left-0 top-0 bottom-0 w-1/3 z-20 cursor-pointer"
-          onClick={(e) => { e.stopPropagation(); goPrev(); }}
-        />
-        <div
-          className="absolute right-0 top-0 bottom-0 w-1/3 z-20 cursor-pointer"
-          onClick={(e) => { e.stopPropagation(); goNext(); }}
-        />
+          className="flex-1 max-w-xs cursor-grab active:cursor-grabbing select-none"
+          style={getCardStyle()}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          onMouseDown={onMouseDown}
+        >
+          {/* 메인 카드 */}
+          <div className="bg-white rounded-3xl shadow-2xl overflow-hidden relative">
+            {/* 좋아요/패스 오버레이 */}
+            <div
+              className="absolute inset-0 bg-gradient-to-br from-emerald-400 to-green-500 flex items-center justify-center z-20 pointer-events-none rounded-3xl"
+              style={{ opacity: likeOpacity * 0.9 }}
+            >
+              <div className="text-white text-center">
+                <Heart className="w-16 h-16 mx-auto fill-current" />
+                <p className="text-2xl font-bold mt-2">관심있어요</p>
+              </div>
+            </div>
+            <div
+              className="absolute inset-0 bg-gradient-to-br from-slate-500 to-slate-700 flex items-center justify-center z-20 pointer-events-none rounded-3xl"
+              style={{ opacity: passOpacity * 0.9 }}
+            >
+              <div className="text-white text-center">
+                <X className="w-16 h-16 mx-auto" />
+                <p className="text-2xl font-bold mt-2">패스</p>
+              </div>
+            </div>
 
-        {/* Swipe Hint (Mobile, only on first card) */}
-        {currentIndex === 0 && (
-          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-2 text-white/60 text-sm animate-pulse z-30">
-            <ChevronLeft className="w-4 h-4" />
-            <span>탭하거나 밀어서 다음 소식</span>
-            <ChevronRight className="w-4 h-4" />
+            {/* 이미지 영역 */}
+            <div className="relative h-52">
+              {article.image_url ? (
+                <div
+                  className="absolute inset-0 bg-cover bg-center"
+                  style={{ backgroundImage: `url(${article.image_url})` }}
+                >
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20" />
+                </div>
+              ) : (
+                <div className={`absolute inset-0 bg-gradient-to-br ${catInfo.gradient}`}>
+                  <div className="absolute inset-0 bg-black/20" />
+                </div>
+              )}
+
+              {/* 카테고리 뱃지 */}
+              <div className="absolute top-4 left-4">
+                <span className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-white text-sm font-semibold bg-gradient-to-r ${catInfo.gradient} shadow-lg`}>
+                  <Zap className="w-4 h-4" />
+                  {catInfo.label}
+                </span>
+              </div>
+
+              {/* 시간 */}
+              <div className="absolute top-4 right-4">
+                <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-black/40 backdrop-blur text-white/90 text-xs">
+                  <Clock className="w-3 h-3" />
+                  {formatTimeAgo(article.published_at)}
+                </span>
+              </div>
+
+              {/* 인포그래픽 요소 */}
+              <div className="absolute bottom-4 left-4 right-4 flex justify-between items-end">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-white/20 backdrop-blur flex items-center justify-center">
+                    <TrendingUp className="w-4 h-4 text-white" />
+                  </div>
+                  <div className="text-white text-xs">
+                    <p className="opacity-70">카드</p>
+                    <p className="font-bold">{currentIndex + 1} / {articles.length}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 콘텐츠 영역 */}
+            <div className="p-6">
+              {/* 제목 */}
+              <h2 className="text-xl font-bold text-slate-900 leading-snug mb-3 line-clamp-2">
+                {cleanTitle}
+              </h2>
+
+              {/* 요약 */}
+              <p className="text-slate-600 text-sm leading-relaxed line-clamp-2 mb-4">
+                {summary.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '')}
+              </p>
+
+              {/* 하단 정보 */}
+              <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+                <span className="text-xs text-slate-400">{article.provider || "서울경제"}</span>
+                <a
+                  href={article.original_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1"
+                >
+                  원문보기 <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </div>
           </div>
+        </div>
+      </div>
+
+      {/* 하단 버튼 */}
+      <div className="relative z-10 p-6 pb-safe">
+        <div className="max-w-sm mx-auto flex items-center justify-center gap-8">
+          {/* 패스 버튼 */}
+          <button
+            onClick={handlePass}
+            className="w-18 h-18 rounded-full bg-white/10 backdrop-blur border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-all shadow-lg group"
+            style={{ width: 72, height: 72 }}
+          >
+            <X className="w-8 h-8 group-hover:scale-110 transition-transform" />
+          </button>
+
+          {/* 좋아요 버튼 */}
+          <button
+            onClick={handleLike}
+            className={`rounded-full bg-gradient-to-r ${catInfo.gradient} flex items-center justify-center text-white hover:scale-105 transition-all shadow-xl`}
+            style={{ width: 80, height: 80 }}
+          >
+            <Heart className="w-9 h-9" />
+          </button>
+        </div>
+
+        {/* 스와이프 힌트 */}
+        {currentIndex === 0 && (
+          <p className="text-center text-white/40 text-sm mt-4 animate-pulse">
+            카드를 좌우로 밀거나 버튼을 눌러보세요
+          </p>
         )}
       </div>
 
-      {/* Interest Selection Card (after 5 cards) */}
-      {showInterestCard && (
-        <div className="absolute inset-0 z-50 bg-black/80 flex items-center justify-center p-6 animate-fadeIn">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-sm">
-            <div className="text-center mb-6">
-              <div className="text-4xl mb-3">🤔</div>
-              <h2 className="text-xl font-bold text-gray-900 mb-1">
-                어떤 소식이 더 궁금하세요?
-              </h2>
-              <p className="text-gray-500 text-sm">
-                여러 개 선택해도 괜찮아요
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 mb-6">
-              {[
-                { id: "economy", label: "경제/금융", emoji: "💰" },
-                { id: "life", label: "생활/건강", emoji: "🏠" },
-                { id: "world", label: "세상 이야기", emoji: "🌍" },
-                { id: "culture", label: "문화/스포츠", emoji: "🎨" },
-              ].map((interest) => (
-                <button
-                  key={interest.id}
-                  onClick={() => handleInterestSelect(interest.id)}
-                  className={`p-4 rounded-2xl border-2 transition-all ${
-                    selectedInterests.includes(interest.id)
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  <div className="text-2xl mb-1">{interest.emoji}</div>
-                  <div className="text-sm font-medium text-gray-800">{interest.label}</div>
-                </button>
-              ))}
-            </div>
-
-            <button
-              onClick={() => {
-                setSelectedInterests(["economy", "life", "world", "culture"]);
-              }}
-              className="w-full py-2 text-gray-500 text-sm mb-4 hover:text-gray-700"
-            >
-              전부 다! ✨
-            </button>
-
-            <div className="flex gap-3">
-              <button
-                onClick={skipInterests}
-                className="flex-1 py-3 rounded-xl text-gray-500 hover:bg-gray-100 transition-all"
-              >
-                나중에
-              </button>
-              <button
-                onClick={confirmInterests}
-                className="flex-1 py-3 rounded-xl bg-blue-500 text-white font-medium hover:bg-blue-600 transition-all"
-              >
-                선택 완료
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Audio Experience Card (after 10 cards) */}
-      {showAudioCard && (
-        <div className="absolute inset-0 z-50 bg-black/80 flex items-center justify-center p-6 animate-fadeIn">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-sm">
-            <div className="text-center mb-6">
-              <div className="text-4xl mb-3">🎧</div>
-              <h2 className="text-xl font-bold text-gray-900 mb-1">
-                이 소식, 귀로도 들어보시겠어요?
-              </h2>
-              <p className="text-gray-500 text-sm">
-                따뜻한 목소리로 뉴스를 들려드릴게요
-              </p>
-            </div>
-
-            <button
-              onClick={handleAudioTry}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-violet-500 to-purple-500 text-white font-medium flex items-center justify-center gap-2 mb-4 hover:opacity-90 transition-all"
-            >
-              <Volume2 className="w-5 h-5" />
-              들어보기
-            </button>
-
-            <button
-              onClick={skipAudio}
-              className="w-full py-3 text-gray-500 hover:text-gray-700"
-            >
-              다음에 들어볼게요
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Share to Parents Card (after 15 cards) */}
-      {showShareCard && (
-        <div className="absolute inset-0 z-50 bg-black/80 flex items-center justify-center p-6 animate-fadeIn">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-sm">
-            <div className="text-center mb-6">
-              <div className="text-4xl mb-3">💝</div>
-              <h2 className="text-xl font-bold text-gray-900 mb-1">
-                이 따뜻한 소식,<br/>부모님께도 들려드릴까요?
-              </h2>
-              <p className="text-gray-500 text-sm">
-                부모님도 세상 이야기 좋아하시잖아요
-              </p>
-            </div>
-
-            <button
-              onClick={handleShare}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-medium flex items-center justify-center gap-2 mb-4 hover:opacity-90 transition-all"
-            >
-              <Share2 className="w-5 h-5" />
-              부모님께 보내드리기
-            </button>
-
-            <button
-              onClick={skipShare}
-              className="w-full py-3 text-gray-500 hover:text-gray-700"
-            >
-              나중에 할게요
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Card Counter */}
-      <div className="absolute bottom-4 right-4 z-20 px-3 py-1 bg-white/20 rounded-full text-white text-sm">
-        {currentIndex + 1} / {Math.min(articles.length, 20)}
-      </div>
-
-      {/* 피드 모드로 전환 버튼 */}
-      {onSwitchToFeed && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onSwitchToFeed(); }}
-          className="absolute bottom-4 left-4 z-30 flex items-center gap-2 px-4 py-2 bg-white/90 backdrop-blur rounded-full text-gray-700 text-sm font-medium shadow-lg hover:bg-white transition-all"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-          </svg>
-          목록으로
-        </button>
-      )}
-
       <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: scale(0.95); }
-          to { opacity: 1; transform: scale(1); }
+        .pt-safe { padding-top: max(1rem, env(safe-area-inset-top)); }
+        .pb-safe { padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
+        .line-clamp-2 {
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
         }
-        @keyframes slideDown {
-          from { opacity: 0; transform: translateY(-20px); }
+        @keyframes float {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-10px); }
+        }
+        @keyframes bounce-slow {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-15px); }
+        }
+        @keyframes bounce-cat {
+          0%, 100% { transform: scale(1) translateY(0) rotate(0deg); }
+          20% { transform: scale(1.2) translateY(-15px) rotate(-5deg); }
+          40% { transform: scale(0.9) translateY(0) rotate(3deg); }
+          60% { transform: scale(1.1) translateY(-8px) rotate(-3deg); }
+          80% { transform: scale(0.95) translateY(-2px) rotate(2deg); }
+        }
+        @keyframes cat-sway {
+          0%, 100% { transform: rotate(-3deg) translateY(0); }
+          50% { transform: rotate(3deg) translateY(-3px); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(20px); }
           to { opacity: 1; transform: translateY(0); }
         }
-        @keyframes bounceIn {
-          0% { opacity: 0; transform: scale(0.3); }
-          50% { transform: scale(1.05); }
-          70% { transform: scale(0.9); }
-          100% { opacity: 1; transform: scale(1); }
-        }
-        @keyframes pulse-glow {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.4); }
-          50% { box-shadow: 0 0 20px 10px rgba(139, 92, 246, 0.2); }
-        }
-        .animate-fadeIn {
-          animation: fadeIn 0.3s ease-out;
-        }
-        .animate-slideDown {
-          animation: slideDown 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-        .animate-bounceIn {
-          animation: bounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-        }
-        .animate-pulse-glow {
-          animation: pulse-glow 2s ease-in-out infinite;
-        }
-        .pt-safe {
-          padding-top: max(0.5rem, env(safe-area-inset-top));
-        }
-        /* Better touch handling */
-        .select-none {
-          -webkit-user-select: none;
-          user-select: none;
-          -webkit-touch-callout: none;
-          touch-action: pan-y;
-        }
+        .animate-float { animation: float 3s ease-in-out infinite; }
+        .animate-bounce-slow { animation: bounce-slow 2s ease-in-out infinite; }
+        .animate-bounce-cat { animation: bounce-cat 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55) !important; }
+        .animate-cat-sway { animation: cat-sway 1.5s ease-in-out infinite; }
+        .animate-fadeIn { animation: fadeIn 0.5s ease-out; }
       `}</style>
     </div>
   );
