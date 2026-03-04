@@ -4,6 +4,7 @@ import HomePage from './pages/HomePage'
 import TimelinePage from './pages/TimelinePage'
 import ElderlyPage from './pages/ElderlyPage'
 import AuthCallbackPage from './pages/AuthCallbackPage'
+import SajuPage from './pages/SajuPage'
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
         <Route path="/elderly" element={<ElderlyPage />} />
         <Route path="/listen" element={<ElderlyPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
+        <Route path="/saju" element={<SajuPage />} />
       </Routes>
     </div>
   )
