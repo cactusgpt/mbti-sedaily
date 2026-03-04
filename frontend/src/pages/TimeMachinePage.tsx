@@ -159,12 +159,14 @@ export default function TimeMachinePage() {
     <div className="min-h-screen bg-[#faf9f6] flex flex-col items-center px-4 py-12">
       <div className="w-full max-w-2xl">
 
-        {/* 헤더 */}
-        <div className="text-center mb-10">
-          <div className="text-5xl mb-3">🛸</div>
-          <h1 className="text-2xl font-bold text-gray-900">타임머신</h1>
-          <p className="text-gray-400 text-sm mt-1">원하는 날짜로 돌아가 그날의 뉴스를 확인하세요</p>
-        </div>
+        {/* 헤더 - 입력 화면에서만 표시 */}
+        {step === "input" && (
+          <div className="text-center mb-10">
+            <div className="text-5xl mb-3">🛸</div>
+            <h1 className="text-2xl font-bold text-gray-900">타임머신</h1>
+            <p className="text-gray-400 text-sm mt-1">원하는 날짜로 돌아가 그날의 뉴스를 확인하세요</p>
+          </div>
+        )}
 
         {/* 입력 */}
         {step === "input" && (
@@ -321,6 +323,17 @@ export default function TimeMachinePage() {
             <div className="text-center py-2">
               <p className="text-gray-400 text-xs uppercase tracking-widest">도착했습니다</p>
               <h2 className="text-gray-900 text-2xl font-bold mt-1">{formatted}</h2>
+              {/* 가로 타원 그림자 */}
+              <div className="flex justify-center mt-3">
+                <div
+                  className="w-72 h-4"
+                  style={{
+                    background: "radial-gradient(ellipse at center, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.15) 45%, transparent 75%)",
+                    borderRadius: "50%",
+                    filter: "blur(3px)",
+                  }}
+                />
+              </div>
             </div>
 
             {/* 경제 지표 스냅샷 */}
@@ -335,9 +348,15 @@ export default function TimeMachinePage() {
                   ].map((item) => (
                     <div key={item.label}>
                       <p className="text-xs text-gray-400 mb-1">{item.label}</p>
-                      <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                      {/* 넓은 화면: 한 줄 / 좁은 화면: 두 줄 */}
+                      <div className="hidden sm:flex items-center justify-center gap-1.5">
                         <span className="text-sm font-bold text-gray-800">{item.then}{item.unit}</span>
                         <span className="text-gray-300 text-xs">→</span>
+                        <span className="text-sm font-bold text-blue-600">{item.now}{item.unit}</span>
+                      </div>
+                      <div className="flex sm:hidden flex-col items-center gap-0.5">
+                        <span className="text-sm font-bold text-gray-800">{item.then}{item.unit}</span>
+                        <span className="text-gray-300 text-xs">↓</span>
                         <span className="text-sm font-bold text-blue-600">{item.now}{item.unit}</span>
                       </div>
                     </div>
