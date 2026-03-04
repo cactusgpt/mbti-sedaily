@@ -626,6 +626,211 @@ def get_personality_profile(five_elements: dict, day_stem_idx: int) -> dict:
 
 
 # =============================================================================
+# 신살 (神殺) 계산
+# =============================================================================
+# 신살 (神殺) 계산
+# =============================================================================
+
+# 삼합 그룹 → 도화/역마/화개/망신 타겟
+_SAMHAP_GROUPS = [
+    {'members': {'申', '子', '辰'}, 'dowhwa': '酉', 'yeokma': '寅', 'hwagae': '辰', 'mangsin': '酉'},
+    {'members': {'寅', '午', '戌'}, 'dowhwa': '卯', 'yeokma': '申', 'hwagae': '戌', 'mangsin': '卯'},
+    {'members': {'亥', '卯', '未'}, 'dowhwa': '子', 'yeokma': '巳', 'hwagae': '未', 'mangsin': '子'},
+    {'members': {'巳', '酉', '丑'}, 'dowhwa': '午', 'yeokma': '亥', 'hwagae': '丑', 'mangsin': '午'},
+]
+
+# 원진살 쌍
+_WONJIN_PAIRS = [{'子', '未'}, {'丑', '午'}, {'寅', '巳'}, {'卯', '辰'}, {'申', '亥'}, {'酉', '戌'}]
+
+# 충(沖) 쌍
+_CHUNG_PAIRS = [{'子', '午'}, {'丑', '未'}, {'寅', '申'}, {'卯', '酉'}, {'辰', '戌'}, {'巳', '亥'}]
+
+# 형살 그룹
+_HYEONG_GROUPS = [{'寅', '巳', '申'}, {'丑', '戌', '未'}, {'子', '卯'}]
+
+# 괴강살 일주
+_GOEGANG_PILLARS = {'庚辰', '壬辰', '庚戌', '壬戌'}
+
+# 양인살: 일간 → 지지
+_YANGIN_MAP = {
+    '甲': '卯', '乙': '寅', '丙': '午', '丁': '巳',
+    '戊': '午', '己': '巳', '庚': '酉', '辛': '申',
+    '壬': '子', '癸': '亥',
+}
+
+# 백호대살: 일지와 충 관계 (子午 / 丑未 / 寅申 / 卯酉 / 辰戌 / 巳亥)
+_BAEKHO_CHUNG = {'子': '午', '午': '子', '丑': '未', '未': '丑',
+                 '寅': '申', '申': '寅', '卯': '酉', '酉': '卯',
+                 '辰': '戌', '戌': '辰', '巳': '亥', '亥': '巳'}
+
+# 현침살: 辰戌丑未 중 2개 이상
+_HYEONCHIM_BRANCHES = {'辰', '戌', '丑', '未'}
+
+# 천덕귀인: 월지 기준 천간
+_CHEONDEOK_MAP = {
+    '寅': '丁', '卯': '申', '辰': '壬', '巳': '辛',
+    '午': '亥', '未': '甲', '申': '癸', '酉': '寅',
+    '戌': '丙', '亥': '乙', '子': '巳', '丑': '庚',
+}
+
+# 월덕귀인: 월지 삼합 기준 천간
+_WOLDEOK_MAP = {
+    '寅': '丙', '午': '丙', '戌': '丙',  # 寅午戌 → 丙
+    '申': '壬', '子': '壬', '辰': '壬',  # 申子辰 → 壬
+    '亥': '甲', '卯': '甲', '未': '甲',  # 亥卯未 → 甲
+    '巳': '庚', '酉': '庚', '丑': '庚',  # 巳酉丑 → 庚
+}
+
+# 공망(空亡): 60갑자 기준 일주 → 공망 지지 2개
+_GONGMANG_TABLE = {
+    '甲子': ('戌', '亥'), '甲戌': ('申', '酉'), '甲申': ('午', '未'),
+    '甲午': ('辰', '巳'), '甲辰': ('寅', '卯'), '甲寅': ('子', '丑'),
+    '乙丑': ('戌', '亥'), '乙亥': ('申', '酉'), '乙酉': ('午', '未'),
+    '乙未': ('辰', '巳'), '乙巳': ('寅', '卯'), '乙卯': ('子', '丑'),
+    '丙寅': ('戌', '亥'), '丙子': ('申', '酉'), '丙戌': ('午', '未'),
+    '丙申': ('辰', '巳'), '丙午': ('寅', '卯'), '丙辰': ('子', '丑'),
+    '丁卯': ('戌', '亥'), '丁丑': ('申', '酉'), '丁亥': ('午', '未'),
+    '丁酉': ('辰', '巳'), '丁未': ('寅', '卯'), '丁巳': ('子', '丑'),
+    '戊辰': ('戌', '亥'), '戊寅': ('申', '酉'), '戊子': ('午', '未'),
+    '戊戌': ('辰', '巳'), '戊申': ('寅', '卯'), '戊午': ('子', '丑'),
+    '己巳': ('戌', '亥'), '己卯': ('申', '酉'), '己丑': ('午', '未'),
+    '己亥': ('辰', '巳'), '己酉': ('寅', '卯'), '己未': ('子', '丑'),
+    '庚午': ('戌', '亥'), '庚辰': ('申', '酉'), '庚寅': ('午', '未'),
+    '庚子': ('辰', '巳'), '庚戌': ('寅', '卯'), '庚申': ('子', '丑'),
+    '辛未': ('戌', '亥'), '辛巳': ('申', '酉'), '辛卯': ('午', '未'),
+    '辛丑': ('辰', '巳'), '辛亥': ('寅', '卯'), '辛酉': ('子', '丑'),
+    '壬申': ('戌', '亥'), '壬午': ('申', '酉'), '壬辰': ('午', '未'),
+    '壬寅': ('辰', '巳'), '壬子': ('寅', '卯'), '壬戌': ('子', '丑'),
+    '癸酉': ('戌', '亥'), '癸未': ('申', '酉'), '癸巳': ('午', '未'),
+    '癸卯': ('辰', '巳'), '癸丑': ('寅', '卯'), '癸亥': ('子', '丑'),
+}
+
+SAL_INFO = {
+    '도화살':   {'desc': '사람을 끄는 자력이 있습니다. 시선이 몰리고 관계 이슈가 많습니다. 외모뿐 아니라 분위기·말투·감정선까지 매혹 포인트가 됩니다. 강하면 연애사도 많고 구설도 따라옵니다. 예술·마케팅·방송 쪽에 쓰면 강점이 됩니다.', 'emoji': '🌸'},
+    '역마살':   {'desc': '정착보다 이동에서 기회가 생깁니다. 이직·출장·해외 인연·이사가 잦습니다. 한곳에 오래 있으면 답답함을 느낍니다. 잘 쓰면 글로벌형 커리어, 못 쓰면 방황으로 이어집니다.', 'emoji': '🐎'},
+    '화개살':   {'desc': '고독의 방이 하나 있습니다. 혼자 사색해야 에너지가 충전됩니다. 예술·철학·종교·연구 적성이 있습니다. 인간관계가 얕게 많기보다 깊게 적은 편입니다. 강하면 고립감으로 이어질 수 있습니다.', 'emoji': '🎨'},
+    '원진살':   {'desc': '설명하기 힘든 감정 꼬임이 있습니다. 처음엔 끌리는데 오래가면 피곤한 관계가 됩니다. 연애·동업에서 감정 소모가 큽니다. 대신 인간 심리를 꿰뚫는 통찰력이 뛰어납니다.', 'emoji': '🌀'},
+    '충(沖)':   {'desc': '깨짐과 이동의 에너지입니다. 갑작스러운 변화와 계획 수정이 따릅니다. 단순한 사고라기보다 "판이 뒤집히는" 느낌입니다. 사업·직장에 있으면 구조조정·이사·역할 변경 등으로 나타납니다.', 'emoji': '💥'},
+    '형살':     {'desc': '외부 폭발보다 내부 마찰이 큽니다. 스스로를 몰아붙이거나 인간관계에서 미묘한 긴장이 생깁니다. 예민함이 장점이 되면 디테일에 강한 장인 기질로 발휘됩니다.', 'emoji': '⚠️'},
+    '괴강살':   {'desc': '극단적 추진력이 있습니다. 흑백이 분명하고 리더·법·군·기술직에 강합니다. 감정이 아니라 원칙으로 움직입니다. 부드러움이 부족하면 독선처럼 보일 수 있습니다.', 'emoji': '👑'},
+    '양인살':   {'desc': '기세와 자존심이 강합니다. 통제받기 싫어하고 추진력과 승부욕이 넘칩니다. 운동선수·사업가 기질이 있습니다. 감정 조절이 안 되면 관계 충돌로 이어집니다.', 'emoji': '⚔️'},
+    '백호대살': {'desc': '결단이 빠르고 위기에서 강해집니다. 의료·군·구조 직군 적성이 있습니다. 과감한 선택을 두려워하지 않습니다. 무모함과 한 끗 차이이므로 신중함이 필요합니다.', 'emoji': '🐯'},
+    '현침살':   {'desc': '말과 글이 칼끝처럼 정확합니다. 분석·비판·토론에 강합니다. 감정이 섞이면 상처도 잘 남기므로 표현 방식에 주의가 필요합니다.', 'emoji': '🪡'},
+    '천덕귀인': {'desc': '위기 때 보호막이 생깁니다. 큰 사고로 번지지 않는 구조를 타고났습니다. 윗사람 복이 있고 어려운 순간에 뜻밖의 조력자가 나타납니다.', 'emoji': '✨'},
+    '월덕귀인': {'desc': '인간관계 완충 능력이 있습니다. 갈등이 커지지 않고 주변에서 은근히 도와주는 사람이 생깁니다. 관계의 마찰을 자연스럽게 흡수하는 복이 있습니다.', 'emoji': '🌙'},
+    '공망':     {'desc': '기대한 게 비어 있는 느낌이 있습니다. 특정 영역에서 허탈감이 반복됩니다. 대신 집착을 줄이면 자유로워지고, 철학적으로 성숙해지는 계기가 됩니다.', 'emoji': '🕳️'},
+    '망신살':   {'desc': '체면·구설 이슈가 생기기 쉽습니다. 이미지 관리가 필요합니다. 대신 대중 노출 직업에서는 오히려 활용 가능한 에너지가 됩니다.', 'emoji': '😶'},
+}
+
+
+def _get_samhap_group(branch: str) -> Optional[dict]:
+    """지지가 속한 삼합 그룹 반환"""
+    for g in _SAMHAP_GROUPS:
+        if branch in g['members']:
+            return g
+    return None
+
+
+def calc_special_stars(
+    day_stem_idx: int,
+    day_branch_idx: int,
+    year_stem_idx: int,
+    year_branch_idx: int,
+    month_stem_idx: int,
+    month_branch_idx: int,
+    hour_stem_idx: Optional[int],
+    hour_branch_idx: Optional[int],
+) -> list[dict]:
+    """신살(神殺) 계산"""
+    results = []
+
+    day_stem   = HEAVENLY_STEMS[day_stem_idx]
+    day_branch = EARTHLY_BRANCHES[day_branch_idx]
+    month_branch = EARTHLY_BRANCHES[month_branch_idx]
+
+    # 전체 지지 목록
+    branch_idxs = [year_branch_idx, month_branch_idx, day_branch_idx]
+    if hour_branch_idx is not None:
+        branch_idxs.append(hour_branch_idx)
+    branch_chars = [EARTHLY_BRANCHES[b] for b in branch_idxs]
+    branch_set   = set(branch_chars)
+
+    # 전체 천간 목록
+    stem_idxs = [year_stem_idx, month_stem_idx, day_stem_idx]
+    if hour_stem_idx is not None:
+        stem_idxs.append(hour_stem_idx)
+    stem_chars = [HEAVENLY_STEMS[s] for s in stem_idxs]
+    stem_set   = set(stem_chars)
+
+    # ── 삼합 기반 살 (일지 기준 삼합 그룹) ──────────────────────────────
+    group = _get_samhap_group(day_branch)
+    if group:
+        if group['dowhwa'] in branch_set:
+            results.append({'name': '도화살(桃花殺)', **SAL_INFO['도화살']})
+        if group['yeokma'] in branch_set:
+            results.append({'name': '역마살(驛馬殺)', **SAL_INFO['역마살']})
+        if group['hwagae'] in branch_set:
+            results.append({'name': '화개살(華蓋殺)', **SAL_INFO['화개살']})
+        if group['mangsin'] in branch_set and group['mangsin'] != day_branch:
+            results.append({'name': '망신살(亡身殺)', **SAL_INFO['망신살']})
+
+    # ── 원진살 ────────────────────────────────────────────────────────────
+    for pair in _WONJIN_PAIRS:
+        if pair.issubset(branch_set):
+            results.append({'name': '원진살(怨嗔殺)', **SAL_INFO['원진살']})
+            break
+
+    # ── 충(沖) ────────────────────────────────────────────────────────────
+    for pair in _CHUNG_PAIRS:
+        if pair.issubset(branch_set):
+            results.append({'name': '충(沖)', **SAL_INFO['충(沖)']})
+            break
+
+    # ── 형살 ─────────────────────────────────────────────────────────────
+    for grp in _HYEONG_GROUPS:
+        if grp.issubset(branch_set):
+            results.append({'name': '형살(刑殺)', **SAL_INFO['형살']})
+            break
+
+    # ── 괴강살 (일주 기준) ────────────────────────────────────────────────
+    if (day_stem + day_branch) in _GOEGANG_PILLARS:
+        results.append({'name': '괴강살(魁罡殺)', **SAL_INFO['괴강살']})
+
+    # ── 양인살 (일간 기준) ────────────────────────────────────────────────
+    yangin_target = _YANGIN_MAP.get(day_stem)
+    if yangin_target and yangin_target in branch_set:
+        results.append({'name': '양인살(羊刃殺)', **SAL_INFO['양인살']})
+
+    # ── 백호대살 (일지와 충 관계 지지가 사주에 존재) ─────────────────────
+    baekho_target = _BAEKHO_CHUNG.get(day_branch)
+    if baekho_target and baekho_target in branch_set:
+        results.append({'name': '백호대살(白虎大殺)', **SAL_INFO['백호대살']})
+
+    # ── 현침살 (辰戌丑未 2개 이상) ───────────────────────────────────────
+    if len(_HYEONCHIM_BRANCHES & branch_set) >= 2:
+        results.append({'name': '현침살(懸針殺)', **SAL_INFO['현침살']})
+
+    # ── 천덕귀인 (월지 기준 해당 천간 존재) ──────────────────────────────
+    cheondeok_target = _CHEONDEOK_MAP.get(month_branch)
+    if cheondeok_target and cheondeok_target in stem_set:
+        results.append({'name': '천덕귀인(天德貴人)', **SAL_INFO['천덕귀인']})
+
+    # ── 월덕귀인 (월지 삼합 기준 천간 존재) ──────────────────────────────
+    woldeok_target = _WOLDEOK_MAP.get(month_branch)
+    if woldeok_target and woldeok_target in stem_set:
+        results.append({'name': '월덕귀인(月德貴人)', **SAL_INFO['월덕귀인']})
+
+    # ── 공망 (일주 기준 60갑자표) ────────────────────────────────────────
+    gongmang_pair = _GONGMANG_TABLE.get(day_stem + day_branch)
+    if gongmang_pair:
+        gongmang_hit = set(gongmang_pair) & branch_set
+        if gongmang_hit:
+            results.append({'name': '공망(空亡)', **SAL_INFO['공망']})
+
+    return results
+
+
+# =============================================================================
 # Lambda 핸들러
 # =============================================================================
 
@@ -712,6 +917,14 @@ def lambda_handler(event: dict, context) -> dict:
         # 성격 프로필
         personality = get_personality_profile(five_elements, d_stem)
 
+        # 신살
+        special_stars = calc_special_stars(
+            d_stem, d_branch,
+            y_stem, y_branch,
+            m_stem, m_branch,
+            h_stem, h_branch,
+        )
+
         result = {
             'saju_pillar': {
                 'year':  year_pillar,
@@ -725,6 +938,7 @@ def lambda_handler(event: dict, context) -> dict:
             'major_fortune_cycle': major_fortunes,
             'current_fortune': current_fortune,
             'personality_profile': personality,
+            'special_stars': special_stars,
         }
 
         return {

@@ -54,6 +54,7 @@ interface SajuResult {
     daily_fortune: { date: string; stem_kr: string; branch_kr: string; element: string; desc: string; tone: string };
   };
   personality_profile: { dominant_element: string; personality: string; strength: string; career: string };
+  special_stars: Array<{ name: string; desc: string; emoji: string }>;
 }
 
 const ELEMENT_KR_SHORT: Record<string, string> = {
@@ -284,14 +285,51 @@ export default function SajuPage() {
               </div>
             </div>
 
+            {/* 현재 운세 */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+              <h2 className="text-sm font-bold text-gray-700 mb-3">현재 운세</h2>
+              <div className="space-y-2">
+                {([
+                  { label: "현재 대운", data: result.current_fortune.major_fortune, sub: result.current_fortune.major_fortune.element },
+                  { label: "오늘 일운", data: result.current_fortune.daily_fortune, sub: result.current_fortune.daily_fortune.date },
+                  { label: `${result.current_fortune.monthly_fortune.month}월 월운`, data: result.current_fortune.monthly_fortune, sub: result.current_fortune.monthly_fortune.element },
+                  { label: `${result.current_fortune.annual_fortune.year}년 세운`, data: result.current_fortune.annual_fortune, sub: result.current_fortune.annual_fortune.element },
+                ] as const).map(({ label, data, sub }) => {
+                  const s = TONE_STYLE[data.tone] ?? TONE_STYLE.green;
+                  return (
+                    <div key={label} className={`${s.bg} rounded-xl p-4`}>
+                      <div className={`text-xs ${s.label} mb-0.5`}>{label}</div>
+                      <div className={`font-bold text-lg ${s.title}`}>{data.stem_kr}{data.branch_kr}</div>
+                      <div className={`text-xs ${s.sub} mb-2`}>{sub}</div>
+                      <div className={`text-sm ${s.desc} leading-relaxed`}>{data.desc}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 대운 타임라인 */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+              <h2 className="text-sm font-bold text-gray-700 mb-3">대운 타임라인</h2>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {result.major_fortune_cycle.map((f) => (
+                  <div key={f.age} className={`flex-shrink-0 rounded-xl p-3 text-center min-w-[60px] ${f.age === result.current_fortune.major_fortune.age ? "bg-indigo-600 text-white" : "bg-gray-50 text-gray-700"}`}>
+                    <div className="text-xs opacity-70">{f.age}세</div>
+                    <div className="font-bold text-sm">{f.stem_kr}{f.branch_kr}</div>
+                    <div className="text-[10px] opacity-60">{f.year}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* 용신 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
               <h2 className="text-sm font-bold text-gray-700 mb-3">용신 (用神)</h2>
               <div className="space-y-2">
                 <div className="bg-indigo-50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">용신 · 나에게 힘이 되는 기운</span>
+                  <div className="flex items-center justify-between mb-1.5">
                     <span className="text-sm font-bold text-indigo-800">{result.useful_god.useful_god}</span>
+                    <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">용신 · 나에게 힘이 되는 기운</span>
                   </div>
                   <p className="text-sm text-indigo-700 leading-relaxed mb-2">{result.useful_god.description}</p>
                   <div className="flex flex-wrap gap-1.5">
@@ -301,16 +339,16 @@ export default function SajuPage() {
                   </div>
                 </div>
                 <div className="bg-green-50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">희신 · 용신을 도와주는 기운</span>
+                  <div className="flex items-center justify-between mb-1.5">
                     <span className="text-sm font-bold text-green-800">{result.useful_god.support_element}</span>
+                    <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">희신 · 용신을 도와주는 기운</span>
                   </div>
                   <p className="text-sm text-green-700 leading-relaxed">{result.useful_god.support_description}</p>
                 </div>
                 <div className="bg-red-50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">기신 · 나를 힘들게 하는 기운</span>
+                  <div className="flex items-center justify-between mb-1.5">
                     <span className="text-sm font-bold text-red-800">{result.useful_god.avoid_element}</span>
+                    <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">기신 · 나를 힘들게 하는 기운</span>
                   </div>
                   <p className="text-sm text-red-700 leading-relaxed">{result.useful_god.avoid_description}</p>
                 </div>
@@ -333,31 +371,6 @@ export default function SajuPage() {
               </div>
             </div>
 
-            {/* 현재 운세 */}
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-              <h2 className="text-sm font-bold text-gray-700 mb-3">현재 운세</h2>
-              <div className="space-y-2">
-                {([
-                  { label: "현재 대운", data: result.current_fortune.major_fortune, sub: result.current_fortune.major_fortune.element },
-                  { label: "오늘 일운", data: result.current_fortune.daily_fortune, sub: result.current_fortune.daily_fortune.date },
-                  { label: `${result.current_fortune.monthly_fortune.month}월 월운`, data: result.current_fortune.monthly_fortune, sub: result.current_fortune.monthly_fortune.element },
-                  { label: `${result.current_fortune.annual_fortune.year}년 세운`, data: result.current_fortune.annual_fortune, sub: result.current_fortune.annual_fortune.element },
-                ] as const).map(({ label, data, sub }) => {
-                  const s = TONE_STYLE[data.tone] ?? TONE_STYLE.green;
-                  return (
-                    <div key={label} className={`${s.bg} rounded-xl p-4 flex items-start gap-3`}>
-                      <div className="min-w-[80px]">
-                        <div className={`text-xs ${s.label} mb-0.5`}>{label}</div>
-                        <div className={`font-bold text-lg ${s.title}`}>{data.stem_kr}{data.branch_kr}</div>
-                        <div className={`text-xs ${s.sub}`}>{sub}</div>
-                      </div>
-                      <div className={`text-sm ${s.desc} leading-relaxed pt-0.5`}>{data.desc}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
             {/* 성격 프로필 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
               <h2 className="text-sm font-bold text-gray-700 mb-2">성격 · 적성</h2>
@@ -371,18 +384,25 @@ export default function SajuPage() {
               </div>
             </div>
 
-            {/* 대운 타임라인 */}
+            {/* 신살 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-              <h2 className="text-sm font-bold text-gray-700 mb-3">대운 타임라인</h2>
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {result.major_fortune_cycle.map((f) => (
-                  <div key={f.age} className={`flex-shrink-0 rounded-xl p-3 text-center min-w-[60px] ${f.age === result.current_fortune.major_fortune.age ? "bg-indigo-600 text-white" : "bg-gray-50 text-gray-700"}`}>
-                    <div className="text-xs opacity-70">{f.age}세</div>
-                    <div className="font-bold text-sm">{f.stem_kr}{f.branch_kr}</div>
-                    <div className="text-[10px] opacity-60">{f.year}</div>
-                  </div>
-                ))}
-              </div>
+              <h2 className="text-sm font-bold text-gray-700 mb-1">신살 (神殺)</h2>
+              <p className="text-xs text-gray-400 mb-3">살이 많다고 해서 반드시 불리한 것은 아니며, 전체적인 구조와 균형에 따라 의미가 달라질 수 있습니다.</p>
+              {result.special_stars.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-4">해당하는 신살이 없습니다.</p>
+              ) : (
+                <div className="space-y-2">
+                  {result.special_stars.map((star) => (
+                    <div key={star.name} className="bg-purple-50 rounded-xl p-4">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-base">{star.emoji}</span>
+                        <span className="text-sm font-bold text-purple-800">{star.name}</span>
+                      </div>
+                      <p className="text-sm text-purple-700 leading-relaxed">{star.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <button onClick={() => { setStep("input"); setResult(null); }}
