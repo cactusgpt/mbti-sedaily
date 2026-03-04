@@ -170,11 +170,18 @@ export default function SajuPage() {
   return (
     <div className="min-h-screen bg-[#faf9f6] flex flex-col items-center justify-center px-4 py-12">
       <div className="w-full max-w-lg">
-        <div className="text-center mb-8">
-          <div className="text-4xl mb-2">🔮</div>
-          <h1 className="text-2xl font-bold text-gray-900">사주 운세</h1>
-          <p className="text-sm text-gray-500 mt-1">생년월일시와 성별을 입력하면 사주를 분석해드립니다</p>
-        </div>
+        {step !== "result" && (
+          <div className="text-center mb-8">
+            <div className="text-4xl mb-2">🔮</div>
+            <h1 className="text-2xl font-bold text-gray-900">사주 운세</h1>
+            <p className="text-sm text-gray-500 mt-1">생년월일시와 성별을 입력하면 사주를 분석해드립니다</p>
+          </div>
+        )}
+        {step === "result" && (
+          <div className="text-center mb-6">
+            <div className="text-4xl">🔮</div>
+          </div>
+        )}
 
         {step === "input" && (
           <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-5">
