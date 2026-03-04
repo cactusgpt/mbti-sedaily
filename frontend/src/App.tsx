@@ -5,6 +5,7 @@ import TimelinePage from './pages/TimelinePage'
 import ElderlyPage from './pages/ElderlyPage'
 import AuthCallbackPage from './pages/AuthCallbackPage'
 import SajuPage from './pages/SajuPage'
+import TimeMachinePage from './pages/TimeMachinePage'
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
         <Route path="/listen" element={<ElderlyPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/saju" element={<SajuPage />} />
+        <Route path="/timemachine" element={<TimeMachinePage />} />
       </Routes>
     </div>
   )

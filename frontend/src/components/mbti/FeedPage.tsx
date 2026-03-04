@@ -309,6 +309,14 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
                 </svg>
                 <span>타임라인</span>
               </Link>
+              {/* 사주/운세 버튼 숨김 */}
+              <Link
+                to="/timemachine"
+                className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <span>🛸</span>
+                <span>타임머신</span>
+              </Link>
             </div>
           </nav>
         </div>
