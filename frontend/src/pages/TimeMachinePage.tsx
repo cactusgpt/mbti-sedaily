@@ -1,6 +1,9 @@
 import { useState } from "react";
+import { getFamousBirthdays, type FamousPerson } from "@/data/famousBirthdays";
+import { getSnapshotByDate, CURRENT_SNAPSHOT } from "@/data/economicSnapshots";
+import { INVESTMENT_OPTIONS, calcInvestment } from "@/data/investmentScenarios";
 
-type Step = "input" | "loading" | "result";
+type Step = "input" | "loading" | "result" | "invest-result";
 
 interface HistoricalEvent {
   year: number;
@@ -14,6 +17,14 @@ interface DayNews {
   title: string;
   summary: string;
   category: string;
+}
+
+// 랜덤 날짜 생성 (1990-01-01 ~ 어제)
+function getRandomDate(): string {
+  const start = new Date("1990-01-01").getTime();
+  const end = new Date(Date.now() - 86400000).getTime(); // 어제
+  const rand = new Date(start + Math.random() * (end - start));
+  return rand.toISOString().split("T")[0];
 }
 
 const HISTORICAL_EVENTS: Record<string, HistoricalEvent[]> = {
@@ -116,6 +127,10 @@ export default function TimeMachinePage() {
   const [targetDate, setTargetDate] = useState("");
   const [error, setError] = useState("");
   const [events, setEvents] = useState<HistoricalEvent[]>([]);
+  const [birthdays, setBirthdays] = useState<FamousPerson[]>([]);
+  const [snapshot, setSnapshot] = useState<ReturnType<typeof getSnapshotByDate> | null>(null);
+  const [selectedInvestment, setSelectedInvestment] = useState<string | null>(null);
+  const [showComparison, setShowComparison] = useState(false);
 
   const today = new Date().toISOString().split("T")[0];
 
@@ -127,6 +142,10 @@ export default function TimeMachinePage() {
     setStep("loading");
     setTimeout(() => {
       setEvents(getHistoricalEvents(targetDate));
+      setBirthdays(getFamousBirthdays(targetDate));
+      setSnapshot(getSnapshotByDate(targetDate));
+      setSelectedInvestment(null);
+      setShowComparison(false);
       setStep("result");
     }, 2800);
   };
@@ -151,7 +170,16 @@ export default function TimeMachinePage() {
         {step === "input" && (
           <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-5">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">여행할 날짜</label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-semibold text-gray-700">여행할 날짜</label>
+                <button
+                  type="button"
+                  onClick={() => setTargetDate(getRandomDate())}
+                  className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors"
+                >
+                  <span>🎲</span> 랜덤 날짜
+                </button>
+              </div>
               <input
                 type="date"
                 value={targetDate}
@@ -178,6 +206,113 @@ export default function TimeMachinePage() {
           </div>
         )}
 
+        {/* 투자 결과 */}
+        {step === "invest-result" && selectedInvestment && (() => {
+          const year = new Date(targetDate).getFullYear();
+          const opt = INVESTMENT_OPTIONS.find((o) => o.id === selectedInvestment)!;
+          const result = calcInvestment(selectedInvestment, year);
+          const isProfit = result.returnRate >= 0;
+          const allResults = INVESTMENT_OPTIONS.map((o) => ({ opt: o, result: calcInvestment(o.id, year) }));
+          const maxValue = Math.max(...allResults.map((r) => r.result.currentValue));
+          return (
+            <div className="space-y-5">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => { setStep("result"); setShowComparison(false); }}
+                  className="text-gray-400 hover:text-gray-700 transition-colors text-sm flex items-center gap-1"
+                >
+                  ← 돌아가기
+                </button>
+                <div className="flex-1 text-center">
+                  <p className="text-gray-400 text-xs">{formatted}</p>
+                  <h2 className="text-gray-900 text-lg font-bold">{opt.emoji} {opt.label}</h2>
+                </div>
+                <div className="w-16" />
+              </div>
+
+              {/* 결과 카드 */}
+              {!showComparison && (
+                <div className="space-y-4">
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    <div className="grid grid-cols-3 gap-3 text-center mb-5">
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <p className="text-gray-400 text-xs mb-1">투자금</p>
+                        <p className="text-gray-800 font-bold text-sm">100만원</p>
+                      </div>
+                      <div className="bg-gray-50 rounded-xl p-3">
+                        <p className="text-gray-400 text-xs mb-1">현재 가치</p>
+                        <p className="text-gray-800 font-bold text-sm">{result.currentValue.toLocaleString()}원</p>
+                      </div>
+                      <div className={`rounded-xl p-3 ${isProfit ? "bg-blue-50" : "bg-red-50"}`}>
+                        <p className="text-gray-400 text-xs mb-1">수익률</p>
+                        <p className={`font-bold text-sm ${isProfit ? "text-blue-600" : "text-red-500"}`}>
+                          {isProfit ? "+" : ""}{result.returnRate.toFixed(0)}%
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-gray-600 text-sm text-center italic border-t border-gray-100 pt-4">
+                      "{result.tagline}"
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowComparison(true)}
+                    className="w-full bg-gray-900 hover:bg-gray-700 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm"
+                  >
+                    🔥 평행우주 비교
+                  </button>
+                </div>
+              )}
+
+              {/* 평행우주 비교 */}
+              {showComparison && (
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                  <h3 className="text-gray-800 font-bold text-sm mb-5 text-center">🔥 평행우주 비교</h3>
+                  <div className="space-y-4">
+                    {allResults.map(({ opt: o, result: r }) => {
+                      const barWidth = maxValue > 0 ? Math.max(4, (r.currentValue / maxValue) * 100) : 4;
+                      const profit = r.returnRate >= 0;
+                      return (
+                        <div key={o.id}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className={`text-sm font-medium flex items-center gap-1.5 ${o.id === selectedInvestment ? "text-gray-900 font-bold" : "text-gray-600"}`}>
+                              <span>{o.emoji}</span> {o.label}
+                            </span>
+                            <span className={`text-sm font-bold ${profit ? "text-blue-600" : "text-red-500"}`}>
+                              {r.currentValue.toLocaleString()}원
+                            </span>
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-3">
+                            <div
+                              className={`h-3 rounded-full transition-all duration-700 ${o.id === selectedInvestment ? "bg-gray-900" : profit ? "bg-gray-400" : "bg-red-300"}`}
+                              style={{ width: `${barWidth}%` }}
+                            />
+                          </div>
+                          <p className="text-gray-400 text-xs mt-1">
+                            {profit ? "+" : ""}{r.returnRate.toFixed(0)}% · {r.tagline}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={() => setShowComparison(false)}
+                    className="w-full mt-5 bg-white hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors text-sm border border-gray-200"
+                  >
+                    결과만 보기
+                  </button>
+                </div>
+              )}
+
+              <button
+                onClick={() => { setStep("input"); setTargetDate(""); setEvents([]); setBirthdays([]); setSnapshot(null); setSelectedInvestment(null); setShowComparison(false); }}
+                className="w-full bg-white hover:bg-gray-50 text-gray-400 font-medium py-3 rounded-xl transition-colors text-sm border border-gray-100"
+              >
+                다른 날짜로 이동
+              </button>
+            </div>
+          );
+        })()}
+
         {/* 결과 */}
         {step === "result" && (
           <div className="space-y-5">
@@ -187,6 +322,29 @@ export default function TimeMachinePage() {
               <p className="text-gray-400 text-xs uppercase tracking-widest">도착했습니다</p>
               <h2 className="text-gray-900 text-2xl font-bold mt-1">{formatted}</h2>
             </div>
+
+            {/* 경제 지표 스냅샷 */}
+            {snapshot && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-4">
+                <p className="text-xs text-gray-400 mb-3">📊 그때 vs 지금</p>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  {[
+                    { label: "코스피", then: snapshot.kospi.toLocaleString(), now: CURRENT_SNAPSHOT.kospi.toLocaleString(), unit: "" },
+                    { label: "원/달러", then: snapshot.usdKrw.toLocaleString(), now: CURRENT_SNAPSHOT.usdKrw.toLocaleString(), unit: "원" },
+                    { label: "기준금리", then: snapshot.baseRate.toFixed(2), now: CURRENT_SNAPSHOT.baseRate.toFixed(2), unit: "%" },
+                  ].map((item) => (
+                    <div key={item.label}>
+                      <p className="text-xs text-gray-400 mb-1">{item.label}</p>
+                      <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                        <span className="text-sm font-bold text-gray-800">{item.then}{item.unit}</span>
+                        <span className="text-gray-300 text-xs">→</span>
+                        <span className="text-sm font-bold text-blue-600">{item.now}{item.unit}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* 그날의 주요 뉴스 */}
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
@@ -279,9 +437,53 @@ export default function TimeMachinePage() {
               </div>
             </div>
 
+            {/* 그날 태어난 사람은? */}
+            {birthdays.length > 0 && (
+              <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                <h3 className="text-gray-800 font-bold text-sm mb-4 flex items-center gap-2">
+                  <span>🎂</span> 그날 태어난 사람은?
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {birthdays.map((person, i) => (
+                    <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                      <div className="text-2xl shrink-0">{person.emoji}</div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-gray-900 text-sm font-bold">{person.name}</p>
+                          <span className="text-xs text-gray-400">{person.birthYear}년생</span>
+                        </div>
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-600 font-medium">{person.field}</span>
+                        <p className="text-gray-500 text-xs mt-1.5 leading-relaxed">{person.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 만약 그날로 돌아간다면 - 투자 옵션 */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+              <h3 className="text-gray-800 font-bold text-sm mb-1 flex items-center gap-2">
+                <span>🕰️</span> 만약 그날로 돌아간다면?
+              </h3>
+              <p className="text-gray-400 text-xs mb-4">1,000,000원을 어디에 투자할까요?</p>
+              <div className="grid grid-cols-3 gap-3">
+                {INVESTMENT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    onClick={() => { setSelectedInvestment(opt.id); setShowComparison(false); setStep("invest-result"); }}
+                    className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-all text-center"
+                  >
+                    <span className="text-3xl">{opt.emoji}</span>
+                    <p className="text-gray-900 font-semibold text-xs leading-snug">{opt.label}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* 다시 하기 */}
             <button
-              onClick={() => { setStep("input"); setTargetDate(""); setEvents([]); }}
+              onClick={() => { setStep("input"); setTargetDate(""); setEvents([]); setBirthdays([]); setSnapshot(null); setSelectedInvestment(null); setShowComparison(false); }}
               className="w-full bg-white hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors text-sm border border-gray-200"
             >
               다른 날짜로 이동
