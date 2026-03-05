@@ -240,7 +240,7 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
         <div className="max-w-[1000px] mx-auto px-5 py-2.5 flex justify-between items-center">
           <div className="flex items-center gap-6">
             <h1 className="text-[18px] font-bold text-gray-900 tracking-tight">
-              K-Stock Insight
+              AI LENS
             </h1>
             <span className="text-[13px] text-gray-500 flex items-center gap-1.5">
               by <span className="font-medium text-gray-700">{editor.name}</span>
