@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { getFamousBirthdays, type FamousPerson } from "@/data/famousBirthdays";
 import { getSnapshotByDate, CURRENT_SNAPSHOT } from "@/data/economicSnapshots";
-import { INVESTMENT_OPTIONS, calcInvestment } from "@/data/investmentScenarios";
+import { INVESTMENT_OPTIONS, calcInvestment, getParallelUniverses } from "@/data/investmentScenarios";
 
 type Step = "input" | "loading" | "result" | "invest-result";
 
@@ -216,6 +216,10 @@ export default function TimeMachinePage() {
           const isProfit = result.returnRate >= 0;
           const allResults = INVESTMENT_OPTIONS.map((o) => ({ opt: o, result: calcInvestment(o.id, year) }));
           const maxValue = Math.max(...allResults.map((r) => r.result.currentValue));
+          const parallelUniverses = getParallelUniverses(selectedInvestment, year);
+          const bestAlternative = parallelUniverses[0];
+          const regretGap = bestAlternative.result.currentValue - result.currentValue;
+
           return (
             <div className="space-y-5">
               <div className="flex items-center gap-3">
@@ -236,6 +240,7 @@ export default function TimeMachinePage() {
               {!showComparison && (
                 <div className="space-y-4">
                   <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    {/* 핵심 수치 */}
                     <div className="grid grid-cols-3 gap-3 text-center mb-5">
                       <div className="bg-gray-50 rounded-xl p-3">
                         <p className="text-gray-400 text-xs mb-1">투자금</p>
@@ -243,64 +248,158 @@ export default function TimeMachinePage() {
                       </div>
                       <div className="bg-gray-50 rounded-xl p-3">
                         <p className="text-gray-400 text-xs mb-1">현재 가치</p>
-                        <p className="text-gray-800 font-bold text-sm">{result.currentValue.toLocaleString()}원</p>
+                        <p className="text-gray-800 font-bold text-sm">
+                          {result.currentValue >= 10_000_000
+                            ? `${(result.currentValue / 10_000_000).toFixed(1)}억원`
+                            : `${result.currentValue.toLocaleString()}원`}
+                        </p>
                       </div>
                       <div className={`rounded-xl p-3 ${isProfit ? "bg-blue-50" : "bg-red-50"}`}>
                         <p className="text-gray-400 text-xs mb-1">수익률</p>
                         <p className={`font-bold text-sm ${isProfit ? "text-blue-600" : "text-red-500"}`}>
-                          {isProfit ? "+" : ""}{result.returnRate.toFixed(0)}%
+                          {isProfit ? "+" : ""}{result.returnRate >= 1000
+                            ? `${(result.returnRate / 100).toFixed(0)}배`
+                            : `${result.returnRate.toFixed(0)}%`}
                         </p>
                       </div>
                     </div>
-                    <p className="text-gray-600 text-sm text-center italic border-t border-gray-100 pt-4">
+
+                    {/* 스토리 */}
+                    {result.story && (
+                      <div className="bg-gray-50 rounded-xl p-3.5 mb-4">
+                        <p className="text-gray-600 text-xs leading-relaxed">{result.story}</p>
+                      </div>
+                    )}
+
+                    <p className="text-gray-500 text-sm text-center italic border-t border-gray-100 pt-4">
                       "{result.tagline}"
                     </p>
                   </div>
+
+                  {/* 후회 지수 — 최선의 대안과 비교 */}
+                  {regretGap > 0 && (
+                    <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4">
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl shrink-0">😮</span>
+                        <div>
+                          <p className="text-amber-800 text-xs font-semibold mb-1">다른 우주에서는...</p>
+                          <p className="text-amber-700 text-xs leading-relaxed">
+                            {bestAlternative.option.emoji} <strong>{bestAlternative.option.label}</strong>을 선택했다면{" "}
+                            <strong>
+                              {regretGap >= 10_000_000
+                                ? `${(regretGap / 10_000_000).toFixed(1)}억원`
+                                : `${regretGap.toLocaleString()}원`}
+                            </strong>을 더 벌었을 겁니다.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {regretGap <= 0 && (
+                    <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4">
+                      <div className="flex items-start gap-3">
+                        <span className="text-xl shrink-0">🎉</span>
+                        <div>
+                          <p className="text-emerald-800 text-xs font-semibold mb-1">최선의 선택!</p>
+                          <p className="text-emerald-700 text-xs leading-relaxed">
+                            모든 평행우주 중에서 <strong>가장 좋은 선택</strong>을 했습니다. 당신의 직감이 옳았습니다.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <button
                     onClick={() => setShowComparison(true)}
                     className="w-full bg-gray-900 hover:bg-gray-700 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm"
                   >
-                    🔥 평행우주 비교
+                    🌌 모든 평행우주 보기
                   </button>
                 </div>
               )}
 
-              {/* 평행우주 비교 */}
+              {/* 평행우주 전체 비교 */}
               {showComparison && (
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
-                  <h3 className="text-gray-800 font-bold text-sm mb-5 text-center">🔥 평행우주 비교</h3>
-                  <div className="space-y-4">
-                    {allResults.map(({ opt: o, result: r }) => {
-                      const barWidth = maxValue > 0 ? Math.max(4, (r.currentValue / maxValue) * 100) : 4;
-                      const profit = r.returnRate >= 0;
-                      return (
-                        <div key={o.id}>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className={`text-sm font-medium flex items-center gap-1.5 ${o.id === selectedInvestment ? "text-gray-900 font-bold" : "text-gray-600"}`}>
-                              <span>{o.emoji}</span> {o.label}
-                            </span>
-                            <span className={`text-sm font-bold ${profit ? "text-blue-600" : "text-red-500"}`}>
-                              {r.currentValue.toLocaleString()}원
-                            </span>
-                          </div>
-                          <div className="w-full bg-gray-100 rounded-full h-3">
-                            <div
-                              className={`h-3 rounded-full transition-all duration-700 ${o.id === selectedInvestment ? "bg-gray-900" : profit ? "bg-gray-400" : "bg-red-300"}`}
-                              style={{ width: `${barWidth}%` }}
-                            />
-                          </div>
-                          <p className="text-gray-400 text-xs mt-1">
-                            {profit ? "+" : ""}{r.returnRate.toFixed(0)}% · {r.tagline}
-                          </p>
-                        </div>
-                      );
-                    })}
+                <div className="space-y-4">
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <h3 className="text-gray-800 font-bold text-sm mb-1 text-center">🌌 평행우주 비교</h3>
+                    <p className="text-gray-400 text-xs text-center mb-5">{formatted}에 100만원을 투자했다면</p>
+                    <div className="space-y-5">
+                      {allResults
+                        .sort((a, b) => b.result.currentValue - a.result.currentValue)
+                        .map(({ opt: o, result: r }, rank) => {
+                          const barWidth = maxValue > 0 ? Math.max(4, (r.currentValue / maxValue) * 100) : 4;
+                          const profit = r.returnRate >= 0;
+                          const isSelected = o.id === selectedInvestment;
+                          const displayValue = r.currentValue >= 10_000_000
+                            ? `${(r.currentValue / 10_000_000).toFixed(1)}억`
+                            : `${r.currentValue.toLocaleString()}원`;
+                          const displayRate = r.returnRate >= 1000
+                            ? `+${(r.returnRate / 100).toFixed(0)}배`
+                            : `${profit ? "+" : ""}${r.returnRate.toFixed(0)}%`;
+
+                          return (
+                            <div key={o.id} className={`rounded-xl p-3.5 ${isSelected ? "bg-gray-900 text-white" : "bg-gray-50"}`}>
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  {rank === 0 && <span className="text-xs">🥇</span>}
+                                  {rank === 1 && <span className="text-xs">🥈</span>}
+                                  {rank === 2 && <span className="text-xs">🥉</span>}
+                                  {rank > 2 && <span className="text-xs opacity-40">#{rank + 1}</span>}
+                                  <span className="text-base">{o.emoji}</span>
+                                  <span className={`text-sm font-semibold ${isSelected ? "text-white" : "text-gray-800"}`}>
+                                    {o.label}
+                                    {isSelected && <span className="ml-1.5 text-xs font-normal opacity-70">내 선택</span>}
+                                  </span>
+                                </div>
+                                <div className="text-right">
+                                  <p className={`text-sm font-bold ${isSelected ? "text-white" : profit ? "text-blue-600" : "text-red-500"}`}>
+                                    {displayValue}
+                                  </p>
+                                  <p className={`text-xs ${isSelected ? "opacity-70" : profit ? "text-blue-400" : "text-red-400"}`}>
+                                    {displayRate}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className={`w-full rounded-full h-2 ${isSelected ? "bg-white/20" : "bg-gray-200"}`}>
+                                <div
+                                  className={`h-2 rounded-full transition-all duration-700 ${isSelected ? "bg-white" : profit ? "bg-blue-400" : "bg-red-300"}`}
+                                  style={{ width: `${barWidth}%` }}
+                                />
+                              </div>
+                              {r.story && (
+                                <p className={`text-xs mt-2 leading-relaxed ${isSelected ? "text-white/70" : "text-gray-400"}`}>
+                                  {r.story}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
                   </div>
+
+                  {/* 다른 선택지 탐색 */}
+                  <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+                    <p className="text-gray-500 text-xs mb-3 text-center">다른 선택을 해볼까요?</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {INVESTMENT_OPTIONS.filter((o) => o.id !== selectedInvestment).map((o) => (
+                        <button
+                          key={o.id}
+                          onClick={() => { setSelectedInvestment(o.id); setShowComparison(false); }}
+                          className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-all text-center"
+                        >
+                          <span className="text-2xl">{o.emoji}</span>
+                          <p className="text-gray-700 font-medium text-xs leading-snug">{o.label}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <button
                     onClick={() => setShowComparison(false)}
-                    className="w-full mt-5 bg-white hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors text-sm border border-gray-200"
+                    className="w-full bg-white hover:bg-gray-50 text-gray-700 font-medium py-3 rounded-xl transition-colors text-sm border border-gray-200"
                   >
-                    결과만 보기
+                    내 결과만 보기
                   </button>
                 </div>
               )}
@@ -486,15 +585,16 @@ export default function TimeMachinePage() {
                 <span>🕰️</span> 만약 그날로 돌아간다면?
               </h3>
               <p className="text-gray-400 text-xs mb-4">1,000,000원을 어디에 투자할까요?</p>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-3 gap-2.5">
                 {INVESTMENT_OPTIONS.map((opt) => (
                   <button
                     key={opt.id}
                     onClick={() => { setSelectedInvestment(opt.id); setShowComparison(false); setStep("invest-result"); }}
-                    className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-all text-center"
+                    className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-gray-200 hover:border-gray-400 hover:bg-gray-50 transition-all text-center"
                   >
-                    <span className="text-3xl">{opt.emoji}</span>
+                    <span className="text-2xl">{opt.emoji}</span>
                     <p className="text-gray-900 font-semibold text-xs leading-snug">{opt.label}</p>
+                    <span className="text-gray-400 text-[10px] leading-tight">{opt.description}</span>
                   </button>
                 ))}
               </div>
