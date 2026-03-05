@@ -9,6 +9,7 @@ import json
 import uvicorn
 from config import settings
 from handlers.saju_handler import lambda_handler as saju_handler
+from handlers.time_machine_handler import get_time_machine_news
 
 app = FastAPI(
     title="Sedaily-MBTI API",
@@ -45,6 +46,15 @@ async def saju(request: Request):
     if result["statusCode"] == 200:
         return content
     return JSONResponse(status_code=result["statusCode"], content=content)
+
+
+@app.get("/time-machine")
+async def time_machine(date: str):
+    """타임머신 날짜별 뉴스 크롤링 엔드포인트"""
+    result = get_time_machine_news(date, region=settings.region)
+    if "error" in result:
+        return JSONResponse(status_code=400, content=result)
+    return result
 
 if __name__ == "__main__":
     uvicorn.run(

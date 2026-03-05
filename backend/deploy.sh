@@ -24,6 +24,7 @@ pip3 install \
   pydantic-settings==2.6.0 \
   python-dotenv==1.0.1 \
   requests==2.32.3 \
+  beautifulsoup4==4.12.3 \
   redis \
   -t lambda-build \
   --platform manylinux2014_x86_64 \
@@ -80,6 +81,7 @@ LAMBDA_FUNCTIONS=(
   "sedaily-mbti-chatbot-dev"
   "sedaily-mbti-engagement-dev"
   "sedaily-mbti-tts-dev"
+  "sedaily-mbti-time-machine-dev"
 )
 
 # Update each function

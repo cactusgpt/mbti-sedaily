@@ -11,6 +11,7 @@ pytest-asyncio==0.24.0
 hypothesis==6.122.0
 python-dotenv==1.0.1
 requests==2.32.3
+beautifulsoup4==4.12.3
 # Google Analytics & Search Console
 google-analytics-data==0.18.0
 google-api-python-client==2.111.0
