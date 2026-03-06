@@ -18,7 +18,8 @@ export const mockArticles = [
         body: ["삼성전자의 HBM3E 양산은 단순 제품 출시가 아닌 AI 반도체 생태계 재편의 시작이다.", "핵심은 세 가지다. 첫째, SK하이닉스 독점 구도 깨기. 둘째, 엔비디아 H200/B200 GPU 공급망 진입. 셋째, 2025년 HBM 시장 점유율 30% 목표."],
         key_points: ["HBM3E 12단 양산 시작", "엔비디아 공급 계약 체결", "SK하이닉스 독점 구도 변화"],
         closing_line: "2025년 HBM 시장 점유율 추이 주목",
-        tone: "분석적"
+        tone: "분석적",
+        image_url: "/assets/NTsample.png"
       },
       NF: {
         title: "반도체 전쟁, 삼성의 반격이 시작됐다",
@@ -26,7 +27,8 @@ export const mockArticles = [
         body: ["SK하이닉스에 밀렸다는 평가를 받던 삼성전자가 드디어 반격에 나섰습니다.", "HBM3E 양산 시작. 이 한 줄의 뉴스가 의미하는 건 단순한 제품 출시가 아닙니다. 'AI 시대에 뒤처졌다'는 오명을 벗고, 다시 한번 반도체 강자로 돌아오겠다는 선언입니다."],
         key_points: ["1년간의 침묵을 깨고 반격 시작", "엔비디아가 선택한 파트너", "한국 반도체의 자존심 회복"],
         closing_line: "이제 진짜 경쟁이 시작됩니다.",
-        tone: "서사적"
+        tone: "서사적",
+        image_url: "/assets/NFsample.png"
       },
       ST: {
         title: "삼성전자 HBM3E 12단 양산 시작…엔비디아 공급",
@@ -34,7 +36,8 @@ export const mockArticles = [
         body: ["삼성전자가 HBM3E(고대역폭메모리) 12단 제품 양산을 시작했다.", "주요 내용: ▲HBM3E 12단 양산 개시 ▲엔비디아 H200/B200 GPU 공급 예정 ▲2025년 HBM 시장 점유율 30% 목표"],
         key_points: ["HBM3E 12단 양산", "엔비디아 공급 계약", "목표: 시장점유율 30%"],
         closing_line: "영향: AI 서버 시장, GPU 공급망",
-        tone: "팩트 중심"
+        tone: "팩트 중심",
+        image_url: "/assets/STsample.png"
       },
       SF: {
         title: "삼성이 드디어 해냈어요! AI 칩 핵심 부품 만들기 시작",
@@ -42,7 +45,8 @@ export const mockArticles = [
         body: ["여러분 혹시 HBM이라고 들어보셨어요? AI 칩에 꼭 필요한 초고속 메모리인데요 😊", "그동안 SK하이닉스가 이 시장을 거의 독점하다시피 했거든요. 엔비디아 같은 큰 회사들이 SK 제품만 썼어요. 근데 이제 삼성도 만들기 시작했대요! 🎉"],
         key_points: ["삼성이 1년 만에 따라잡았어요", "엔비디아도 이제 삼성 제품 쓴대요", "우리나라 반도체 기술 정말 대단해요"],
         closing_line: "삼성 화이팅! 🇰🇷",
-        tone: "친근한 대화체"
+        tone: "친근한 대화체",
+        image_url: "/assets/SFsample.png"
       }
     }
   },

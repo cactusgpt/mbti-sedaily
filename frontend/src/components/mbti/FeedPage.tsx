@@ -16,6 +16,7 @@ interface MbtiVersion {
   key_points: string[];
   closing_line: string;
   tone: string;
+  image_url?: string;
 }
 
 // ** 볼드 마크다운 제거
@@ -58,6 +59,7 @@ interface Props {
   selectedGroup: MbtiGroupId;
   onChangeGroup: () => void;
   onSwitchToStory?: () => void;
+  onMbtiChange?: (group: MbtiGroupId) => void;
 }
 
 // 에디터 정보 (심플하게)
@@ -119,13 +121,15 @@ function matchCategory(articleCategory: string, selectedCategory: string): boole
   return false;
 }
 
-export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Props) {
+export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbtiChange }: Props) {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState("전체");
   const [viewArticle, setViewArticle] = useState<Article | null>(null);
   const [currentAdIndex, setCurrentAdIndex] = useState(0);
+  const [adTransition, setAdTransition] = useState(true);
   const [currentMbtiIndex, setCurrentMbtiIndex] = useState(0);
+  const [mbtiTransition, setMbtiTransition] = useState(true);
 
   const editor = editors[selectedGroup];
   const prefetchingRef = useRef<Set<string>>(new Set());
@@ -194,21 +198,45 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
     }
   ];
 
-  // 광고 자동 스크롤 (원형)
+  // 광고 자동 스크롤 (원형 - 무한 루프)
   useEffect(() => {
     const timer = setInterval(() => {
+      setAdTransition(true);
       setCurrentAdIndex((prev) => prev + 1);
     }, 5000);
     return () => clearInterval(timer);
   }, []);
 
-  // MBTI 캐러셀 자동 스크롤 (원형)
+  // adIndex가 복제 슬라이드(마지막+1)에 도달하면 transition 없이 처음으로 리셋
+  useEffect(() => {
+    if (currentAdIndex === adMessages.length) {
+      const timeout = setTimeout(() => {
+        setAdTransition(false);
+        setCurrentAdIndex(0);
+      }, 700);
+      return () => clearTimeout(timeout);
+    }
+  }, [currentAdIndex, adMessages.length]);
+
+  // MBTI 캐러셀 자동 스크롤 (원형 - 무한 루프)
   useEffect(() => {
     const timer = setInterval(() => {
+      setMbtiTransition(true);
       setCurrentMbtiIndex((prev) => prev + 1);
     }, 5000);
     return () => clearInterval(timer);
   }, []);
+
+  // mbtiIndex가 복제 슬라이드(마지막+1)에 도달하면 transition 없이 처음으로 리셋
+  useEffect(() => {
+    if (currentMbtiIndex === mbtiMessages.length) {
+      const timeout = setTimeout(() => {
+        setMbtiTransition(false);
+        setCurrentMbtiIndex(0);
+      }, 700);
+      return () => clearTimeout(timeout);
+    }
+  }, [currentMbtiIndex, mbtiMessages.length]);
 
   // 프리페칭 함수 - hover 시 호출
   const prefetchArticle = useCallback((article: Article) => {
@@ -335,7 +363,8 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
     fetchArticles();
   }, [selectedCategory, fetchCategoryArticles]);
 
-  const heroArticle = articles[0];
+  const featuredArticles = articles.slice(0, 4);
+  const featuredSource = articles[0] ?? null; // 2x2 그리드용 원문 기사
   const gridArticles = articles.slice(1);
 
   return (
@@ -438,7 +467,10 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
           <>
             {/* Ad Banner - Auto Carousel with Slide Animation (원형) */}
             <div className="mb-8 relative overflow-hidden">
-              <div className="flex transition-transform duration-700 ease-in-out" style={{ transform: `translateX(-${(currentAdIndex % adMessages.length) * 100}%)` }}>
+              <div
+                className={`flex ${adTransition ? "transition-transform duration-700 ease-in-out" : ""}`}
+                style={{ transform: `translateX(-${currentAdIndex * 100}%)` }}
+              >
                 {adMessages.map((ad, index) => (
                   <div
                     key={index}
@@ -458,13 +490,28 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
                     </div>
                   </div>
                 ))}
+                {/* 첫 번째 슬라이드 복제 - 무한 루프용 */}
+                <div className="w-full flex-shrink-0">
+                  <div className={`bg-gradient-to-r ${adMessages[0].bgGradient} rounded-lg p-8 border-2 ${adMessages[0].borderColor} relative overflow-hidden`}>
+                    <div className={`absolute top-0 right-0 w-32 h-32 ${adMessages[0].circleColor1} rounded-full -mr-16 -mt-16 opacity-50`} />
+                    <div className={`absolute bottom-0 left-0 w-24 h-24 ${adMessages[0].circleColor2} rounded-full -ml-12 -mb-12 opacity-50`} />
+                    <div className="relative z-10">
+                      <p className="text-[24px] md:text-[28px] font-black text-gray-900 mb-2 text-center">
+                        {adMessages[0].title}
+                      </p>
+                      <p className="text-[14px] text-gray-600 text-center">
+                        {adMessages[0].subtitle}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
               {/* Indicator dots - 우측 하단 */}
               <div className="absolute bottom-4 right-4 flex gap-2 z-20">
                 {adMessages.map((_, index) => (
                   <button
                     key={index}
-                    onClick={() => setCurrentAdIndex(index)}
+                    onClick={() => { setAdTransition(true); setCurrentAdIndex(index); }}
                     className={`w-2 h-2 rounded-full transition-all ${
                       index === (currentAdIndex % adMessages.length) ? "bg-gray-900 w-6" : "bg-gray-400"
                     }`}
@@ -475,8 +522,11 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
             </div>
 
             {/* MBTI Type Carousel */}
-            <div className="mb-8 relative overflow-hidden">
-              <div className="flex transition-transform duration-700 ease-in-out" style={{ transform: `translateX(-${(currentMbtiIndex % mbtiMessages.length) * 100}%)` }}>
+            <div className="mb-8 relative overflow-hidden hidden">
+              <div
+                className={`flex ${mbtiTransition ? "transition-transform duration-700 ease-in-out" : ""}`}
+                style={{ transform: `translateX(-${currentMbtiIndex * 100}%)` }}
+              >
                 {mbtiMessages.map((mbti, index) => (
                   <div
                     key={index}
@@ -496,12 +546,27 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
                     </div>
                   </div>
                 ))}
+                {/* 첫 번째 슬라이드 복제 - 무한 루프용 */}
+                <div className="w-full flex-shrink-0">
+                  <div className={`bg-gradient-to-r ${mbtiMessages[0].bgGradient} rounded-lg p-8 border-2 ${mbtiMessages[0].borderColor} relative overflow-hidden`}>
+                    <div className={`absolute top-0 right-0 w-32 h-32 ${mbtiMessages[0].circleColor1} rounded-full -mr-16 -mt-16 opacity-50`} />
+                    <div className={`absolute bottom-0 left-0 w-24 h-24 ${mbtiMessages[0].circleColor2} rounded-full -ml-12 -mb-12 opacity-50`} />
+                    <div className="relative z-10">
+                      <p className="text-[24px] md:text-[28px] font-black text-gray-900 mb-2 text-center">
+                        {mbtiMessages[0].title}
+                      </p>
+                      <p className="text-[14px] text-gray-600 text-center">
+                        {mbtiMessages[0].subtitle}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div className="absolute bottom-4 right-4 flex gap-2 z-20">
                 {mbtiMessages.map((_, index) => (
                   <button
                     key={index}
-                    onClick={() => setCurrentMbtiIndex(index)}
+                    onClick={() => { setMbtiTransition(true); setCurrentMbtiIndex(index); }}
                     className={`w-2 h-2 rounded-full transition-all ${
                       index === (currentMbtiIndex % mbtiMessages.length) ? "bg-gray-900 w-6" : "bg-gray-400"
                     }`}
@@ -511,69 +576,158 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
               </div>
             </div>
 
-            {/* MBTI Style Selector - 4개 카드 */}
-            <div className="mb-12">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                {(['NT', 'NF', 'ST', 'SF'] as MbtiGroupId[]).map((groupId) => {
-                  const groupEditor = editors[groupId];
-                  const isSelected = selectedGroup === groupId;
-                  return (
-                    <button
-                      key={groupId}
-                      onClick={() => {
-                        localStorage.setItem('mbti-group', groupId);
-                        window.location.reload();
-                      }}
-                      className={`p-3 rounded-xl border-2 transition-all text-center ${
-                        isSelected
-                          ? "border-orange-500 bg-orange-50"
-                          : "border-gray-200 hover:border-gray-300 bg-white hover:shadow-md"
-                      }`}
-                    >
-                      <div className="flex flex-col items-center gap-1.5">
-                        <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+            {/* Featured Articles - 2x2 사진 그리드 (원문 기사의 4가지 유형) */}
+            {featuredSource && (
+              <div className="mb-6">
+                {/* 섹션 타이틀 */}
+                <p className="text-[24px] font-bold text-gray-900 mb-4">같은 팩트, 네 가지 전달 방식</p>
+
+                {/* 유형 선택 버튼 */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+                  {(['SF', 'NF', 'NT', 'ST'] as MbtiGroupId[]).map((groupId) => {
+                    const groupEditor = editors[groupId];
+                    const isSelected = selectedGroup === groupId;
+                    return (
+                      <button
+                        key={groupId}
+                        onClick={() => onMbtiChange?.(groupId)}
+                        className={`px-3 py-2 rounded-lg border-2 transition-all text-center flex items-center justify-center gap-1.5 ${
+                          isSelected
+                            ? "border-orange-500 bg-orange-50"
+                            : "border-gray-200 hover:border-gray-300 bg-white hover:shadow-sm"
+                        }`}
+                      >
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
                           isSelected ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
                         }`}>
                           {groupId}
                         </span>
-                        <span className="text-[14px] font-bold text-gray-900">{groupEditor.name}</span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Hero Article */}
-            {heroArticle && (
-              <article
-                className="flex flex-col md:flex-row gap-6 mb-12 cursor-pointer group"
-                onClick={() => openArticle(heroArticle)}
-                onMouseEnter={() => prefetchArticle(heroArticle)}
-              >
-                {heroArticle.image_url && (
-                  <div className="md:w-1/2 rounded-lg overflow-hidden">
-                    <img
-                      src={heroArticle.image_url}
-                      alt=""
-                      className="w-full h-[200px] md:h-[280px] object-cover group-hover:scale-[1.01] transition-transform duration-300"
-                    />
-                  </div>
-                )}
-                <div className={`${heroArticle.image_url ? "md:w-1/2" : "w-full"} flex flex-col justify-center`}>
-                  <p className="text-[12px] text-gray-400 mb-2">
-                    {heroArticle.category} · {formatTimeAgo(heroArticle.published_at)}
-                  </p>
-                  <h3 className="text-[22px] md:text-[26px] font-bold text-gray-900 leading-tight mb-3 group-hover:text-gray-600 transition-colors">
-                    {heroArticle.versions?.[selectedGroup]?.title || heroArticle.title}
-                  </h3>
-                  <p className="text-[15px] text-gray-600 leading-relaxed line-clamp-3">
-                    {heroArticle.versions?.[selectedGroup]?.body
-                      ? getBodyText(heroArticle.versions[selectedGroup].body)
-                      : heroArticle.content?.slice(0, 200) || heroArticle.sub_title || ""}
-                  </p>
+                        <span className={`text-[13px] font-bold ${isSelected ? "text-orange-600" : "text-gray-800"}`}>
+                          {groupEditor.name}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-              </article>
+
+                {/* 유형 슬라이더 */}
+                {(() => {
+                  const sliderOrder: MbtiGroupId[] = ['SF', 'NF', 'NT', 'ST'];
+                  const sliderLabels: Record<MbtiGroupId, string> = { SF: '속보형', NF: '공감형', NT: '분석형', ST: '실용형' };
+                  const currentIdx = sliderOrder.indexOf(selectedGroup);
+                  const pct = (currentIdx / (sliderOrder.length - 1)) * 100;
+
+                  const handleDrag = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+                    const track = e.currentTarget;
+                    const rect = track.getBoundingClientRect();
+                    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+                    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                    const idx = Math.round(ratio * (sliderOrder.length - 1));
+                    const newGroup = sliderOrder[idx];
+                    if (newGroup !== selectedGroup) onMbtiChange?.(newGroup);
+                  };
+
+                  return (
+                    <div className="mb-5 flex justify-center">
+                      <div className="w-[80%]">
+                        <div
+                          className="relative cursor-pointer select-none"
+                          onClick={handleDrag}
+                          onMouseMove={(e) => e.buttons === 1 && handleDrag(e)}
+                          onTouchMove={handleDrag}
+                        >
+                          <div className="absolute top-[5px] left-0 right-0 h-[2px] bg-gray-200 rounded-full" />
+                          <div className="absolute top-[1px] left-0 right-0 flex justify-between pointer-events-none">
+                            {sliderOrder.map((groupId) => (
+                              <div key={groupId} className="w-3 h-3 rounded-full bg-gray-200 border-2 border-white shadow-sm" />
+                            ))}
+                          </div>
+                          <div
+                            className="absolute top-[1px] w-3 h-3 bg-orange-500 rounded-full -translate-x-1/2 transition-all duration-200 shadow-md z-10"
+                            style={{ left: `${pct}%` }}
+                          />
+                          <div className="relative flex justify-between pt-6">
+                            {sliderOrder.map((groupId) => {
+                              const isActive = groupId === selectedGroup;
+                              return (
+                                <span key={groupId} className={`text-[10px] font-bold transition-colors duration-200 ${
+                                  isActive ? "text-orange-500" : "text-gray-400"
+                                }`}>
+                                  {sliderLabels[groupId]}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 원문 기사 링크 */}
+                {featuredSource.original_link && (
+                  <a
+                    href={featuredSource.original_link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-start justify-between gap-3 mb-4 group"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[11px] text-gray-400 shrink-0">원문</span>
+                      <span className="text-[20px] font-bold text-gray-900 group-hover:text-orange-500 transition-colors truncate">
+                        {featuredSource.title}
+                      </span>
+                    </div>
+                    <span className="text-[16px] text-gray-400 group-hover:text-orange-500 transition-colors shrink-0">↗</span>
+                  </a>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  {(['NT', 'NF', 'ST', 'SF'] as MbtiGroupId[]).map((groupId) => {
+                    const v = featuredSource.versions?.[groupId];
+                    const title = v?.title || featuredSource.title;
+                    const imageUrl = v?.image_url || featuredSource.image_url;
+                    const groupName = editors[groupId].name;
+                    const isSelected = groupId === selectedGroup;
+                    return (
+                      <article
+                        key={groupId}
+                        className={`cursor-pointer group rounded-xl transition-all duration-300 ${
+                          isSelected ? "ring-2 ring-orange-500 shadow-[0_0_16px_4px_rgba(249,115,22,0.25)]" : ""
+                        }`}
+                        onClick={() => openArticle(featuredSource)}
+                        onMouseEnter={() => prefetchArticle(featuredSource)}
+                      >
+                        <div className="w-full h-[220px] md:h-[260px] bg-gray-100 overflow-hidden rounded-xl">
+                          {imageUrl ? (
+                            <img
+                              src={imageUrl}
+                              alt=""
+                              className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gray-200" />
+                          )}
+                        </div>
+                        <div className="pt-3 pb-1 px-0.5 flex items-center gap-2">
+                          <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            isSelected ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
+                          }`}>
+                            {groupId} {groupName}
+                          </span>
+                          <h3 className="text-[13px] md:text-[14px] font-bold text-gray-900 leading-tight line-clamp-1">
+                            {title}
+                          </h3>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+
+                {/* 구분선 */}
+                <div className="border-t border-gray-200 mt-6 mb-4" />
+              </div>
             )}
 
             {/* Divider */}

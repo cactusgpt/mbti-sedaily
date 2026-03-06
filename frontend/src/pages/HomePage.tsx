@@ -111,6 +111,7 @@ export default function HomePage() {
         selectedGroup={userGroup}
         onChangeGroup={handleChangeGroup}
         onSwitchToStory={handleSwitchToStory}
+        onMbtiChange={handleMbtiChange}
       />
       <MbtiChatBot
         mbtiGroup={userGroup}
