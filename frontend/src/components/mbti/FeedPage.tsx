@@ -67,22 +67,22 @@ const editors: Record<MbtiGroupId, {
   emptyMessage: string;
 }> = {
   NT: {
-    name: "시현",
+    name: "구조분석",
     mbti: "NT",
     emptyMessage: "아직 뉴스가 없습니다.",
   },
   NF: {
-    name: "지원",
+    name: "가치탐색",
     mbti: "NF",
     emptyMessage: "아직 뉴스가 없습니다.",
   },
   ST: {
-    name: "정훈",
+    name: "실용체크",
     mbti: "ST",
     emptyMessage: "아직 뉴스가 없습니다.",
   },
   SF: {
-    name: "하은",
+    name: "사람이야기",
     mbti: "SF",
     emptyMessage: "아직 뉴스가 없습니다.",
   },
@@ -114,7 +114,7 @@ function matchCategory(articleCategory: string, selectedCategory: string): boole
   if (selectedCategory === "정치" && articleCategory === "정치") return true;
   if (selectedCategory === "사회" && articleCategory === "사회") return true;
   if (selectedCategory === "세계" && articleCategory === "국제") return true;
-  if (selectedCategory === "테크" && (articleCategory === "IT_과학" || articleCategory === "산업")) return true;
+  if (selectedCategory === "테크" && (articleCategory === "테크" || articleCategory === "IT_과학" || articleCategory === "산업")) return true;
   if (selectedCategory === "문화" && articleCategory === "문화") return true;
   return false;
 }
@@ -124,13 +124,97 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState("전체");
   const [viewArticle, setViewArticle] = useState<Article | null>(null);
+  const [currentAdIndex, setCurrentAdIndex] = useState(0);
+  const [currentMbtiIndex, setCurrentMbtiIndex] = useState(0);
 
   const editor = editors[selectedGroup];
   const prefetchingRef = useRef<Set<string>>(new Set());
 
+  // 광고 메시지 목록 (각각 다른 디자인)
+  const adMessages = [
+    {
+      title: "하나의 기사, 네 가지 스타일로 읽어보세요 🎭",
+      subtitle: "분석형 · 공감형 · 실용형 · 속보형 | 당신의 성향에 맞는 뉴스를 찾아보세요",
+      bgGradient: "from-orange-50 to-yellow-50",
+      borderColor: "border-orange-200",
+      circleColor1: "bg-orange-200",
+      circleColor2: "bg-yellow-200"
+    },
+    {
+      title: "뉴스의 팩트는 바꾸지 않습니다 📊",
+      subtitle: "독자에게 닿는 방식을 바꿉니다 | 당신에게 맞는 전달 방식을 선택하세요",
+      bgGradient: "from-blue-50 to-cyan-50",
+      borderColor: "border-blue-200",
+      circleColor1: "bg-blue-200",
+      circleColor2: "bg-cyan-200"
+    },
+    {
+      title: "같은 팩트, 네 가지 전달 방식 🎓",
+      subtitle: "독자가 선택합니다 | 분석형부터 속보형까지, 당신의 스타일로",
+      bgGradient: "from-violet-50 to-purple-50",
+      borderColor: "border-violet-200",
+      circleColor1: "bg-violet-200",
+      circleColor2: "bg-purple-200"
+    }
+  ];
+
+  // MBTI 타입 소개 메시지
+  const mbtiMessages = [
+    {
+      title: "NT: 구조분석",
+      subtitle: "논리적 구조와 인과관계를 분석합니다",
+      bgGradient: "from-indigo-50 to-blue-50",
+      borderColor: "border-indigo-200",
+      circleColor1: "bg-indigo-200",
+      circleColor2: "bg-blue-200"
+    },
+    {
+      title: "NF: 가치탐색",
+      subtitle: "사회적 의미와 가치를 탐구합니다",
+      bgGradient: "from-green-50 to-emerald-50",
+      borderColor: "border-green-200",
+      circleColor1: "bg-green-200",
+      circleColor2: "bg-emerald-200"
+    },
+    {
+      title: "ST: 실용체크",
+      subtitle: "현실적 정보와 실행 방안을 제시합니다",
+      bgGradient: "from-amber-50 to-orange-50",
+      borderColor: "border-amber-200",
+      circleColor1: "bg-amber-200",
+      circleColor2: "bg-orange-200"
+    },
+    {
+      title: "SF: 사람이야기",
+      subtitle: "사람의 이야기와 감정을 전달합니다",
+      bgGradient: "from-pink-50 to-rose-50",
+      borderColor: "border-pink-200",
+      circleColor1: "bg-pink-200",
+      circleColor2: "bg-rose-200"
+    }
+  ];
+
+  // 광고 자동 스크롤 (원형)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentAdIndex((prev) => prev + 1);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // MBTI 캐러셀 자동 스크롤 (원형)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentMbtiIndex((prev) => prev + 1);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
   // 프리페칭 함수 - hover 시 호출
   const prefetchArticle = useCallback((article: Article) => {
     const id = article.news_id;
+    // mock 데이터는 프리페칭 스킵
+    if (id.startsWith('mock-')) return;
     // 이미 캐시에 있거나 로딩 중이면 스킵
     if (prefetchCache.has(id) || prefetchingRef.current.has(id)) return;
     // MBTI 버전이 이미 있으면 스킵
@@ -352,6 +436,114 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
           </div>
         ) : (
           <>
+            {/* Ad Banner - Auto Carousel with Slide Animation (원형) */}
+            <div className="mb-8 relative overflow-hidden">
+              <div className="flex transition-transform duration-700 ease-in-out" style={{ transform: `translateX(-${(currentAdIndex % adMessages.length) * 100}%)` }}>
+                {adMessages.map((ad, index) => (
+                  <div
+                    key={index}
+                    className="w-full flex-shrink-0"
+                  >
+                    <div className={`bg-gradient-to-r ${ad.bgGradient} rounded-lg p-8 border-2 ${ad.borderColor} relative overflow-hidden`}>
+                      <div className={`absolute top-0 right-0 w-32 h-32 ${ad.circleColor1} rounded-full -mr-16 -mt-16 opacity-50`} />
+                      <div className={`absolute bottom-0 left-0 w-24 h-24 ${ad.circleColor2} rounded-full -ml-12 -mb-12 opacity-50`} />
+                      <div className="relative z-10">
+                        <p className="text-[24px] md:text-[28px] font-black text-gray-900 mb-2 text-center">
+                          {ad.title}
+                        </p>
+                        <p className="text-[14px] text-gray-600 text-center">
+                          {ad.subtitle}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {/* Indicator dots - 우측 하단 */}
+              <div className="absolute bottom-4 right-4 flex gap-2 z-20">
+                {adMessages.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setCurrentAdIndex(index)}
+                    className={`w-2 h-2 rounded-full transition-all ${
+                      index === (currentAdIndex % adMessages.length) ? "bg-gray-900 w-6" : "bg-gray-400"
+                    }`}
+                    aria-label={`광고 ${index + 1}`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* MBTI Type Carousel */}
+            <div className="mb-8 relative overflow-hidden">
+              <div className="flex transition-transform duration-700 ease-in-out" style={{ transform: `translateX(-${(currentMbtiIndex % mbtiMessages.length) * 100}%)` }}>
+                {mbtiMessages.map((mbti, index) => (
+                  <div
+                    key={index}
+                    className="w-full flex-shrink-0"
+                  >
+                    <div className={`bg-gradient-to-r ${mbti.bgGradient} rounded-lg p-8 border-2 ${mbti.borderColor} relative overflow-hidden`}>
+                      <div className={`absolute top-0 right-0 w-32 h-32 ${mbti.circleColor1} rounded-full -mr-16 -mt-16 opacity-50`} />
+                      <div className={`absolute bottom-0 left-0 w-24 h-24 ${mbti.circleColor2} rounded-full -ml-12 -mb-12 opacity-50`} />
+                      <div className="relative z-10">
+                        <p className="text-[24px] md:text-[28px] font-black text-gray-900 mb-2 text-center">
+                          {mbti.title}
+                        </p>
+                        <p className="text-[14px] text-gray-600 text-center">
+                          {mbti.subtitle}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="absolute bottom-4 right-4 flex gap-2 z-20">
+                {mbtiMessages.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setCurrentMbtiIndex(index)}
+                    className={`w-2 h-2 rounded-full transition-all ${
+                      index === (currentMbtiIndex % mbtiMessages.length) ? "bg-gray-900 w-6" : "bg-gray-400"
+                    }`}
+                    aria-label={`MBTI 타입 ${index + 1}`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* MBTI Style Selector - 4개 카드 */}
+            <div className="mb-12">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {(['NT', 'NF', 'ST', 'SF'] as MbtiGroupId[]).map((groupId) => {
+                  const groupEditor = editors[groupId];
+                  const isSelected = selectedGroup === groupId;
+                  return (
+                    <button
+                      key={groupId}
+                      onClick={() => {
+                        localStorage.setItem('mbti-group', groupId);
+                        window.location.reload();
+                      }}
+                      className={`p-3 rounded-xl border-2 transition-all text-center ${
+                        isSelected
+                          ? "border-orange-500 bg-orange-50"
+                          : "border-gray-200 hover:border-gray-300 bg-white hover:shadow-md"
+                      }`}
+                    >
+                      <div className="flex flex-col items-center gap-1.5">
+                        <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                          isSelected ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
+                        }`}>
+                          {groupId}
+                        </span>
+                        <span className="text-[14px] font-bold text-gray-900">{groupEditor.name}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Hero Article */}
             {heroArticle && (
               <article

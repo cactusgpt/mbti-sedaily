@@ -1,4 +1,4 @@
-// Mock articles for development - matches API response structure
+﻿// Mock articles for development - matches API response structure
 export const mockArticles = [
   {
     news_id: "mock-001",
@@ -63,7 +63,7 @@ export const mockArticles = [
     title: "카카오, AI 챗봇 '카나나' 출시",
     sub_title: "카카오톡에 통합된 생성형 AI 서비스",
     published_at: new Date(Date.now() - 8 * 3600000).toISOString(),
-    category: "IT_과학",
+    category: "테크",
     provider: "서울경제",
     byline: "이기자 기자",
     image_url: "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&q=80",
@@ -99,7 +99,7 @@ export const mockArticles = [
     title: "네이버, 클로바X 기업용 출시",
     sub_title: "초거대 AI로 B2B 시장 공략",
     published_at: new Date(Date.now() - 24 * 3600000).toISOString(),
-    category: "IT_과학",
+    category: "테크",
     provider: "서울경제",
     byline: "김기자 기자",
     image_url: "https://images.unsplash.com/photo-1676277791608-ac5c30be1b0e?w=800&q=80",
@@ -207,7 +207,7 @@ export const mockArticles = [
     title: "테슬라, 완전자율주행 베타 출시",
     sub_title: "국내 도입 시기는 미정",
     published_at: new Date(Date.now() - 78 * 3600000).toISOString(),
-    category: "IT_과학",
+    category: "테크",
     provider: "서울경제",
     byline: "정기자 기자",
     image_url: "https://images.unsplash.com/photo-1617704548623-340376564e68?w=800&q=80",
@@ -279,7 +279,7 @@ export const mockArticles = [
     title: "구글, 제미나이 2.0 공개",
     sub_title: "GPT-4 능가하는 성능 주장",
     published_at: new Date(Date.now() - 114 * 3600000).toISOString(),
-    category: "IT_과학",
+    category: "테크",
     provider: "서울경제",
     byline: "김기자 기자",
     image_url: "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&q=80",
@@ -351,7 +351,7 @@ export const mockArticles = [
     title: "애플, 비전프로 2 출시 예고",
     sub_title: "가격 인하·성능 개선",
     published_at: new Date(Date.now() - 150 * 3600000).toISOString(),
-    category: "IT_과학",
+    category: "테크",
     provider: "서울경제",
     byline: "박기자 기자",
     image_url: "https://images.unsplash.com/photo-1592478411213-6153e4ebc07d?w=800&q=80",

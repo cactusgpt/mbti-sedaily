@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { MessageCircle, X, Send, Sparkles } from 'lucide-react';
-import { useDraggable } from '@/hooks/useDraggable';
 
 // API Configuration
 const CHAT_API_URL = 'https://chzwwtjtgk.execute-api.us-east-1.amazonaws.com/dev/api/chat';
@@ -107,16 +106,6 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
 
   const persona = MBTI_PERSONAS[currentGroup];
   const colors = GROUP_COLORS[currentGroup];
-
-  // Draggable position
-  const { position, isDragging, hasDragged, handlers } = useDraggable({
-    storageKey: 'mbti-chatbot-position',
-    defaultPosition: {
-      x: typeof window !== 'undefined' ? window.innerWidth - 80 : 0,
-      y: typeof window !== 'undefined' ? window.innerHeight - 140 : 0
-    },
-    buttonSize: 56,
-  });
 
   // Show after delay
   useEffect(() => {
@@ -239,31 +228,18 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
       {/* Floating Button */}
       {!isOpen && (
         <div
-          className="fixed z-[45] group"
-          style={{
-            left: position.x,
-            top: position.y,
-            cursor: isDragging ? 'grabbing' : 'grab',
-            touchAction: 'none',
-          }}
+          className="fixed bottom-6 right-6 z-[45] group"
         >
           {/* Tooltip */}
-          {!isDragging && (
-            <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 ${colors.primary} text-white text-sm rounded-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-lg`}>
-              <span className="font-medium">{persona.emoji} {persona.name}</span>
-              <span className="block text-xs opacity-80">AI 어시스턴트</span>
-            </div>
-          )}
+          <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 ${colors.primary} text-white text-sm rounded-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none shadow-lg`}>
+            <span className="font-medium">{persona.emoji} {persona.name}</span>
+            <span className="block text-xs opacity-80">AI 어시스턴트</span>
+          </div>
 
           {/* Button */}
           <button
-            {...handlers}
-            onClick={() => {
-              if (!hasDragged()) setIsOpen(true);
-            }}
-            className={`w-14 h-14 ${colors.primary} ${colors.hover} text-white rounded-full shadow-lg flex items-center justify-center transition-all ${
-              isDragging ? 'scale-110 shadow-2xl' : 'hover:scale-110'
-            }`}
+            onClick={() => setIsOpen(true)}
+            className={`w-14 h-14 ${colors.primary} ${colors.hover} text-white rounded-full shadow-lg flex items-center justify-center transition-all hover:scale-110`}
             aria-label="AI 어시스턴트 열기"
           >
             <Sparkles className="w-6 h-6" />
@@ -274,11 +250,7 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
       {/* Chat Window */}
       {isOpen && (
         <div
-          className="fixed z-[60] w-[360px] h-[500px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 max-md:w-full max-md:h-[100dvh] max-md:rounded-none max-md:top-0 max-md:left-0 max-md:right-0 max-md:bottom-0"
-          style={typeof window !== 'undefined' && window.innerWidth >= 768 ? {
-            left: Math.min(Math.max(10, position.x - 300), window.innerWidth - 380),
-            top: Math.min(Math.max(10, position.y - 450), window.innerHeight - 520),
-          } : {}}
+          className="fixed bottom-24 right-6 z-[60] w-[360px] h-[500px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 max-md:w-full max-md:h-[100dvh] max-md:rounded-none max-md:top-0 max-md:left-0 max-md:right-0 max-md:bottom-0 max-md:fixed"
         >
           {/* Header */}
           <div className={`flex items-center justify-between px-4 py-3 ${colors.primary} text-white`}>
