@@ -130,6 +130,7 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
   const [adTransition, setAdTransition] = useState(true);
   const [currentMbtiIndex, setCurrentMbtiIndex] = useState(0);
   const [mbtiTransition, setMbtiTransition] = useState(true);
+  const [showAllArticles, setShowAllArticles] = useState(false);
 
   const editor = editors[selectedGroup];
   const prefetchingRef = useRef<Set<string>>(new Set());
@@ -664,69 +665,85 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                   );
                 })()}
 
-                {/* 원문 기사 링크 */}
-                {featuredSource.original_link && (
-                  <a
-                    href={featuredSource.original_link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-start justify-between gap-3 mb-4 group"
-                    onClick={(e) => e.stopPropagation()}
+                {/* 2x2 그리드 + 가운데 원문 카드 */}
+                <div className="relative">
+                  {/* SVG 대각선 연결선 - 그리드 위에 오버레이 */}
+                  <svg
+                    className="absolute inset-0 w-full h-full pointer-events-none z-10"
+                    preserveAspectRatio="none"
                   >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-[11px] text-gray-400 shrink-0">원문</span>
-                      <span className="text-[20px] font-bold text-gray-900 group-hover:text-orange-500 transition-colors truncate">
-                        {featuredSource.title}
-                      </span>
-                    </div>
-                    <span className="text-[16px] text-gray-400 group-hover:text-orange-500 transition-colors shrink-0">↗</span>
-                  </a>
-                )}
+                    {/* 좌상 → 중앙 */}
+                    <line x1="25%" y1="38%" x2="50%" y2="50%" stroke="#e5e7eb" strokeWidth="1.5" strokeDasharray="4 3" />
+                    {/* 우상 → 중앙 */}
+                    <line x1="75%" y1="38%" x2="50%" y2="50%" stroke="#e5e7eb" strokeWidth="1.5" strokeDasharray="4 3" />
+                    {/* 좌하 → 중앙 */}
+                    <line x1="25%" y1="62%" x2="50%" y2="50%" stroke="#e5e7eb" strokeWidth="1.5" strokeDasharray="4 3" />
+                    {/* 우하 → 중앙 */}
+                    <line x1="75%" y1="62%" x2="50%" y2="50%" stroke="#e5e7eb" strokeWidth="1.5" strokeDasharray="4 3" />
+                  </svg>
 
-                <div className="grid grid-cols-2 gap-4">
-                  {(['NT', 'NF', 'ST', 'SF'] as MbtiGroupId[]).map((groupId) => {
-                    const v = featuredSource.versions?.[groupId];
-                    const title = v?.title || featuredSource.title;
-                    const imageUrl = v?.image_url || featuredSource.image_url;
-                    const groupName = editors[groupId].name;
-                    const isSelected = groupId === selectedGroup;
-                    return (
-                      <article
-                        key={groupId}
-                        className={`cursor-pointer group rounded-xl transition-all duration-300 ${
-                          isSelected ? "ring-2 ring-orange-500 shadow-[0_0_16px_4px_rgba(249,115,22,0.25)]" : ""
-                        }`}
-                        onClick={() => openArticle(featuredSource)}
-                        onMouseEnter={() => prefetchArticle(featuredSource)}
+                  <div className="grid grid-cols-2 gap-4">
+                    {(['NT', 'NF', 'ST', 'SF'] as MbtiGroupId[]).map((groupId) => {
+                      const v = featuredSource.versions?.[groupId];
+                      const title = v?.title || featuredSource.title;
+                      const imageUrl = v?.image_url || featuredSource.image_url;
+                      const groupName = editors[groupId].name;
+                      const isSelected = groupId === selectedGroup;
+                      return (
+                        <article
+                          key={groupId}
+                          className={`cursor-pointer group rounded-xl transition-all duration-300 ${
+                            isSelected ? "ring-2 ring-orange-500 shadow-[0_0_16px_4px_rgba(249,115,22,0.25)]" : ""
+                          }`}
+                          onClick={() => openArticle(featuredSource)}
+                          onMouseEnter={() => prefetchArticle(featuredSource)}
+                        >
+                          <div className="w-full h-[220px] md:h-[260px] bg-gray-100 overflow-hidden rounded-xl">
+                            {imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt=""
+                                className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gray-200" />
+                            )}
+                          </div>
+                          <div className="pt-3 pb-1 px-0.5 flex items-center gap-2">
+                            <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              isSelected ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
+                            }`}>
+                              {groupId} {groupName}
+                            </span>
+                            <h3 className="text-[13px] md:text-[14px] font-bold text-gray-900 leading-tight line-clamp-1">
+                              {title}
+                            </h3>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+
+                  {/* 가운데 원문 카드 - absolute 오버레이 */}
+                  {featuredSource.original_link && (
+                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 w-[44%] max-w-[220px]">
+                      <a
+                        href={featuredSource.original_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-lg hover:shadow-xl hover:border-orange-300 transition-all group text-center"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <div className="w-full h-[220px] md:h-[260px] bg-gray-100 overflow-hidden rounded-xl">
-                          {imageUrl ? (
-                            <img
-                              src={imageUrl}
-                              alt=""
-                              className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
-                            />
-                          ) : (
-                            <div className="w-full h-full bg-gray-200" />
-                          )}
-                        </div>
-                        <div className="pt-3 pb-1 px-0.5 flex items-center gap-2">
-                          <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            isSelected ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
-                          }`}>
-                            {groupId} {groupName}
-                          </span>
-                          <h3 className="text-[13px] md:text-[14px] font-bold text-gray-900 leading-tight line-clamp-1">
-                            {title}
-                          </h3>
-                        </div>
-                      </article>
-                    );
-                  })}
+                        <span className="block text-[10px] text-gray-400 mb-1 font-medium tracking-wide uppercase">원문</span>
+                        <span className="block text-[13px] font-bold text-gray-900 group-hover:text-orange-500 transition-colors leading-snug line-clamp-3">
+                          {featuredSource.title}
+                        </span>
+                        <span className="block mt-2 text-[11px] text-orange-400 group-hover:text-orange-500">↗ 원문 보기</span>
+                      </a>
+                    </div>
+                  )}
                 </div>
 
-                {/* 구분선 */}
-                <div className="border-t border-gray-200 mt-6 mb-4" />
               </div>
             )}
 
@@ -734,46 +751,67 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
             <div className="border-t border-gray-200 mb-10" />
 
             {/* Grid */}
-            <div className="grid md:grid-cols-2 gap-x-10 gap-y-10">
-              {gridArticles.map((article) => {
-                const v = article.versions?.[selectedGroup];
-                // MBTI 버전 없는 기사도 원본 제목으로 표시 (클릭 시 On-Demand 변환)
-                const title = v?.title || article.title;
-                const content = v?.body
-                  ? getBodyText(v.body).slice(0, 100)
-                  : (article.content?.slice(0, 100) || article.sub_title || "");
+            {(() => {
+              const visibleArticles = showAllArticles ? gridArticles : gridArticles.slice(0, 8);
+              return (
+                <>
+                  <div className="grid md:grid-cols-2 gap-x-10 gap-y-10">
+                    {visibleArticles.map((article) => {
+                      const v = article.versions?.[selectedGroup];
+                      const title = v?.title || article.title;
+                      const content = v?.body
+                        ? getBodyText(v.body).slice(0, 100)
+                        : (article.content?.slice(0, 100) || article.sub_title || "");
 
-                return (
-                  <article
-                    key={article.news_id}
-                    className="flex gap-5 cursor-pointer group"
-                    onClick={() => openArticle(article)}
-                    onMouseEnter={() => prefetchArticle(article)}
-                  >
-                    {article.image_url && (
-                      <div className="shrink-0 w-[140px] h-[100px] rounded-lg overflow-hidden">
-                        <img
-                          src={article.image_url}
-                          alt=""
-                          className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
-                        />
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[11px] text-gray-400 mb-1.5">
-                        {article.category}
-                      </p>
-                      <h4 className="text-[15px] font-semibold text-gray-900 leading-snug mb-2 line-clamp-2 group-hover:text-gray-600 transition-colors">
-                        {title}
-                      </h4>
-                      <p className="text-[13px] text-gray-500 leading-relaxed line-clamp-2">
-                        {content}
-                      </p>
+                      return (
+                        <article
+                          key={article.news_id}
+                          className="flex gap-5 cursor-pointer group"
+                          onClick={() => openArticle(article)}
+                          onMouseEnter={() => prefetchArticle(article)}
+                        >
+                          {article.image_url && (
+                            <div className="shrink-0 w-[140px] h-[100px] rounded-lg overflow-hidden">
+                              <img
+                                src={article.image_url}
+                                alt=""
+                                className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
+                              />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] text-gray-400 mb-1.5">
+                              {article.category}
+                            </p>
+                            <h4 className="text-[15px] font-semibold text-gray-900 leading-snug mb-2 line-clamp-2 group-hover:text-gray-600 transition-colors">
+                              {title}
+                            </h4>
+                            <p className="text-[13px] text-gray-500 leading-relaxed line-clamp-2">
+                              {content}
+                            </p>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                  {gridArticles.length > 8 && (
+                    <div className="mt-10 text-center">
+                      <button
+                        onClick={() => setShowAllArticles(!showAllArticles)}
+                        className="px-6 py-2.5 text-[14px] font-medium text-gray-600 border border-gray-300 rounded-full hover:border-gray-400 hover:text-gray-900 transition-colors"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          {showAllArticles ? "접기" : "전체보기"}
+                          <svg className={`w-4 h-4 transition-transform duration-200 ${showAllArticles ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </span>
+                      </button>
                     </div>
-                  </article>
-                );
-              })}
-            </div>
+                  )}
+                </>
+              );
+            })()}
           </>
         )}
       </main>
