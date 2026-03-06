@@ -37,7 +37,7 @@ interface Article {
   image_url: string | null;
   content: string;
   original_link: string;
-  versions: Record<string, MbtiVersion>;
+  versions?: Record<string, MbtiVersion>;
 }
 
 interface Props {

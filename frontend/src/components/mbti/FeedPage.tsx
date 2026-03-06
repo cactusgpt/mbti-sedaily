@@ -4,6 +4,7 @@ import type { MbtiGroupId } from "@/data/mbtiGroups";
 import { API_URL } from "@/config/api";
 import { ArticleView } from "./ArticleView";
 import { UserMenu } from "@/components/auth/UserMenu";
+import { mockArticles } from "@/data/mockArticles";
 
 // 프리페칭 캐시 (전역)
 const prefetchCache = new Map<string, Article>();
@@ -50,7 +51,7 @@ interface Article {
   image_url: string | null;
   content: string;
   original_link: string;
-  versions: Record<string, MbtiVersion>;
+  versions?: Record<string, MbtiVersion>;
 }
 
 interface Props {
@@ -105,6 +106,17 @@ function categoryToApi(cat: string): string[] {
   if (cat === "테크") return ["IT_과학", "산업"];
   if (cat === "세계") return ["국제"];
   return [cat];
+}
+
+function matchCategory(articleCategory: string, selectedCategory: string): boolean {
+  if (selectedCategory === "전체") return true;
+  if (selectedCategory === "경제" && articleCategory === "경제") return true;
+  if (selectedCategory === "정치" && articleCategory === "정치") return true;
+  if (selectedCategory === "사회" && articleCategory === "사회") return true;
+  if (selectedCategory === "세계" && articleCategory === "국제") return true;
+  if (selectedCategory === "테크" && (articleCategory === "IT_과학" || articleCategory === "산업")) return true;
+  if (selectedCategory === "문화" && articleCategory === "문화") return true;
+  return false;
 }
 
 export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Props) {
@@ -208,20 +220,30 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
 
   useEffect(() => {
     async function fetchArticles() {
-      // 캐시에 있으면 즉시 사용
-      if (categoryCache.current[selectedCategory]) {
-        setArticles(categoryCache.current[selectedCategory]);
-        setLoading(false);
-        return;
-      }
-
+      // 캐시 무효화 (개발용)
+      categoryCache.current = {};
+      
       try {
         setLoading(true);
         const articles = await fetchCategoryArticles(selectedCategory);
-        categoryCache.current[selectedCategory] = articles;
-        setArticles(articles);
+        
+        // API에서 데이터가 없으면 mock 데이터 사용 (개발용)
+        if (articles.length === 0) {
+          console.log("Using mock data for development");
+          console.log("Selected category:", selectedCategory);
+          const filteredMock = mockArticles.filter(a => matchCategory(a.category, selectedCategory));
+          console.log("Filtered count:", filteredMock.length);
+          console.log("Sample categories:", filteredMock.slice(0, 3).map(a => a.category));
+          setArticles(filteredMock);
+        } else {
+          setArticles(articles);
+        }
       } catch (e) {
         console.error("Failed to fetch articles:", e);
+        console.log("API failed, using mock data");
+        const filteredMock = mockArticles.filter(a => matchCategory(a.category, selectedCategory));
+        console.log("Filtered count:", filteredMock.length);
+        setArticles(filteredMock);
       } finally {
         setLoading(false);
       }
