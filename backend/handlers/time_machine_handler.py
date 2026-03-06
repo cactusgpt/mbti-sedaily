@@ -29,8 +29,40 @@ CATEGORY_KEYWORDS = {
         "수출", "수입", "무역수지", "경상수지", "원달러", "강달러", "관세", "무역적자",
         "예산", "세수", "법인세", "국가채무", "재정적자", "긴축", "보조금",
         "취업자", "실업률", "최저임금", "일자리", "구직", "인력난", "파업",
-        "국제유가", "WTI", "원유", "천연가스", "OPEC", "감산",
+        "국제유가", "WTI", "원유", "천연가스", "OPEC", "감산", "시장"
     ],
+
+    "정치": [
+        # 권력기관·직위
+        "대통령", "대통령실", "국무총리", "장관", "차관", "수석", "비서관",
+        "국회의원", "원내대표", "당대표", "최고위원", "비상대책위",
+        "여당", "야당", "국민의힘", "민주당", "조국혁신당", "개혁신당",
+
+        # 입법·행정·사법
+        "국회", "본회의", "상임위", "법안", "통과", "부결", "필리버스터", "탄핵",
+        "헌법재판소", "헌재", "대법원", "검찰", "공수처", "특검", "감사원",
+        "행정명령", "시행령", "거부권", "재의요구",
+
+        # 선거·정당정치
+        "총선", "대선", "지방선거", "보궐선거", "공천", "경선", "후보",
+        "지지율", "여론조사", "민심", "당적", "입당", "탈당", "창당",
+        "민주당", "국민의힘", "조국혁신당", "개혁신당", "정의당", "열린민주당", "기본소득당", "새누리당", "한나라당", "민주당", "통합진보당", "자유한국당", "바른미래당",
+
+        # 정책·이슈
+        "정책", "공약", "예산안", "세제개편", "규제완화", "개혁",
+        "청문회", "국정감사", "국감", "대정부질문",
+        "인사청문", "임명", "해임", "사퇴", "사임",
+
+        # 정치적 사건·갈등
+        "여야", "갈등", "충돌", "합의", "협상", "연정", "연립",
+        "계엄", "내란", "수사", "구속", "기소", "판결", "항소",
+        "특별검사", "특위", "진상조사",
+
+        # 대외 정치
+        "남북관계", "북한", "통일부", "안보", "국방부", "합참",
+        "한미동맹", "주한미군", "한일관계", "외교부",
+    ],
+
     "IT": [
         "삼성", "SK하이닉스", "LG", "애플", "구글", "엔비디아", "메타", "마이크로소프트", "테슬라", "TSMC",
         "반도체", "메모리", "HBM", "파운드리", "시스템반도체", "D램", "낸드",
@@ -46,7 +78,8 @@ CATEGORY_KEYWORDS = {
         "베스트셀러", "출간", "작가", "소설", "에세이",
         "우승", "결승", "MVP", "이적", "계약", "올림픽", "월드컵",
         "여행", "관광", "방한", "한류", "유네스코",
-        "출시", "신작", "게임사",
+        "출시", "신작", "게임사", " SNS", "인플루언서", "유튜버", "크리에이터", "인기상",
+        "첫방"
     ],
     "사회": [
         "대통령", "정부", "국회", "여당", "야당", "법안", "예산안", "정책", "장관", "청문회",
@@ -55,7 +88,8 @@ CATEGORY_KEYWORDS = {
         "입시", "수능", "대학", "학교", "사교육", "교육부",
         "기후변화", "탄소", "미세먼지", "재생에너지", "탄소중립", "ESG",
         "인구감소", "이민", "다문화", "청년", "빈곤",
-        "폭염", "태풍", "홍수", "지진", "산불", "대피",
+        "폭염", "태풍", "홍수", "지진", "산불", "대피", "회장", "올림픽", "월드컵", "국가대표",
+        "채용", "난민", "노동", "파업", "임금", "최저임금", "근로시간", "비정규직", "정규직", "고용보험", "실업급여",
     ],
     "국제": [
         "트럼프", "바이든", "연준", "Fed", "미국경제", "월가",
@@ -73,7 +107,7 @@ def infer_category(title: str) -> str:
     for category in ["IT", "국제", "사회", "문화", "경제"]:
         if any(kw in title for kw in CATEGORY_KEYWORDS[category]):
             return category
-    return "경제"
+    return "사회"
 
 
 # ─── Wikipedia API ──────────────────────────────────────────────────────────
@@ -145,6 +179,14 @@ def fetch_sedaily_news(date: str, limit: int = 5) -> list[dict]:
     except ImportError:
         return []
     
+    import re
+    
+    # 제외할 태그와 키워드
+    EXCLUDE_TAGS = ["마켓아이", "인사", "부고", "사설", "비즈니스 유머", "시론", "발언대"]
+    EXCLUDE_KEYWORDS = ["칼럼"]
+    # '방송명' 패턴 (ex: '무한도전', '나혼자 산다')
+    BROADCAST_PATTERN = re.compile(r"^['‘’]([^’']+)['’]")
+    
     try:
         year, month, day = date.split("-")
         url = f"https://www.sedaily.com/newsArchive/{year}/{month}/{day}"
@@ -153,7 +195,7 @@ def fetch_sedaily_news(date: str, limit: int = 5) -> list[dict]:
         res.raise_for_status()
         
         soup = BeautifulSoup(res.text, "html.parser")
-        items = soup.select("ul.article-list li h2.headline a")[:limit]
+        items = soup.select("ul.article-list li h2.headline a")[:limit * 3]  # 필터링 고려해서 더 많이 가져오기
         
         news = []
         for item in items:
@@ -161,12 +203,29 @@ def fetch_sedaily_news(date: str, limit: int = 5) -> list[dict]:
             href = item.get("href", "")
             if not title or not href:
                 continue
+            
+            # 제외 조건 체크
+            if any(tag in title for tag in EXCLUDE_TAGS):
+                continue
+            if any(keyword in title for keyword in EXCLUDE_KEYWORDS):
+                continue
+            # [마켓아이] 같이 태그만 있는 경우 제외
+            if title.startswith("[") and title.endswith("]"):
+                continue
+            # '방송명' 패턴 제외 (ex: '무한도전' 김종국)
+            if BROADCAST_PATTERN.match(title):
+                continue
+            
             article_url = f"https://www.sedaily.com{href}" if href.startswith("/") else href
             news.append({
                 "title": title,
                 "category": infer_category(title),
                 "url": article_url
             })
+            
+            if len(news) >= limit:
+                break
+        
         return news
     except Exception as e:
         logger.warning(f"서울경제 뉴스 수집 실패: {e}")
