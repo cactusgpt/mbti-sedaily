@@ -90,11 +90,19 @@ def fetch_wikipedia_events(month: str, day: str, limit: int = 5) -> list[dict]:
         data = res.json()
         
         for event in data.get("events", [])[:limit]:
+            pages = event.get("pages", [])
+            images = []
+            for page in pages[:3]:  # 최대 3개 페이지에서 이미지 수집
+                thumbnail = page.get("thumbnail", {}).get("source")
+                if thumbnail:
+                    images.append(thumbnail)
+            
             events.append({
                 "year": event.get("year"),
                 "title": event.get("text", ""),
-                "description": event.get("pages", [{}])[0].get("extract", "") if event.get("pages") else "",
-                "url": event.get("pages", [{}])[0].get("content_urls", {}).get("desktop", {}).get("page", "") if event.get("pages") else ""
+                "description": pages[0].get("extract", "") if pages else "",
+                "url": pages[0].get("content_urls", {}).get("desktop", {}).get("page", "") if pages else "",
+                "images": images
             })
     except Exception as e:
         logger.warning(f"한국어 위키백과 실패: {e}")
@@ -108,11 +116,19 @@ def fetch_wikipedia_events(month: str, day: str, limit: int = 5) -> list[dict]:
             data = res.json()
             
             for event in data.get("events", [])[:limit]:
+                pages = event.get("pages", [])
+                images = []
+                for page in pages[:3]:  # 최대 3개 페이지에서 이미지 수집
+                    thumbnail = page.get("thumbnail", {}).get("source")
+                    if thumbnail:
+                        images.append(thumbnail)
+                
                 events.append({
                     "year": event.get("year"),
                     "title": event.get("text", ""),
-                    "description": event.get("pages", [{}])[0].get("extract", "") if event.get("pages") else "",
-                    "url": event.get("pages", [{}])[0].get("content_urls", {}).get("desktop", {}).get("page", "") if event.get("pages") else ""
+                    "description": pages[0].get("extract", "") if pages else "",
+                    "url": pages[0].get("content_urls", {}).get("desktop", {}).get("page", "") if pages else "",
+                    "images": images
                 })
         except Exception as e:
             logger.error(f"영어 위키백과 실패: {e}")

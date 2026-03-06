@@ -10,7 +10,8 @@ export interface HistoricalEvent {
   title: string;
   description: string;
   category: string;
-  image: string;
+  images?: string[];  // Wikipedia API에서 제공하는 여러 이미지
+  image?: string;     // fallback용 단일 이미지
 }
 
 export interface TimeMachineData {

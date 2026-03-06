@@ -330,67 +330,95 @@ export default function TimeMachinePage() {
 
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
               <h3 className="text-gray-800 font-bold text-sm mb-4 flex items-center gap-2"><span>📰</span> 그날의 주요 뉴스</h3>
-              <div className="divide-y divide-gray-50">
-                {news.map((item, i) => (
-                  <div key={i} className="py-3 first:pt-0 last:pb-0">
-                    <div className="flex items-start gap-2.5">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 mt-0.5 ${CATEGORY_COLOR[item.category] ?? "bg-gray-100 text-gray-600"}`}>{item.category}</span>
-                      <div>
-                        {item.url ? (
-                          <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-gray-800 text-sm font-medium leading-snug hover:underline">{item.title}</a>
-                        ) : (
-                          <p className="text-gray-800 text-sm font-medium leading-snug">{item.title}</p>
-                        )}
-                        {item.summary && <p className="text-gray-400 text-xs mt-1 leading-relaxed">{item.summary}</p>}
+              {new Date(targetDate).getFullYear() < 1995 ? (
+                <div className="py-8 text-center">
+                  <p className="text-gray-400 text-sm">📦 1995년 이전 데이터는 준비 중입니다</p>
+                </div>
+              ) : news.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="text-gray-400 text-sm">해당 날짜의 뉴스를 찾을 수 없습니다</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-50">
+                  {news.map((item, i) => (
+                    <div key={i} className="py-3 first:pt-0 last:pb-0">
+                      <div className="flex items-start gap-2.5">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium shrink-0 mt-0.5 ${CATEGORY_COLOR[item.category] ?? "bg-gray-100 text-gray-600"}`}>{item.category}</span>
+                        <div>
+                          {item.url ? (
+                            <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-gray-800 text-sm font-medium leading-snug hover:underline">{item.title}</a>
+                          ) : (
+                            <p className="text-gray-800 text-sm font-medium leading-snug">{item.title}</p>
+                          )}
+                          {item.summary && <p className="text-gray-400 text-xs mt-1 leading-relaxed">{item.summary}</p>}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
               <h3 className="text-gray-800 font-bold text-sm mb-6 flex items-center gap-2"><span>🕰️</span> 같은 날, 역사 속 이슈</h3>
               <div className="hidden md:block overflow-x-auto">
                 <div className="flex items-start min-w-max pb-2">
-                  {events.map((ev, i) => (
-                    <div key={i} className="flex flex-col items-center" style={{ width: 176 }}>
-                      <div className="flex items-center w-full h-4 mb-2">
-                        {i > 0 ? <div className="flex-1 h-px bg-gray-300" /> : <div className="flex-1" />}
-                        <div className="w-3 h-3 rounded-full bg-gray-800 border-2 border-white ring-1 ring-gray-300 shrink-0" />
-                        {i < events.length - 1 ? <div className="flex-1 h-px bg-gray-300" /> : <div className="flex-1" />}
-                      </div>
-                      <p className="text-gray-500 text-xs font-semibold mb-2">{ev.year}</p>
-                      <div className="w-40 rounded-xl overflow-hidden border border-gray-200 shadow-sm hover:border-gray-300 hover:shadow-md transition-all cursor-pointer">
-                        <img src={ev.image} alt={ev.title} className="w-full h-24 object-cover bg-gray-100"
-                          onError={(e) => { (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=400&q=80"; }} />
-                        <div className="p-2.5">
-                          <p className="text-gray-800 text-xs font-semibold leading-snug line-clamp-2">{ev.title}</p>
-                          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium mt-1.5 inline-block ${CATEGORY_COLOR[ev.category] ?? "bg-gray-100 text-gray-600"}`}>{ev.category}</span>
+                  {events.map((ev, i) => {
+                    const mockImages = [
+                      "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=400&q=80",
+                      "https://images.unsplash.com/photo-1495020689067-958852a7765e?w=400&q=80",
+                      "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=400&q=80",
+                      "https://images.unsplash.com/photo-1444653614773-995cb1ef9efa?w=400&q=80",
+                      "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=400&q=80",
+                    ];
+                    const displayImage = ev.images?.[0] ?? ev.image ?? mockImages[i % mockImages.length];
+                    return (
+                      <div key={i} className="flex flex-col items-center" style={{ width: 176 }}>
+                        <div className="flex items-center w-full h-4 mb-2">
+                          {i > 0 ? <div className="flex-1 h-px bg-gray-300" /> : <div className="flex-1" />}
+                          <div className="w-3 h-3 rounded-full bg-gray-800 border-2 border-white ring-1 ring-gray-300 shrink-0" />
+                          {i < events.length - 1 ? <div className="flex-1 h-px bg-gray-300" /> : <div className="flex-1" />}
+                        </div>
+                        <p className="text-gray-500 text-xs font-semibold mb-2">{ev.year}</p>
+                        <div className="w-40 rounded-xl overflow-hidden border border-gray-200 shadow-sm hover:border-gray-300 hover:shadow-md transition-all cursor-pointer">
+                          <img src={displayImage} alt={ev.title} className="w-full h-24 object-cover bg-gray-100" />
+                          <div className="p-2.5">
+                            <p className="text-gray-800 text-xs font-semibold leading-snug line-clamp-2">{ev.title}</p>
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium mt-1.5 inline-block ${CATEGORY_COLOR[ev.category] ?? "bg-gray-100 text-gray-600"}`}>{ev.category}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
               <div className="md:hidden space-y-0">
-                {events.map((ev, i) => (
-                  <div key={i} className="flex gap-3">
-                    <div className="flex flex-col items-center pt-1">
-                      <div className="w-2.5 h-2.5 rounded-full bg-gray-800 border-2 border-white ring-1 ring-gray-300 shrink-0" />
-                      {i < events.length - 1 && <div className="w-px flex-1 bg-gray-200 my-1" />}
-                    </div>
-                    <div className="flex gap-3 pb-4 flex-1">
-                      <img src={ev.image} alt={ev.title} className="w-20 h-16 object-cover rounded-lg shrink-0 bg-gray-100"
-                        onError={(e) => { (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=400&q=80"; }} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-gray-400 text-xs font-semibold">{ev.year}</p>
-                        <p className="text-gray-800 text-sm font-semibold leading-snug mt-0.5">{ev.title}</p>
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium mt-1 inline-block ${CATEGORY_COLOR[ev.category] ?? "bg-gray-100 text-gray-600"}`}>{ev.category}</span>
+                {events.map((ev, i) => {
+                  const mockImages = [
+                    "https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=400&q=80",
+                    "https://images.unsplash.com/photo-1495020689067-958852a7765e?w=400&q=80",
+                    "https://images.unsplash.com/photo-1585829365295-ab7cd400c167?w=400&q=80",
+                    "https://images.unsplash.com/photo-1444653614773-995cb1ef9efa?w=400&q=80",
+                    "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=400&q=80",
+                  ];
+                  const displayImage = ev.images?.[0] ?? ev.image ?? mockImages[i % mockImages.length];
+                  return (
+                    <div key={i} className="flex gap-3">
+                      <div className="flex flex-col items-center pt-1">
+                        <div className="w-2.5 h-2.5 rounded-full bg-gray-800 border-2 border-white ring-1 ring-gray-300 shrink-0" />
+                        {i < events.length - 1 && <div className="w-px flex-1 bg-gray-200 my-1" />}
+                      </div>
+                      <div className="flex gap-3 pb-4 flex-1">
+                        <img src={displayImage} alt={ev.title} className="w-20 h-16 object-cover rounded-lg shrink-0 bg-gray-100" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-gray-400 text-xs font-semibold">{ev.year}</p>
+                          <p className="text-gray-800 text-sm font-semibold leading-snug mt-0.5">{ev.title}</p>
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium mt-1 inline-block ${CATEGORY_COLOR[ev.category] ?? "bg-gray-100 text-gray-600"}`}>{ev.category}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

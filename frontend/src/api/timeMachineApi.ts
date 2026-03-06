@@ -61,9 +61,19 @@ export async function fetchTimeMachineData(date: string): Promise<TimeMachineDat
     const res = await fetch(`${API_URL}/time-machine?date=${date}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    
+    // API에서 받은 events를 historicalEvents로 변환
+    const historicalEvents: HistoricalEvent[] = (data.events ?? []).map((ev: any) => ({
+      year: ev.year,
+      title: ev.title,
+      description: ev.description ?? "",
+      category: "역사",
+      images: ev.images ?? [],
+    }));
+    
     return {
       news: data.news ?? [],
-      historicalEvents: getFallbackHistoricalEvents(date), // 역사 이슈는 계속 로컬 데이터
+      historicalEvents: historicalEvents.length > 0 ? historicalEvents : getFallbackHistoricalEvents(date),
     };
   } catch {
     return {
