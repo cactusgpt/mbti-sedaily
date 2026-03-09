@@ -9,6 +9,45 @@ import { mockArticles } from "@/data/mockArticles";
 // 프리페칭 캐시 (전역)
 const prefetchCache = new Map<string, Article>();
 
+// 스크롤 진입 애니메이션 훅
+function useScrollReveal() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          el.style.opacity = "1";
+          el.style.transform = "translateY(0)";
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1, rootMargin: "0px 0px -40px 0px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return ref;
+}
+
+// 스크롤 애니메이션 래퍼 컴포넌트
+function RevealItem({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
+  const ref = useScrollReveal();
+  return (
+    <div
+      ref={ref}
+      style={{
+        opacity: 0,
+        transform: "translateY(28px)",
+        transition: `opacity 0.55s cubic-bezier(0.4,0,0.2,1) ${delay}ms, transform 0.55s cubic-bezier(0.4,0,0.2,1) ${delay}ms`,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 interface MbtiVersion {
   title: string;
   subtitle: string;
@@ -577,8 +616,9 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
               </div>
             </div>
 
-            {/* Featured Articles - 2x2 사진 그리드 (원문 기사의 4가지 유형) */}
+            {/* Featured Articles - 전체일 때 2x2 그리드, 카테고리일 때 히어로 카드 */}
             {featuredSource && (
+              <RevealItem>
               <div className="mb-6">
                 {/* 섹션 타이틀 */}
                 <p className="text-[24px] font-bold text-gray-900 mb-4">같은 팩트, 네 가지 전달 방식</p>
@@ -665,24 +705,27 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                   );
                 })()}
 
+                {/* 전체: 2x2 그리드 / 카테고리: 히어로 카드 */}
+                {selectedCategory === "전체" ? (
+                  <>
                 {/* 2x2 그리드 + 가운데 원문 카드 */}
-                <div className="relative">
+                <div className="relative max-w-[520px] mx-auto">
                   {/* SVG 대각선 연결선 - 그리드 위에 오버레이 */}
                   <svg
                     className="absolute inset-0 w-full h-full pointer-events-none z-10"
                     preserveAspectRatio="none"
                   >
                     {/* 좌상 → 중앙 */}
-                    <line x1="25%" y1="38%" x2="50%" y2="50%" stroke="#e5e7eb" strokeWidth="1.5" strokeDasharray="4 3" />
+                    <line x1="25%" y1="40%" x2="50%" y2="50%" stroke="#fdba74" strokeWidth="1.5" strokeDasharray="4 3" />
                     {/* 우상 → 중앙 */}
-                    <line x1="75%" y1="38%" x2="50%" y2="50%" stroke="#e5e7eb" strokeWidth="1.5" strokeDasharray="4 3" />
+                    <line x1="75%" y1="40%" x2="50%" y2="50%" stroke="#fdba74" strokeWidth="1.5" strokeDasharray="4 3" />
                     {/* 좌하 → 중앙 */}
-                    <line x1="25%" y1="62%" x2="50%" y2="50%" stroke="#e5e7eb" strokeWidth="1.5" strokeDasharray="4 3" />
+                    <line x1="25%" y1="60%" x2="50%" y2="50%" stroke="#fdba74" strokeWidth="1.5" strokeDasharray="4 3" />
                     {/* 우하 → 중앙 */}
-                    <line x1="75%" y1="62%" x2="50%" y2="50%" stroke="#e5e7eb" strokeWidth="1.5" strokeDasharray="4 3" />
+                    <line x1="75%" y1="60%" x2="50%" y2="50%" stroke="#fdba74" strokeWidth="1.5" strokeDasharray="4 3" />
                   </svg>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-6 max-w-[520px] mx-auto">
                     {(['NT', 'NF', 'ST', 'SF'] as MbtiGroupId[]).map((groupId) => {
                       const v = featuredSource.versions?.[groupId];
                       const title = v?.title || featuredSource.title;
@@ -692,13 +735,13 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                       return (
                         <article
                           key={groupId}
-                          className={`cursor-pointer group rounded-xl transition-all duration-300 ${
-                            isSelected ? "ring-2 ring-orange-500 shadow-[0_0_16px_4px_rgba(249,115,22,0.25)]" : ""
+                          className={`cursor-pointer group rounded-lg transition-all duration-300 ${
+                            isSelected ? "ring-2 ring-orange-500 shadow-[0_0_12px_3px_rgba(249,115,22,0.25)]" : ""
                           }`}
                           onClick={() => openArticle(featuredSource)}
                           onMouseEnter={() => prefetchArticle(featuredSource)}
                         >
-                          <div className="w-full h-[220px] md:h-[260px] bg-gray-100 overflow-hidden rounded-xl">
+                          <div className="w-full h-[130px] md:h-[150px] bg-gray-100 overflow-hidden rounded-lg">
                             {imageUrl ? (
                               <img
                                 src={imageUrl}
@@ -709,13 +752,13 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                               <div className="w-full h-full bg-gray-200" />
                             )}
                           </div>
-                          <div className="pt-3 pb-1 px-0.5 flex items-center gap-2">
-                            <span className={`shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          <div className="pt-2 pb-1 px-0.5 flex items-center gap-1.5">
+                            <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
                               isSelected ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
                             }`}>
                               {groupId} {groupName}
                             </span>
-                            <h3 className="text-[13px] md:text-[14px] font-bold text-gray-900 leading-tight line-clamp-1">
+                            <h3 className="text-[11px] md:text-[12px] font-bold text-gray-900 leading-tight line-clamp-1">
                               {title}
                             </h3>
                           </div>
@@ -726,7 +769,7 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
 
                   {/* 가운데 원문 카드 - absolute 오버레이 */}
                   {featuredSource.original_link && (
-                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 w-[44%] max-w-[220px]">
+                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 w-[38%] max-w-[170px]">
                       <a
                         href={featuredSource.original_link}
                         target="_blank"
@@ -743,8 +786,48 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                     </div>
                   )}
                 </div>
+                  </>
+                ) : (
+                  /* 카테고리 진입 시 가로형 카드 */
+                  <article
+                    className="cursor-pointer group flex gap-4 items-center rounded-xl p-3 border border-gray-100 hover:border-orange-200 hover:shadow-md transition-all duration-300"
+                    onClick={() => openArticle(featuredSource)}
+                    onMouseEnter={() => prefetchArticle(featuredSource)}
+                  >
+                    {(() => {
+                      const v = featuredSource.versions?.[selectedGroup];
+                      const title = v?.title || featuredSource.title;
+                      const imageUrl = v?.image_url || featuredSource.image_url;
+                      const groupName = editors[selectedGroup].name;
+                      return (
+                        <>
+                          <div className="shrink-0 w-[110px] h-[80px] md:w-[140px] md:h-[96px] bg-gray-100 overflow-hidden rounded-lg">
+                            {imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt=""
+                                className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gray-200" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500 text-white mb-1.5">
+                              {selectedGroup} {groupName}
+                            </span>
+                            <h3 className="text-[14px] md:text-[16px] font-bold text-gray-900 leading-snug line-clamp-3">
+                              {title}
+                            </h3>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </article>
+                )}
 
               </div>
+              </RevealItem>
             )}
 
             {/* Divider */}
@@ -756,7 +839,7 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
               return (
                 <>
                   <div className="grid md:grid-cols-2 gap-x-10 gap-y-10">
-                    {visibleArticles.map((article) => {
+                    {visibleArticles.map((article, idx) => {
                       const v = article.versions?.[selectedGroup];
                       const title = v?.title || article.title;
                       const content = v?.body
@@ -764,8 +847,8 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                         : (article.content?.slice(0, 100) || article.sub_title || "");
 
                       return (
+                        <RevealItem key={article.news_id} delay={(idx % 4) * 60}>
                         <article
-                          key={article.news_id}
                           className="flex gap-5 cursor-pointer group"
                           onClick={() => openArticle(article)}
                           onMouseEnter={() => prefetchArticle(article)}
@@ -791,6 +874,7 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                             </p>
                           </div>
                         </article>
+                        </RevealItem>
                       );
                     })}
                   </div>
