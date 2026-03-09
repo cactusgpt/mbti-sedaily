@@ -523,20 +523,20 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                 {[...adMessages, adMessages[0]].map((ad, index) => (
                   <div key={index} className="w-full flex-shrink-0">
                     <div
-                      className="flex items-center gap-6 px-8 py-6 rounded-xl"
-                      style={{ backgroundColor: ad.bg, minHeight: "110px" }}
+                      className="flex items-center gap-5 px-6 py-4 rounded-xl"
+                      style={{ backgroundColor: ad.bg, minHeight: "80px" }}
                     >
-                      <div className="text-[56px] leading-none flex-shrink-0 select-none">
+                      <div className="text-[40px] leading-none flex-shrink-0 select-none">
                         {ad.icon}
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <p className={`text-[11px] font-semibold tracking-widest uppercase ${ad.subtitleColor}`}>
+                      <div className="flex flex-col gap-0.5">
+                        <p className={`text-[10px] font-semibold tracking-widest uppercase ${ad.subtitleColor}`}>
                           {ad.subtitle}
                         </p>
-                        <p className={`text-[22px] md:text-[26px] font-black leading-tight ${ad.textColor}`}>
+                        <p className={`text-[18px] md:text-[20px] font-black leading-tight ${ad.textColor}`}>
                           {ad.title}
                         </p>
-                        <p className={`text-[13px] ${ad.descColor}`}>
+                        <p className={`text-[12px] ${ad.descColor}`}>
                           {ad.desc}
                         </p>
                       </div>
@@ -719,86 +719,71 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                   </>
                 )}
 
-                {/* 전체: 2x2 그리드 / 카테고리: 히어로 카드 */}
+                {/* 전체: 원문 + 4카드 / 카테고리: 히어로 카드 */}
                 {selectedCategory === "전체" ? (
                   <>
-                {/* 2x2 그리드 + 가운데 원문 카드 */}
-                <div className="relative max-w-[780px] mx-auto">
-                  {/* SVG 대각선 연결선 - 그리드 위에 오버레이 */}
-                  <svg
-                    className="absolute inset-0 w-full h-full pointer-events-none z-10"
-                    preserveAspectRatio="none"
-                  >
-                    {/* 좌상 → 중앙 */}
-                    <line x1="25%" y1="40%" x2="50%" y2="50%" stroke="#fdba74" strokeWidth="1.5" strokeDasharray="4 3" />
-                    {/* 우상 → 중앙 */}
-                    <line x1="75%" y1="40%" x2="50%" y2="50%" stroke="#fdba74" strokeWidth="1.5" strokeDasharray="4 3" />
-                    {/* 좌하 → 중앙 */}
-                    <line x1="25%" y1="60%" x2="50%" y2="50%" stroke="#fdba74" strokeWidth="1.5" strokeDasharray="4 3" />
-                    {/* 우하 → 중앙 */}
-                    <line x1="75%" y1="60%" x2="50%" y2="50%" stroke="#fdba74" strokeWidth="1.5" strokeDasharray="4 3" />
-                  </svg>
-
-                  <div className="grid grid-cols-2 gap-x-32 gap-y-20 max-w-[780px] mx-auto">
-                    {(['NT', 'NF', 'ST', 'SF'] as MbtiGroupId[]).map((groupId) => {
-                      const v = featuredSource.versions?.[groupId];
-                      const title = v?.title || featuredSource.title;
-                      const imageUrl = v?.image_url || featuredSource.image_url;
-                      const groupName = editors[groupId].name;
-                      const isSelected = groupId === selectedGroup;
-                      return (
-                        <article
-                          key={groupId}
-                          className={`cursor-pointer group rounded-lg transition-all duration-300 ${
-                            isSelected ? "ring-2 ring-orange-500 shadow-[0_0_12px_3px_rgba(249,115,22,0.25)]" : ""
-                          }`}
-                          onClick={() => openArticle(featuredSource)}
-                          onMouseEnter={() => prefetchArticle(featuredSource)}
-                        >
-                          <div className="w-full h-[130px] md:h-[150px] bg-gray-100 overflow-hidden rounded-lg">
-                            {imageUrl ? (
-                              <img
-                                src={imageUrl}
-                                alt=""
-                                className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
-                              />
-                            ) : (
-                              <div className="w-full h-full bg-gray-200" />
-                            )}
-                          </div>
-                          <div className="pt-2 pb-1 px-0.5 flex items-center gap-1.5">
-                            <span className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                              isSelected ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
-                            }`}>
-                              {groupId} {groupName}
-                            </span>
-                            <h3 className="text-[11px] md:text-[12px] font-bold text-gray-900 leading-tight line-clamp-1">
-                              {title}
-                            </h3>
-                          </div>
-                        </article>
-                      );
-                    })}
+                {/* 원문 카드 */}
+                {featuredSource.original_link && (
+                  <div className="mb-5">
+                    <a
+                      href={featuredSource.original_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-4 px-5 py-4 bg-gray-50 border border-gray-200 rounded-xl hover:border-orange-300 hover:bg-orange-50 transition-all group"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 bg-gray-200 group-hover:bg-orange-200 text-gray-500 group-hover:text-orange-600 rounded-full uppercase tracking-wide transition-colors">원문</span>
+                      <span className="text-[17px] font-bold text-gray-900 group-hover:text-orange-600 transition-colors line-clamp-1 flex-1">
+                        {featuredSource.title}
+                      </span>
+                      <span className="text-[12px] font-semibold text-gray-400 group-hover:text-orange-500 shrink-0 transition-colors">↗ 원문 보기</span>
+                    </a>
                   </div>
+                )}
 
-                  {/* 가운데 원문 카드 - absolute 오버레이 */}
-                  {featuredSource.original_link && (
-                    <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-20 w-[38%] max-w-[170px]">
-                      <a
-                        href={featuredSource.original_link}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block bg-white border border-gray-200 rounded-xl px-4 py-3 shadow-lg hover:shadow-xl hover:border-orange-300 transition-all group text-center"
-                        onClick={(e) => e.stopPropagation()}
+                {/* 4카드 그리드: 가로 4열 → 좁으면 2x2 */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {(['SF', 'NF', 'NT', 'ST'] as MbtiGroupId[]).map((groupId) => {
+                    const v = featuredSource.versions?.[groupId];
+                    const title = v?.title || featuredSource.title;
+                    const imageUrl = v?.image_url || featuredSource.image_url;
+                    const groupName = editors[groupId].name;
+                    const isSelected = groupId === selectedGroup;
+                    return (
+                      <article
+                        key={groupId}
+                        className={`cursor-pointer group rounded-xl overflow-hidden border transition-all duration-300 ${
+                          isSelected
+                            ? "border-orange-400 shadow-[0_0_12px_3px_rgba(249,115,22,0.2)]"
+                            : "border-gray-200 hover:border-orange-200 hover:shadow-md"
+                        }`}
+                        onClick={() => openArticle(featuredSource)}
+                        onMouseEnter={() => prefetchArticle(featuredSource)}
                       >
-                        <span className="block text-[10px] text-gray-400 mb-1 font-medium tracking-wide uppercase">원문</span>
-                        <span className="block text-[13px] font-bold text-gray-900 group-hover:text-orange-500 transition-colors leading-snug line-clamp-3">
-                          {featuredSource.title}
-                        </span>
-                        <span className="block mt-2 text-[11px] text-orange-400 group-hover:text-orange-500">↗ 원문 보기</span>
-                      </a>
-                    </div>
-                  )}
+                        <div className="w-full aspect-[4/3] bg-gray-100 overflow-hidden">
+                          {imageUrl ? (
+                            <img
+                              src={imageUrl}
+                              alt=""
+                              className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gray-200" />
+                          )}
+                        </div>
+                        <div className="p-2.5">
+                          <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full mb-1 ${
+                            isSelected ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-500"
+                          }`}>
+                            {groupId} {groupName}
+                          </span>
+                          <h3 className="text-[12px] font-bold text-gray-900 leading-snug line-clamp-2">
+                            {title}
+                          </h3>
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
                   </>
                 ) : (
@@ -881,12 +866,12 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                       return (
                         <RevealItem key={article.news_id} delay={(idx % 4) * 60}>
                         <article
-                          className="flex gap-5 cursor-pointer group"
+                          className="flex gap-4 cursor-pointer group border-b border-gray-100 pb-6"
                           onClick={() => openArticle(article)}
                           onMouseEnter={() => prefetchArticle(article)}
                         >
                           {article.image_url && (
-                            <div className="shrink-0 w-[140px] h-[100px] rounded-lg overflow-hidden">
+                            <div className="shrink-0 w-[120px] h-[90px] rounded-lg overflow-hidden">
                               <img
                                 src={article.image_url}
                                 alt=""
@@ -895,13 +880,13 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                             </div>
                           )}
                           <div className="flex-1 min-w-0">
-                            <p className="text-[11px] text-gray-400 mb-1.5">
+                            <p className="text-[11px] font-semibold text-orange-500 mb-1 tracking-wide uppercase">
                               {article.category}
                             </p>
-                            <h4 className="text-[15px] font-semibold text-gray-900 leading-snug mb-2 line-clamp-2 group-hover:text-gray-600 transition-colors">
+                            <h4 className="text-[15px] font-bold text-gray-900 leading-snug mb-1.5 line-clamp-2 group-hover:text-gray-400 transition-colors">
                               {title}
                             </h4>
-                            <p className="text-[13px] text-gray-500 leading-relaxed line-clamp-2">
+                            <p className="text-[12px] text-gray-400 leading-relaxed line-clamp-2">
                               {content}
                             </p>
                           </div>
