@@ -788,9 +788,9 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                 </div>
                   </>
                 ) : (
-                  /* 카테고리 진입 시 가로형 카드 */
+                  /* 카테고리 진입 시 - 큰 사진 + 텍스트 */
                   <article
-                    className="cursor-pointer group flex gap-4 items-center rounded-xl p-3 border border-gray-100 hover:border-orange-200 hover:shadow-md transition-all duration-300"
+                    className="cursor-pointer group rounded-xl overflow-hidden border border-gray-100 hover:border-orange-200 hover:shadow-md transition-all duration-300"
                     onClick={() => openArticle(featuredSource)}
                     onMouseEnter={() => prefetchArticle(featuredSource)}
                   >
@@ -798,29 +798,47 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                       const v = featuredSource.versions?.[selectedGroup];
                       const title = v?.title || featuredSource.title;
                       const imageUrl = v?.image_url || featuredSource.image_url;
-                      const groupName = editors[selectedGroup].name;
+                      const content = v?.body
+                        ? getBodyText(v.body).slice(0, 120)
+                        : (featuredSource.content?.slice(0, 120) || featuredSource.sub_title || "");
                       return (
-                        <>
-                          <div className="shrink-0 w-[110px] h-[80px] md:w-[140px] md:h-[96px] bg-gray-100 overflow-hidden rounded-lg">
+                        <div className="flex gap-0 items-stretch">
+                          <div className="shrink-0 w-[50vw] max-w-[480px] bg-gray-100 overflow-hidden" style={{aspectRatio: '4/3'}}>
                             {imageUrl ? (
                               <img
                                 src={imageUrl}
                                 alt=""
-                                className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
+                                className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
                               />
                             ) : (
                               <div className="w-full h-full bg-gray-200" />
                             )}
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500 text-white mb-1.5">
-                              {selectedGroup} {groupName}
-                            </span>
-                            <h3 className="text-[14px] md:text-[16px] font-bold text-gray-900 leading-snug line-clamp-3">
+                          <div className="flex-1 min-w-0 p-4 flex flex-col justify-end">
+                            {v?.key_points && v.key_points.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mb-2">
+                                {v.key_points.slice(0, 3).map((kp, i) => (
+                                  <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+                                    #{kp}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <h3 className="text-[15px] md:text-[18px] font-bold text-gray-900 leading-snug line-clamp-3 mb-2">
                               {title}
                             </h3>
+                            <p className="text-[12px] text-gray-500 leading-relaxed line-clamp-2">{content}</p>
+                            {featuredSource.original_link && (
+                              <a
+                                href={featuredSource.original_link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-3 text-[11px] text-orange-400 hover:text-orange-500 w-fit"
+                                onClick={(e) => e.stopPropagation()}
+                              >↗ 원문 보기</a>
+                            )}
                           </div>
-                        </>
+                        </div>
                       );
                     })()}
                   </article>
