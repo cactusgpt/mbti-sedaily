@@ -709,7 +709,7 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                 {selectedCategory === "전체" ? (
                   <>
                 {/* 2x2 그리드 + 가운데 원문 카드 */}
-                <div className="relative max-w-[520px] mx-auto">
+                <div className="relative max-w-[780px] mx-auto">
                   {/* SVG 대각선 연결선 - 그리드 위에 오버레이 */}
                   <svg
                     className="absolute inset-0 w-full h-full pointer-events-none z-10"
@@ -725,7 +725,7 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                     <line x1="75%" y1="60%" x2="50%" y2="50%" stroke="#fdba74" strokeWidth="1.5" strokeDasharray="4 3" />
                   </svg>
 
-                  <div className="grid grid-cols-2 gap-6 max-w-[520px] mx-auto">
+                  <div className="grid grid-cols-2 gap-x-32 gap-y-20 max-w-[780px] mx-auto">
                     {(['NT', 'NF', 'ST', 'SF'] as MbtiGroupId[]).map((groupId) => {
                       const v = featuredSource.versions?.[groupId];
                       const title = v?.title || featuredSource.title;
