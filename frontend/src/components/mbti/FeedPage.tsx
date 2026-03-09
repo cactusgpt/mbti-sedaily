@@ -170,6 +170,7 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
   const [currentMbtiIndex, setCurrentMbtiIndex] = useState(0);
   const [mbtiTransition, setMbtiTransition] = useState(true);
   const [showAllArticles, setShowAllArticles] = useState(false);
+  const [useSlider, setUseSlider] = useState(false);
 
   const editor = editors[selectedGroup];
   const prefetchingRef = useRef<Set<string>>(new Set());
@@ -177,28 +178,34 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
   // 광고 메시지 목록 (각각 다른 디자인)
   const adMessages = [
     {
-      title: "하나의 기사, 네 가지 스타일로 읽어보세요 🎭",
-      subtitle: "분석형 · 공감형 · 실용형 · 속보형 | 당신의 성향에 맞는 뉴스를 찾아보세요",
-      bgGradient: "from-orange-50 to-yellow-50",
-      borderColor: "border-orange-200",
-      circleColor1: "bg-orange-200",
-      circleColor2: "bg-yellow-200"
+      title: "하나의 기사, 네 가지 스타일로 읽어보세요",
+      subtitle: "분석형 · 공감형 · 실용형 · 속보형",
+      desc: "당신의 성향에 맞는 뉴스를 찾아보세요",
+      icon: "🎭",
+      bg: "#1a2744",
+      textColor: "text-white",
+      subtitleColor: "text-yellow-300",
+      descColor: "text-blue-200",
     },
     {
-      title: "뉴스의 팩트는 바꾸지 않습니다 📊",
-      subtitle: "독자에게 닿는 방식을 바꿉니다 | 당신에게 맞는 전달 방식을 선택하세요",
-      bgGradient: "from-blue-50 to-cyan-50",
-      borderColor: "border-blue-200",
-      circleColor1: "bg-blue-200",
-      circleColor2: "bg-cyan-200"
+      title: "뉴스의 팩트는 바꾸지 않습니다",
+      subtitle: "독자에게 닿는 방식을 바꿉니다",
+      desc: "당신에게 맞는 전달 방식을 선택하세요",
+      icon: "📊",
+      bg: "#e8f4fd",
+      textColor: "text-gray-900",
+      subtitleColor: "text-blue-600",
+      descColor: "text-gray-500",
     },
     {
-      title: "같은 팩트, 네 가지 전달 방식 🎓",
-      subtitle: "독자가 선택합니다 | 분석형부터 속보형까지, 당신의 스타일로",
-      bgGradient: "from-violet-50 to-purple-50",
-      borderColor: "border-violet-200",
-      circleColor1: "bg-violet-200",
-      circleColor2: "bg-purple-200"
+      title: "같은 팩트, 네 가지 전달 방식",
+      subtitle: "독자가 선택합니다",
+      desc: "분석형부터 속보형까지, 당신의 스타일로",
+      icon: "🎓",
+      bg: "#f5a623",
+      textColor: "text-white",
+      subtitleColor: "text-white",
+      descColor: "text-yellow-100",
     }
   ];
 
@@ -420,9 +427,18 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
             <span className="text-[13px] text-gray-500 flex items-center gap-1.5">
               by <span className="font-medium text-gray-700">{editor.name}</span>
               <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">{editor.mbti}</span>
+              <button
+                onClick={onChangeGroup}
+                className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                title="에디터 변경"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+              </button>
             </span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <a
               href="https://sedaily.com"
               target="_blank"
@@ -430,15 +446,6 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
             >
               서울경제
             </a>
-            <button
-              onClick={onChangeGroup}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-              </svg>
-              에디터 변경
-            </button>
             <UserMenu />
           </div>
         </div>
@@ -453,23 +460,33 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
                   onMouseEnter={() => prefetchCategory(cat)}
-                  className={`py-3 text-[14px] whitespace-nowrap border-b-2 transition-colors ${
+                  className={`py-3 text-[14px] whitespace-nowrap border-b-2 transition-colors flex items-center gap-1.5 ${
                     selectedCategory === cat
-                      ? "border-gray-900 text-gray-900 font-semibold"
-                      : "border-transparent text-gray-500 hover:text-gray-700"
+                      ? "border-gray-900 text-gray-900 font-bold"
+                      : "border-transparent text-gray-500 hover:text-gray-700 font-semibold"
                   }`}
                 >
+                  {cat === "전체" && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block flex-shrink-0" />
+                  )}
                   {cat}
                 </button>
               ))}
             </div>
 
-            {/* 우측: 뉴스 여정 + 타임라인 탭 */}
+            {/* 우측: 타임머신 + 뉴스 여정 + 타임라인 탭 */}
             <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+              <Link
+                to="/timemachine"
+                className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-bold text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+              >
+                <span>🛸</span>
+                <span>타임머신</span>
+              </Link>
               {onSwitchToStory && (
                 <button
                   onClick={onSwitchToStory}
-                  className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                 >
                   <span>🐱</span>
                   <span>뉴스 여정</span>
@@ -477,20 +494,12 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
               )}
               <Link
                 to="/timeline"
-                className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>타임라인</span>
-              </Link>
-              {/* 사주/운세 버튼 숨김 */}
-              <Link
-                to="/timemachine"
-                className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <span>🛸</span>
-                <span>타임머신</span>
               </Link>
             </div>
           </nav>
@@ -506,61 +515,48 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
         ) : (
           <>
             {/* Ad Banner - Auto Carousel with Slide Animation (원형) */}
-            <div className="mb-8 relative overflow-hidden">
+            <div className="mb-8 relative overflow-hidden rounded-xl">
               <div
                 className={`flex ${adTransition ? "transition-transform duration-700 ease-in-out" : ""}`}
                 style={{ transform: `translateX(-${currentAdIndex * 100}%)` }}
               >
-                {adMessages.map((ad, index) => (
-                  <div
-                    key={index}
-                    className="w-full flex-shrink-0"
-                  >
-                    <div className={`bg-gradient-to-r ${ad.bgGradient} rounded-lg p-8 border-2 ${ad.borderColor} relative overflow-hidden`}>
-                      <div className={`absolute top-0 right-0 w-32 h-32 ${ad.circleColor1} rounded-full -mr-16 -mt-16 opacity-50`} />
-                      <div className={`absolute bottom-0 left-0 w-24 h-24 ${ad.circleColor2} rounded-full -ml-12 -mb-12 opacity-50`} />
-                      <div className="relative z-10">
-                        <p className="text-[24px] md:text-[28px] font-black text-gray-900 mb-2 text-center">
+                {[...adMessages, adMessages[0]].map((ad, index) => (
+                  <div key={index} className="w-full flex-shrink-0">
+                    <div
+                      className="flex items-center gap-6 px-8 py-6 rounded-xl"
+                      style={{ backgroundColor: ad.bg, minHeight: "110px" }}
+                    >
+                      <div className="text-[56px] leading-none flex-shrink-0 select-none">
+                        {ad.icon}
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <p className={`text-[11px] font-semibold tracking-widest uppercase ${ad.subtitleColor}`}>
+                          {ad.subtitle}
+                        </p>
+                        <p className={`text-[22px] md:text-[26px] font-black leading-tight ${ad.textColor}`}>
                           {ad.title}
                         </p>
-                        <p className="text-[14px] text-gray-600 text-center">
-                          {ad.subtitle}
+                        <p className={`text-[13px] ${ad.descColor}`}>
+                          {ad.desc}
                         </p>
                       </div>
                     </div>
                   </div>
                 ))}
-                {/* 첫 번째 슬라이드 복제 - 무한 루프용 */}
-                <div className="w-full flex-shrink-0">
-                  <div className={`bg-gradient-to-r ${adMessages[0].bgGradient} rounded-lg p-8 border-2 ${adMessages[0].borderColor} relative overflow-hidden`}>
-                    <div className={`absolute top-0 right-0 w-32 h-32 ${adMessages[0].circleColor1} rounded-full -mr-16 -mt-16 opacity-50`} />
-                    <div className={`absolute bottom-0 left-0 w-24 h-24 ${adMessages[0].circleColor2} rounded-full -ml-12 -mb-12 opacity-50`} />
-                    <div className="relative z-10">
-                      <p className="text-[24px] md:text-[28px] font-black text-gray-900 mb-2 text-center">
-                        {adMessages[0].title}
-                      </p>
-                      <p className="text-[14px] text-gray-600 text-center">
-                        {adMessages[0].subtitle}
-                      </p>
-                    </div>
-                  </div>
-                </div>
               </div>
-              {/* Indicator dots - 우측 하단 */}
-              <div className="absolute bottom-4 right-4 flex gap-2 z-20">
+              <div className="absolute bottom-3 right-4 flex gap-1.5 z-20">
                 {adMessages.map((_, index) => (
                   <button
                     key={index}
                     onClick={() => { setAdTransition(true); setCurrentAdIndex(index); }}
-                    className={`w-2 h-2 rounded-full transition-all ${
-                      index === (currentAdIndex % adMessages.length) ? "bg-gray-900 w-6" : "bg-gray-400"
+                    className={`h-1.5 rounded-full transition-all duration-300 ${
+                      index === (currentAdIndex % adMessages.length) ? "w-5 bg-white opacity-90" : "w-1.5 bg-white opacity-40"
                     }`}
                     aria-label={`광고 ${index + 1}`}
                   />
                 ))}
               </div>
             </div>
-
             {/* MBTI Type Carousel */}
             <div className="mb-8 relative overflow-hidden hidden">
               <div
@@ -620,10 +616,25 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
             {featuredSource && (
               <RevealItem>
               <div className="mb-6">
-                {/* 섹션 타이틀 */}
-                <p className="text-[24px] font-bold text-gray-900 mb-4">같은 팩트, 네 가지 전달 방식</p>
+                {/* 전체일 때만: 타이틀 + 유형 선택 버튼 + 슬라이더 */}
+                {selectedCategory === "전체" && (
+                  <>
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-[24px] font-bold text-gray-900">같은 팩트, 네 가지 전달 방식</p>
+                  {/* 버튼/슬라이더 토글 */}
+                  <button
+                    onClick={() => setUseSlider(!useSlider)}
+                    className="flex items-center gap-1.5 text-[11px] font-medium text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <span>{useSlider ? "버튼" : "슬라이더"}</span>
+                    <div className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${useSlider ? "bg-orange-500" : "bg-gray-200"}`}>
+                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform duration-200 ${useSlider ? "translate-x-4" : "translate-x-0.5"}`} />
+                    </div>
+                  </button>
+                </div>
 
                 {/* 유형 선택 버튼 */}
+                {!useSlider && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
                   {(['SF', 'NF', 'NT', 'ST'] as MbtiGroupId[]).map((groupId) => {
                     const groupEditor = editors[groupId];
@@ -650,9 +661,10 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                     );
                   })}
                 </div>
+                )}
 
                 {/* 유형 슬라이더 */}
-                {(() => {
+                {useSlider && (() => {
                   const sliderOrder: MbtiGroupId[] = ['SF', 'NF', 'NT', 'ST'];
                   const sliderLabels: Record<MbtiGroupId, string> = { SF: '속보형', NF: '공감형', NT: '분석형', ST: '실용형' };
                   const currentIdx = sliderOrder.indexOf(selectedGroup);
@@ -704,6 +716,8 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbti
                     </div>
                   );
                 })()}
+                  </>
+                )}
 
                 {/* 전체: 2x2 그리드 / 카테고리: 히어로 카드 */}
                 {selectedCategory === "전체" ? (
