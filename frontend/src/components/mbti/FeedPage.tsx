@@ -240,7 +240,7 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
         <div className="max-w-[1000px] mx-auto px-5 py-2.5 flex justify-between items-center">
           <div className="flex items-center gap-6">
             <h1 className="text-[18px] font-bold text-gray-900 tracking-tight">
-              K-Stock Insight
+              AI LENS
             </h1>
             <span className="text-[13px] text-gray-500 flex items-center gap-1.5">
               by <span className="font-medium text-gray-700">{editor.name}</span>
@@ -308,6 +308,14 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>타임라인</span>
+              </Link>
+              {/* 사주/운세 버튼 숨김 */}
+              <Link
+                to="/timemachine"
+                className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <span>🛸</span>
+                <span>타임머신</span>
               </Link>
             </div>
           </nav>
