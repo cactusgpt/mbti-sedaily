@@ -4,9 +4,49 @@ import type { MbtiGroupId } from "@/data/mbtiGroups";
 import { API_URL } from "@/config/api";
 import { ArticleView } from "./ArticleView";
 import { UserMenu } from "@/components/auth/UserMenu";
+import { mockArticles } from "@/data/mockArticles";
 
 // 프리페칭 캐시 (전역)
 const prefetchCache = new Map<string, Article>();
+
+// 스크롤 진입 애니메이션 훅
+function useScrollReveal() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          el.style.opacity = "1";
+          el.style.transform = "translateY(0)";
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1, rootMargin: "0px 0px -40px 0px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return ref;
+}
+
+// 스크롤 애니메이션 래퍼 컴포넌트
+function RevealItem({ children, delay = 0 }: { children: React.ReactNode; delay?: number }) {
+  const ref = useScrollReveal();
+  return (
+    <div
+      ref={ref}
+      style={{
+        opacity: 0,
+        transform: "translateY(28px)",
+        transition: `opacity 0.55s cubic-bezier(0.4,0,0.2,1) ${delay}ms, transform 0.55s cubic-bezier(0.4,0,0.2,1) ${delay}ms`,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 interface MbtiVersion {
   title: string;
@@ -15,6 +55,7 @@ interface MbtiVersion {
   key_points: string[];
   closing_line: string;
   tone: string;
+  image_url?: string;
 }
 
 // ** 볼드 마크다운 제거
@@ -50,13 +91,14 @@ interface Article {
   image_url: string | null;
   content: string;
   original_link: string;
-  versions: Record<string, MbtiVersion>;
+  versions?: Record<string, MbtiVersion>;
 }
 
 interface Props {
   selectedGroup: MbtiGroupId;
   onChangeGroup: () => void;
   onSwitchToStory?: () => void;
+  onMbtiChange?: (group: MbtiGroupId) => void;
 }
 
 // 에디터 정보 (심플하게)
@@ -66,22 +108,22 @@ const editors: Record<MbtiGroupId, {
   emptyMessage: string;
 }> = {
   NT: {
-    name: "시현",
+    name: "구조분석",
     mbti: "NT",
     emptyMessage: "아직 뉴스가 없습니다.",
   },
   NF: {
-    name: "지원",
+    name: "가치탐색",
     mbti: "NF",
     emptyMessage: "아직 뉴스가 없습니다.",
   },
   ST: {
-    name: "정훈",
+    name: "실용체크",
     mbti: "ST",
     emptyMessage: "아직 뉴스가 없습니다.",
   },
   SF: {
-    name: "하은",
+    name: "사람이야기",
     mbti: "SF",
     emptyMessage: "아직 뉴스가 없습니다.",
   },
@@ -107,18 +149,147 @@ function categoryToApi(cat: string): string[] {
   return [cat];
 }
 
-export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Props) {
+function matchCategory(articleCategory: string, selectedCategory: string): boolean {
+  if (selectedCategory === "전체") return true;
+  if (selectedCategory === "경제" && articleCategory === "경제") return true;
+  if (selectedCategory === "정치" && articleCategory === "정치") return true;
+  if (selectedCategory === "사회" && articleCategory === "사회") return true;
+  if (selectedCategory === "세계" && articleCategory === "국제") return true;
+  if (selectedCategory === "테크" && (articleCategory === "테크" || articleCategory === "IT_과학" || articleCategory === "산업")) return true;
+  if (selectedCategory === "문화" && articleCategory === "문화") return true;
+  return false;
+}
+
+export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory, onMbtiChange }: Props) {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState("전체");
   const [viewArticle, setViewArticle] = useState<Article | null>(null);
+  const [currentAdIndex, setCurrentAdIndex] = useState(0);
+  const [adTransition, setAdTransition] = useState(true);
+  const [currentMbtiIndex, setCurrentMbtiIndex] = useState(0);
+  const [mbtiTransition, setMbtiTransition] = useState(true);
+  const [showAllArticles, setShowAllArticles] = useState(false);
+  const [useSlider, setUseSlider] = useState(false);
 
   const editor = editors[selectedGroup];
   const prefetchingRef = useRef<Set<string>>(new Set());
 
+  // 광고 메시지 목록 (각각 다른 디자인)
+  const adMessages = [
+    {
+      title: "하나의 기사, 네 가지 스타일로 읽어보세요",
+      subtitle: "분석형 · 공감형 · 실용형 · 속보형",
+      desc: "당신의 성향에 맞는 뉴스를 찾아보세요",
+      icon: "🎭",
+      bg: "#1a2744",
+      textColor: "text-white",
+      subtitleColor: "text-yellow-300",
+      descColor: "text-blue-200",
+    },
+    {
+      title: "뉴스의 팩트는 바꾸지 않습니다",
+      subtitle: "독자에게 닿는 방식을 바꿉니다",
+      desc: "당신에게 맞는 전달 방식을 선택하세요",
+      icon: "📊",
+      bg: "#e8f4fd",
+      textColor: "text-gray-900",
+      subtitleColor: "text-blue-600",
+      descColor: "text-gray-500",
+    },
+    {
+      title: "같은 팩트, 네 가지 전달 방식",
+      subtitle: "독자가 선택합니다",
+      desc: "분석형부터 속보형까지, 당신의 스타일로",
+      icon: "🎓",
+      bg: "#f5a623",
+      textColor: "text-white",
+      subtitleColor: "text-white",
+      descColor: "text-yellow-100",
+    }
+  ];
+
+  // MBTI 타입 소개 메시지
+  const mbtiMessages = [
+    {
+      title: "NT: 구조분석",
+      subtitle: "논리적 구조와 인과관계를 분석합니다",
+      bgGradient: "from-indigo-50 to-blue-50",
+      borderColor: "border-indigo-200",
+      circleColor1: "bg-indigo-200",
+      circleColor2: "bg-blue-200"
+    },
+    {
+      title: "NF: 가치탐색",
+      subtitle: "사회적 의미와 가치를 탐구합니다",
+      bgGradient: "from-green-50 to-emerald-50",
+      borderColor: "border-green-200",
+      circleColor1: "bg-green-200",
+      circleColor2: "bg-emerald-200"
+    },
+    {
+      title: "ST: 실용체크",
+      subtitle: "현실적 정보와 실행 방안을 제시합니다",
+      bgGradient: "from-amber-50 to-orange-50",
+      borderColor: "border-amber-200",
+      circleColor1: "bg-amber-200",
+      circleColor2: "bg-orange-200"
+    },
+    {
+      title: "SF: 사람이야기",
+      subtitle: "사람의 이야기와 감정을 전달합니다",
+      bgGradient: "from-pink-50 to-rose-50",
+      borderColor: "border-pink-200",
+      circleColor1: "bg-pink-200",
+      circleColor2: "bg-rose-200"
+    }
+  ];
+
+  // 광고 자동 스크롤 (원형 - 무한 루프)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setAdTransition(true);
+      setCurrentAdIndex((prev) => prev + 1);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // adIndex가 복제 슬라이드(마지막+1)에 도달하면 transition 없이 처음으로 리셋
+  useEffect(() => {
+    if (currentAdIndex === adMessages.length) {
+      const timeout = setTimeout(() => {
+        setAdTransition(false);
+        setCurrentAdIndex(0);
+      }, 700);
+      return () => clearTimeout(timeout);
+    }
+  }, [currentAdIndex, adMessages.length]);
+
+  // MBTI 캐러셀 자동 스크롤 (원형 - 무한 루프)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setMbtiTransition(true);
+      setCurrentMbtiIndex((prev) => prev + 1);
+    }, 5000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // mbtiIndex가 복제 슬라이드(마지막+1)에 도달하면 transition 없이 처음으로 리셋
+  useEffect(() => {
+    if (currentMbtiIndex === mbtiMessages.length) {
+      const timeout = setTimeout(() => {
+        setMbtiTransition(false);
+        setCurrentMbtiIndex(0);
+      }, 700);
+      return () => clearTimeout(timeout);
+    }
+  }, [currentMbtiIndex, mbtiMessages.length]);
+
   // 프리페칭 함수 - hover 시 호출
   const prefetchArticle = useCallback((article: Article) => {
     const id = article.news_id;
+    // mock 데이터는 프리페칭 스킵
+    if (id.startsWith('mock-')) return;
     // 이미 캐시에 있거나 로딩 중이면 스킵
     if (prefetchCache.has(id) || prefetchingRef.current.has(id)) return;
     // MBTI 버전이 이미 있으면 스킵
@@ -208,20 +379,30 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
 
   useEffect(() => {
     async function fetchArticles() {
-      // 캐시에 있으면 즉시 사용
-      if (categoryCache.current[selectedCategory]) {
-        setArticles(categoryCache.current[selectedCategory]);
-        setLoading(false);
-        return;
-      }
-
+      // 캐시 무효화 (개발용)
+      categoryCache.current = {};
+      
       try {
         setLoading(true);
         const articles = await fetchCategoryArticles(selectedCategory);
-        categoryCache.current[selectedCategory] = articles;
-        setArticles(articles);
+        
+        // API에서 데이터가 없으면 mock 데이터 사용 (개발용)
+        if (articles.length === 0) {
+          console.log("Using mock data for development");
+          console.log("Selected category:", selectedCategory);
+          const filteredMock = mockArticles.filter(a => matchCategory(a.category, selectedCategory));
+          console.log("Filtered count:", filteredMock.length);
+          console.log("Sample categories:", filteredMock.slice(0, 3).map(a => a.category));
+          setArticles(filteredMock);
+        } else {
+          setArticles(articles);
+        }
       } catch (e) {
         console.error("Failed to fetch articles:", e);
+        console.log("API failed, using mock data");
+        const filteredMock = mockArticles.filter(a => matchCategory(a.category, selectedCategory));
+        console.log("Filtered count:", filteredMock.length);
+        setArticles(filteredMock);
       } finally {
         setLoading(false);
       }
@@ -229,7 +410,8 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
     fetchArticles();
   }, [selectedCategory, fetchCategoryArticles]);
 
-  const heroArticle = articles[0];
+  const featuredArticles = articles.slice(0, 4);
+  const featuredSource = articles[0] ?? null; // 2x2 그리드용 원문 기사
   const gridArticles = articles.slice(1);
 
   return (
@@ -245,9 +427,18 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
             <span className="text-[13px] text-gray-500 flex items-center gap-1.5">
               by <span className="font-medium text-gray-700">{editor.name}</span>
               <span className="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">{editor.mbti}</span>
+              <button
+                onClick={onChangeGroup}
+                className="p-1 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                title="에디터 변경"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+              </button>
             </span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <a
               href="https://sedaily.com"
               target="_blank"
@@ -255,15 +446,6 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
             >
               서울경제
             </a>
-            <button
-              onClick={onChangeGroup}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[12px] text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-              </svg>
-              에디터 변경
-            </button>
             <UserMenu />
           </div>
         </div>
@@ -278,23 +460,33 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
                   key={cat}
                   onClick={() => setSelectedCategory(cat)}
                   onMouseEnter={() => prefetchCategory(cat)}
-                  className={`py-3 text-[14px] whitespace-nowrap border-b-2 transition-colors ${
+                  className={`py-3 text-[14px] whitespace-nowrap border-b-2 transition-colors flex items-center gap-1.5 ${
                     selectedCategory === cat
-                      ? "border-gray-900 text-gray-900 font-semibold"
-                      : "border-transparent text-gray-500 hover:text-gray-700"
+                      ? "border-gray-900 text-gray-900 font-bold"
+                      : "border-transparent text-gray-500 hover:text-gray-700 font-semibold"
                   }`}
                 >
+                  {cat === "전체" && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block flex-shrink-0" />
+                  )}
                   {cat}
                 </button>
               ))}
             </div>
 
-            {/* 우측: 뉴스 여정 + 타임라인 탭 */}
+            {/* 우측: 타임머신 + 뉴스 여정 + 타임라인 탭 */}
             <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+              <Link
+                to="/timemachine"
+                className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-bold text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+              >
+                <span>🛸</span>
+                <span>타임머신</span>
+              </Link>
               {onSwitchToStory && (
                 <button
                   onClick={onSwitchToStory}
-                  className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                 >
                   <span>🐱</span>
                   <span>뉴스 여정</span>
@@ -302,20 +494,12 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
               )}
               <Link
                 to="/timeline"
-                className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-bold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 <span>타임라인</span>
-              </Link>
-              {/* 사주/운세 버튼 숨김 */}
-              <Link
-                to="/timemachine"
-                className="flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <span>🛸</span>
-                <span>타임머신</span>
               </Link>
             </div>
           </nav>
@@ -330,82 +514,405 @@ export function FeedPage({ selectedGroup, onChangeGroup, onSwitchToStory }: Prop
           </div>
         ) : (
           <>
-            {/* Hero Article */}
-            {heroArticle && (
-              <article
-                className="flex flex-col md:flex-row gap-6 mb-12 cursor-pointer group"
-                onClick={() => openArticle(heroArticle)}
-                onMouseEnter={() => prefetchArticle(heroArticle)}
+            {/* Ad Banner - Auto Carousel with Slide Animation (원형) */}
+            <div className="mb-8 relative overflow-hidden rounded-xl">
+              <div
+                className={`flex ${adTransition ? "transition-transform duration-700 ease-in-out" : ""}`}
+                style={{ transform: `translateX(-${currentAdIndex * 100}%)` }}
               >
-                {heroArticle.image_url && (
-                  <div className="md:w-1/2 rounded-lg overflow-hidden">
-                    <img
-                      src={heroArticle.image_url}
-                      alt=""
-                      className="w-full h-[200px] md:h-[280px] object-cover group-hover:scale-[1.01] transition-transform duration-300"
-                    />
+                {[...adMessages, adMessages[0]].map((ad, index) => (
+                  <div key={index} className="w-full flex-shrink-0">
+                    <div
+                      className="flex items-center gap-5 px-6 py-4 rounded-xl"
+                      style={{ backgroundColor: ad.bg, minHeight: "80px" }}
+                    >
+                      <div className="text-[40px] leading-none flex-shrink-0 select-none">
+                        {ad.icon}
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <p className={`text-[10px] font-semibold tracking-widest uppercase ${ad.subtitleColor}`}>
+                          {ad.subtitle}
+                        </p>
+                        <p className={`text-[18px] md:text-[20px] font-black leading-tight ${ad.textColor}`}>
+                          {ad.title}
+                        </p>
+                        <p className={`text-[12px] ${ad.descColor}`}>
+                          {ad.desc}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="absolute bottom-3 right-4 flex gap-1.5 z-20">
+                {adMessages.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => { setAdTransition(true); setCurrentAdIndex(index); }}
+                    className={`h-1.5 rounded-full transition-all duration-300 ${
+                      index === (currentAdIndex % adMessages.length) ? "w-5 bg-white opacity-90" : "w-1.5 bg-white opacity-40"
+                    }`}
+                    aria-label={`광고 ${index + 1}`}
+                  />
+                ))}
+              </div>
+            </div>
+            {/* MBTI Type Carousel */}
+            <div className="mb-8 relative overflow-hidden hidden">
+              <div
+                className={`flex ${mbtiTransition ? "transition-transform duration-700 ease-in-out" : ""}`}
+                style={{ transform: `translateX(-${currentMbtiIndex * 100}%)` }}
+              >
+                {mbtiMessages.map((mbti, index) => (
+                  <div
+                    key={index}
+                    className="w-full flex-shrink-0"
+                  >
+                    <div className={`bg-gradient-to-r ${mbti.bgGradient} rounded-lg p-8 border-2 ${mbti.borderColor} relative overflow-hidden`}>
+                      <div className={`absolute top-0 right-0 w-32 h-32 ${mbti.circleColor1} rounded-full -mr-16 -mt-16 opacity-50`} />
+                      <div className={`absolute bottom-0 left-0 w-24 h-24 ${mbti.circleColor2} rounded-full -ml-12 -mb-12 opacity-50`} />
+                      <div className="relative z-10">
+                        <p className="text-[24px] md:text-[28px] font-black text-gray-900 mb-2 text-center">
+                          {mbti.title}
+                        </p>
+                        <p className="text-[14px] text-gray-600 text-center">
+                          {mbti.subtitle}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {/* 첫 번째 슬라이드 복제 - 무한 루프용 */}
+                <div className="w-full flex-shrink-0">
+                  <div className={`bg-gradient-to-r ${mbtiMessages[0].bgGradient} rounded-lg p-8 border-2 ${mbtiMessages[0].borderColor} relative overflow-hidden`}>
+                    <div className={`absolute top-0 right-0 w-32 h-32 ${mbtiMessages[0].circleColor1} rounded-full -mr-16 -mt-16 opacity-50`} />
+                    <div className={`absolute bottom-0 left-0 w-24 h-24 ${mbtiMessages[0].circleColor2} rounded-full -ml-12 -mb-12 opacity-50`} />
+                    <div className="relative z-10">
+                      <p className="text-[24px] md:text-[28px] font-black text-gray-900 mb-2 text-center">
+                        {mbtiMessages[0].title}
+                      </p>
+                      <p className="text-[14px] text-gray-600 text-center">
+                        {mbtiMessages[0].subtitle}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="absolute bottom-4 right-4 flex gap-2 z-20">
+                {mbtiMessages.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => { setMbtiTransition(true); setCurrentMbtiIndex(index); }}
+                    className={`w-2 h-2 rounded-full transition-all ${
+                      index === (currentMbtiIndex % mbtiMessages.length) ? "bg-gray-900 w-6" : "bg-gray-400"
+                    }`}
+                    aria-label={`MBTI 타입 ${index + 1}`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Featured Articles - 전체일 때 2x2 그리드, 카테고리일 때 히어로 카드 */}
+            {featuredSource && (
+              <RevealItem>
+              <div className="mb-6">
+                {/* 전체일 때만: 타이틀 + 유형 선택 버튼 + 슬라이더 */}
+                {selectedCategory === "전체" && (
+                  <>
+                <div className="flex items-center justify-between mb-4">
+                  <p className="text-[24px] font-bold text-gray-900">같은 팩트, 네 가지 전달 방식</p>
+                  {/* 버튼/슬라이더 토글 */}
+                  <button
+                    onClick={() => setUseSlider(!useSlider)}
+                    className="flex items-center gap-1.5 text-[11px] font-medium text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <span>{useSlider ? "버튼" : "슬라이더"}</span>
+                    <div className={`relative w-8 h-4 rounded-full transition-colors duration-200 ${useSlider ? "bg-orange-500" : "bg-gray-200"}`}>
+                      <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform duration-200 ${useSlider ? "translate-x-4" : "translate-x-0.5"}`} />
+                    </div>
+                  </button>
+                </div>
+
+                {/* 유형 선택 버튼 */}
+                {!useSlider && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4">
+                  {(['SF', 'NF', 'NT', 'ST'] as MbtiGroupId[]).map((groupId) => {
+                    const groupEditor = editors[groupId];
+                    const isSelected = selectedGroup === groupId;
+                    return (
+                      <button
+                        key={groupId}
+                        onClick={() => onMbtiChange?.(groupId)}
+                        className={`px-3 py-2 rounded-lg border-2 transition-all text-center flex items-center justify-center gap-1.5 ${
+                          isSelected
+                            ? "border-orange-500 bg-orange-50"
+                            : "border-gray-200 hover:border-gray-300 bg-white hover:shadow-sm"
+                        }`}
+                      >
+                        <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                          isSelected ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-600"
+                        }`}>
+                          {groupId}
+                        </span>
+                        <span className={`text-[13px] font-bold ${isSelected ? "text-orange-600" : "text-gray-800"}`}>
+                          {groupEditor.name}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                )}
+
+                {/* 유형 슬라이더 */}
+                {useSlider && (() => {
+                  const sliderOrder: MbtiGroupId[] = ['SF', 'NF', 'NT', 'ST'];
+                  const sliderLabels: Record<MbtiGroupId, string> = { SF: '속보형', NF: '공감형', NT: '분석형', ST: '실용형' };
+                  const currentIdx = sliderOrder.indexOf(selectedGroup);
+                  const pct = (currentIdx / (sliderOrder.length - 1)) * 100;
+
+                  const handleDrag = (e: React.MouseEvent<HTMLDivElement> | React.TouchEvent<HTMLDivElement>) => {
+                    const track = e.currentTarget;
+                    const rect = track.getBoundingClientRect();
+                    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+                    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+                    const idx = Math.round(ratio * (sliderOrder.length - 1));
+                    const newGroup = sliderOrder[idx];
+                    if (newGroup !== selectedGroup) onMbtiChange?.(newGroup);
+                  };
+
+                  return (
+                    <div className="mb-5 flex justify-center">
+                      <div className="w-[80%]">
+                        <div
+                          className="relative cursor-pointer select-none"
+                          onClick={handleDrag}
+                          onMouseMove={(e) => e.buttons === 1 && handleDrag(e)}
+                          onTouchMove={handleDrag}
+                        >
+                          <div className="absolute top-[5px] left-0 right-0 h-[2px] bg-gray-200 rounded-full" />
+                          <div className="absolute top-[1px] left-0 right-0 flex justify-between pointer-events-none">
+                            {sliderOrder.map((groupId) => (
+                              <div key={groupId} className="w-3 h-3 rounded-full bg-gray-200 border-2 border-white shadow-sm" />
+                            ))}
+                          </div>
+                          <div
+                            className="absolute top-[1px] w-3 h-3 bg-orange-500 rounded-full -translate-x-1/2 transition-all duration-200 shadow-md z-10"
+                            style={{ left: `${pct}%` }}
+                          />
+                          <div className="relative flex justify-between pt-6">
+                            {sliderOrder.map((groupId) => {
+                              const isActive = groupId === selectedGroup;
+                              return (
+                                <span key={groupId} className={`text-[10px] font-bold transition-colors duration-200 ${
+                                  isActive ? "text-orange-500" : "text-gray-400"
+                                }`}>
+                                  {sliderLabels[groupId]}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                  </>
+                )}
+
+                {/* 전체: 원문 + 4카드 / 카테고리: 히어로 카드 */}
+                {selectedCategory === "전체" ? (
+                  <>
+                {/* 원문 카드 */}
+                {featuredSource.original_link && (
+                  <div className="mb-5">
+                    <a
+                      href={featuredSource.original_link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-4 px-5 py-4 bg-gray-50 border border-gray-200 rounded-xl hover:border-orange-300 hover:bg-orange-50 transition-all group"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 bg-gray-200 group-hover:bg-orange-200 text-gray-500 group-hover:text-orange-600 rounded-full uppercase tracking-wide transition-colors">원문</span>
+                      <span className="text-[17px] font-bold text-gray-900 group-hover:text-orange-600 transition-colors line-clamp-1 flex-1">
+                        {featuredSource.title}
+                      </span>
+                      <span className="text-[12px] font-semibold text-gray-400 group-hover:text-orange-500 shrink-0 transition-colors">↗ 원문 보기</span>
+                    </a>
                   </div>
                 )}
-                <div className={`${heroArticle.image_url ? "md:w-1/2" : "w-full"} flex flex-col justify-center`}>
-                  <p className="text-[12px] text-gray-400 mb-2">
-                    {heroArticle.category} · {formatTimeAgo(heroArticle.published_at)}
-                  </p>
-                  <h3 className="text-[22px] md:text-[26px] font-bold text-gray-900 leading-tight mb-3 group-hover:text-gray-600 transition-colors">
-                    {heroArticle.versions?.[selectedGroup]?.title || heroArticle.title}
-                  </h3>
-                  <p className="text-[15px] text-gray-600 leading-relaxed line-clamp-3">
-                    {heroArticle.versions?.[selectedGroup]?.body
-                      ? getBodyText(heroArticle.versions[selectedGroup].body)
-                      : heroArticle.content?.slice(0, 200) || heroArticle.sub_title || ""}
-                  </p>
+
+                {/* 4카드 그리드: 가로 4열 → 좁으면 2x2 */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {(['SF', 'NF', 'NT', 'ST'] as MbtiGroupId[]).map((groupId) => {
+                    const v = featuredSource.versions?.[groupId];
+                    const title = v?.title || featuredSource.title;
+                    const imageUrl = v?.image_url || featuredSource.image_url;
+                    const groupName = editors[groupId].name;
+                    const isSelected = groupId === selectedGroup;
+                    return (
+                      <article
+                        key={groupId}
+                        className={`cursor-pointer group rounded-xl overflow-hidden border transition-all duration-300 ${
+                          isSelected
+                            ? "border-orange-400 shadow-[0_0_12px_3px_rgba(249,115,22,0.2)]"
+                            : "border-gray-200 hover:border-orange-200 hover:shadow-md"
+                        }`}
+                        onClick={() => openArticle(featuredSource)}
+                        onMouseEnter={() => prefetchArticle(featuredSource)}
+                      >
+                        <div className="w-full aspect-[4/3] bg-gray-100 overflow-hidden">
+                          {imageUrl ? (
+                            <img
+                              src={imageUrl}
+                              alt=""
+                              className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-300"
+                            />
+                          ) : (
+                            <div className="w-full h-full bg-gray-200" />
+                          )}
+                        </div>
+                        <div className="p-2.5">
+                          <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full mb-1 ${
+                            isSelected ? "bg-orange-500 text-white" : "bg-gray-100 text-gray-500"
+                          }`}>
+                            {groupId} {groupName}
+                          </span>
+                          <h3 className="text-[12px] font-bold text-gray-900 leading-snug line-clamp-2">
+                            {title}
+                          </h3>
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
-              </article>
+                  </>
+                ) : (
+                  /* 카테고리 진입 시 - 큰 사진 + 텍스트 */
+                  <article
+                    className="cursor-pointer group rounded-xl overflow-hidden border border-gray-100 hover:border-orange-200 hover:shadow-md transition-all duration-300"
+                    onClick={() => openArticle(featuredSource)}
+                    onMouseEnter={() => prefetchArticle(featuredSource)}
+                  >
+                    {(() => {
+                      const v = featuredSource.versions?.[selectedGroup];
+                      const title = v?.title || featuredSource.title;
+                      const imageUrl = v?.image_url || featuredSource.image_url;
+                      const content = v?.body
+                        ? getBodyText(v.body).slice(0, 120)
+                        : (featuredSource.content?.slice(0, 120) || featuredSource.sub_title || "");
+                      return (
+                        <div className="flex gap-0 items-stretch">
+                          <div className="shrink-0 w-[50vw] max-w-[480px] bg-gray-100 overflow-hidden" style={{aspectRatio: '4/3'}}>
+                            {imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt=""
+                                className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-gray-200" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0 p-4 flex flex-col justify-end">
+                            {v?.key_points && v.key_points.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mb-2">
+                                {v.key_points.slice(0, 3).map((kp, i) => (
+                                  <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 font-medium">
+                                    #{kp}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            <h3 className="text-[15px] md:text-[18px] font-bold text-gray-900 leading-snug line-clamp-3 mb-2">
+                              {title}
+                            </h3>
+                            <p className="text-[12px] text-gray-500 leading-relaxed line-clamp-2">{content}</p>
+                            {featuredSource.original_link && (
+                              <a
+                                href={featuredSource.original_link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-3 text-[11px] text-orange-400 hover:text-orange-500 w-fit"
+                                onClick={(e) => e.stopPropagation()}
+                              >↗ 원문 보기</a>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </article>
+                )}
+
+              </div>
+              </RevealItem>
             )}
 
             {/* Divider */}
             <div className="border-t border-gray-200 mb-10" />
 
             {/* Grid */}
-            <div className="grid md:grid-cols-2 gap-x-10 gap-y-10">
-              {gridArticles.map((article) => {
-                const v = article.versions?.[selectedGroup];
-                // MBTI 버전 없는 기사도 원본 제목으로 표시 (클릭 시 On-Demand 변환)
-                const title = v?.title || article.title;
-                const content = v?.body
-                  ? getBodyText(v.body).slice(0, 100)
-                  : (article.content?.slice(0, 100) || article.sub_title || "");
+            {(() => {
+              const visibleArticles = showAllArticles ? gridArticles : gridArticles.slice(0, 8);
+              return (
+                <>
+                  <div className="grid md:grid-cols-2 gap-x-10 gap-y-10">
+                    {visibleArticles.map((article, idx) => {
+                      const v = article.versions?.[selectedGroup];
+                      const title = v?.title || article.title;
+                      const content = v?.body
+                        ? getBodyText(v.body).slice(0, 100)
+                        : (article.content?.slice(0, 100) || article.sub_title || "");
 
-                return (
-                  <article
-                    key={article.news_id}
-                    className="flex gap-5 cursor-pointer group"
-                    onClick={() => openArticle(article)}
-                    onMouseEnter={() => prefetchArticle(article)}
-                  >
-                    {article.image_url && (
-                      <div className="shrink-0 w-[140px] h-[100px] rounded-lg overflow-hidden">
-                        <img
-                          src={article.image_url}
-                          alt=""
-                          className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
-                        />
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[11px] text-gray-400 mb-1.5">
-                        {article.category}
-                      </p>
-                      <h4 className="text-[15px] font-semibold text-gray-900 leading-snug mb-2 line-clamp-2 group-hover:text-gray-600 transition-colors">
-                        {title}
-                      </h4>
-                      <p className="text-[13px] text-gray-500 leading-relaxed line-clamp-2">
-                        {content}
-                      </p>
+                      return (
+                        <RevealItem key={article.news_id} delay={(idx % 4) * 60}>
+                        <article
+                          className="flex gap-4 cursor-pointer group border-b border-gray-100 pb-6"
+                          onClick={() => openArticle(article)}
+                          onMouseEnter={() => prefetchArticle(article)}
+                        >
+                          {article.image_url && (
+                            <div className="shrink-0 w-[120px] h-[90px] rounded-lg overflow-hidden">
+                              <img
+                                src={article.image_url}
+                                alt=""
+                                className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300"
+                              />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11px] font-semibold text-orange-500 mb-1 tracking-wide uppercase">
+                              {article.category}
+                            </p>
+                            <h4 className="text-[15px] font-bold text-gray-900 leading-snug mb-1.5 line-clamp-2 group-hover:text-gray-400 transition-colors">
+                              {title}
+                            </h4>
+                            <p className="text-[12px] text-gray-400 leading-relaxed line-clamp-2">
+                              {content}
+                            </p>
+                          </div>
+                        </article>
+                        </RevealItem>
+                      );
+                    })}
+                  </div>
+                  {gridArticles.length > 8 && (
+                    <div className="mt-10 text-center">
+                      <button
+                        onClick={() => setShowAllArticles(!showAllArticles)}
+                        className="px-6 py-2.5 text-[14px] font-medium text-gray-600 border border-gray-300 rounded-full hover:border-gray-400 hover:text-gray-900 transition-colors"
+                      >
+                        <span className="flex items-center gap-1.5">
+                          {showAllArticles ? "접기" : "전체보기"}
+                          <svg className={`w-4 h-4 transition-transform duration-200 ${showAllArticles ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </span>
+                      </button>
                     </div>
-                  </article>
-                );
-              })}
-            </div>
+                  )}
+                </>
+              );
+            })()}
           </>
         )}
       </main>
