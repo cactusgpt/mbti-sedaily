@@ -1,12 +1,15 @@
+'use client';
+
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { ArrowLeft, Crown, Sparkles, Headphones, Zap, Shield, Check } from "lucide-react";
 
 type PlanType = "monthly" | "yearly";
 
 export default function SubscriptionPage() {
-  const navigate = useNavigate();
+  const router = useRouter();
   const { user, isAuthenticated } = useAuth();
   const [selectedPlan, setSelectedPlan] = useState<PlanType>("yearly");
 
@@ -68,7 +71,7 @@ export default function SubscriptionPage() {
       <header className="sticky top-0 z-50 bg-[#0a0a0f]/80 backdrop-blur-xl">
         <div className="max-w-lg mx-auto px-5 py-4 flex items-center gap-4">
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => router.back()}
             className="p-2 -ml-2 hover:bg-white/5 rounded-full transition-colors"
           >
             <ArrowLeft className="w-5 h-5 text-white/60" />

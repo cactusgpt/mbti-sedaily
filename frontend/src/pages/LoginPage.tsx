@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Mail, Lock, User, Eye, EyeOff, ArrowLeft, Loader2 } from "lucide-react";
 
@@ -37,7 +37,7 @@ export default function LoginPage() {
     setIsLoading(false);
 
     if (result.success) {
-      navigate("/");
+      navigate("/", { replace: true });
     } else if (result.needsConfirmation) {
       setMode("confirm");
       setError("");
@@ -69,7 +69,7 @@ export default function LoginPage() {
         setMode("confirm");
         setSuccessMessage("이메일로 인증 코드가 전송되었습니다.");
       } else {
-        navigate("/");
+        navigate("/", { replace: true });
       }
     } else {
       setError(result.error || "회원가입에 실패했습니다.");
@@ -485,9 +485,12 @@ export default function LoginPage() {
       {/* Header */}
       <header className="relative z-10 bg-white/80 backdrop-blur-sm border-b border-gray-100">
         <div className="px-8 py-4 flex items-center gap-4">
-          <Link to="/" className="p-2 -ml-2 hover:bg-gray-100 rounded-xl transition-all duration-200 active:scale-95">
+          <button
+            onClick={() => navigate(-1)}
+            className="p-2 -ml-2 hover:bg-gray-100 rounded-xl transition-all duration-200 active:scale-95"
+          >
             <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </Link>
+          </button>
           <h1 className="text-lg font-bold text-gray-900">{getTitle()}</h1>
         </div>
       </header>
