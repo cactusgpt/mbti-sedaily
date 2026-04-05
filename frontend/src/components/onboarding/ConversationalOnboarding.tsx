@@ -247,7 +247,7 @@ export function ConversationalOnboarding({ onComplete }: Props) {
 
             <button
               onClick={handleComplete}
-              className="w-full py-4 bg-gray-900 text-white font-medium rounded-xl hover:bg-gray-800 transition-colors flex items-center justify-center gap-2"
+              className="w-full py-4 bg-blue-500 text-white font-medium rounded-xl hover:bg-blue-600 transition-colors flex items-center justify-center gap-2"
             >
               나만의 뉴스 타임라인 보기
               <ChevronRight className="w-5 h-5" />

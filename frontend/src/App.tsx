@@ -6,6 +6,8 @@ import ElderlyPage from './pages/ElderlyPage'
 import AuthCallbackPage from './pages/AuthCallbackPage'
 import SajuPage from './pages/SajuPage'
 import TimeMachinePage from './pages/TimeMachinePage'
+import LoginPage from './pages/LoginPage'
+import SubscriptionPage from './pages/SubscriptionPage'
 
 function App() {
   return (
@@ -16,12 +18,14 @@ function App() {
       <ScrollToTop />
       <Routes>
         <Route path="/" element={<HomePage />} />
+        <Route path="/login" element={<LoginPage />} />
         <Route path="/timeline" element={<TimelinePage />} />
         <Route path="/elderly" element={<ElderlyPage />} />
         <Route path="/listen" element={<ElderlyPage />} />
         <Route path="/auth/callback" element={<AuthCallbackPage />} />
         <Route path="/saju" element={<SajuPage />} />
         <Route path="/timemachine" element={<TimeMachinePage />} />
+        <Route path="/subscription" element={<SubscriptionPage />} />
       </Routes>
     </div>
   )

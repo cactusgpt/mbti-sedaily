@@ -1,7 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import type { MbtiGroupId } from "@/data/mbtiGroups";
-import { MyPage } from "@/components/user/MyPage";
 import { getTodayReadCount } from "@/lib/readingTracker";
 
 interface Props {
@@ -21,13 +19,11 @@ const groupLabels: Record<MbtiGroupId, { label: string; color: string }> = {
 };
 
 export function FeedHeader({ selectedGroup, selectedCategory, onSelectCategory, onChangeGroup }: Props) {
+  const navigate = useNavigate();
   const group = groupLabels[selectedGroup];
-  const [showMyPage, setShowMyPage] = useState(false);
   const todayCount = getTodayReadCount();
 
   return (
-    <>
-    {showMyPage && <MyPage onClose={() => setShowMyPage(false)} />}
     <header className="bg-white sticky top-0 z-50 border-b border-gray-200">
       {/* Top bar */}
       <div className="border-b border-gray-100">
@@ -59,9 +55,9 @@ export function FeedHeader({ selectedGroup, selectedCategory, onSelectCategory, 
           </Link>
 
           <div className="flex items-center gap-3">
-            {/* 읽기 통계 버튼 */}
+            {/* 구독 버튼 */}
             <button
-              onClick={() => setShowMyPage(true)}
+              onClick={() => navigate("/subscription")}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-100 text-gray-700 text-[13px] font-medium hover:bg-gray-200 transition-colors"
             >
               <span>🔥</span>
@@ -102,6 +98,5 @@ export function FeedHeader({ selectedGroup, selectedCategory, onSelectCategory, 
         </nav>
       </div>
     </header>
-    </>
   );
 }

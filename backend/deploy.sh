@@ -82,6 +82,7 @@ LAMBDA_FUNCTIONS=(
   "sedaily-mbti-engagement-dev"
   "sedaily-mbti-tts-dev"
   "sedaily-mbti-time-machine-dev"
+  "sedaily-mbti-s3-articles-dev"
 )
 
 # Update each function

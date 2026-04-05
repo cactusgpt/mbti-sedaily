@@ -1,13 +1,12 @@
 
-
 import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { MyPage } from "@/components/user/MyPage";
 
 export function UserMenu() {
-  const { user, isLoading, isAuthenticated, signInWithGoogle, logout } = useAuth();
+  const navigate = useNavigate();
+  const { user, isLoading, isAuthenticated, logout } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
-  const [showMyPage, setShowMyPage] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close menu when clicking outside
@@ -31,7 +30,7 @@ export function UserMenu() {
   if (!isAuthenticated || !user) {
     return (
       <button
-        onClick={signInWithGoogle}
+        onClick={() => navigate("/login")}
         className="flex items-center gap-2 px-3 py-1.5 text-[13px] text-gray-600 hover:text-gray-900 transition-colors"
       >
         <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -75,7 +74,7 @@ export function UserMenu() {
 
       {/* Dropdown Menu */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50">
+        <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-[100]">
           {/* User Info */}
           <div className="px-4 py-3 border-b border-gray-100">
             <p className="text-[14px] font-medium text-gray-900 truncate">
@@ -91,15 +90,19 @@ export function UserMenu() {
             <button
               onClick={() => {
                 setIsOpen(false);
-                setShowMyPage(true);
+                navigate("/subscription");
               }}
               className="w-full px-4 py-2 text-left text-[13px] text-gray-700 hover:bg-gray-50 flex items-center gap-3"
             >
-              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              <svg className="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z" />
               </svg>
-              마이페이지
+              <span className="flex items-center gap-1.5">
+                구독 관리
+                <span className="text-[10px] px-1.5 py-0.5 bg-gradient-to-r from-amber-400 to-orange-500 text-white rounded-full font-medium">PRO</span>
+              </span>
             </button>
+            <div className="border-t border-gray-100 my-1" />
             <button
               onClick={() => {
                 setIsOpen(false);
@@ -115,9 +118,6 @@ export function UserMenu() {
           </div>
         </div>
       )}
-
-      {/* MyPage Modal */}
-      {showMyPage && <MyPage onClose={() => setShowMyPage(false)} />}
     </div>
   );
 }

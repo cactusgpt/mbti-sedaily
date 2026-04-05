@@ -182,7 +182,7 @@ export function ArticlePodcast({ articleTitle, articleBody, mbtiGroup }: Props) 
       <button
         onClick={togglePlay}
         disabled={isLoading}
-        className="w-10 h-10 bg-gray-900 rounded-full flex items-center justify-center text-white hover:bg-gray-800 transition-colors disabled:opacity-50"
+        className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white hover:bg-blue-600 transition-colors disabled:opacity-50"
       >
         {isLoading ? (
           <span className="text-[12px]">...</span>
