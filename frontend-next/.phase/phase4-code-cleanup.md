@@ -110,19 +110,104 @@ src/
 │   ├── community/
 │   ├── archive/
 │   └── news-dna/
-├── legacy/                 # 미사용 코드 보관 (NEW)
-│   └── mbti-unused/        # 15개 파일
+├── legacy/                 # 미사용 코드 보관
+│   ├── mbti-unused/        # 15개 MBTI 컴포넌트
+│   ├── data-unused/        # 3개 데이터 파일
+│   ├── hooks-unused/       # 4개 훅
+│   ├── utils-unused/       # 10개 유틸
+│   ├── ui-unused/          # 3개 UI 컴포넌트
+│   └── components-unused/  # 2개 일반 컴포넌트
 ├── shared/                 # 공통 레이어
 │   ├── config/
-│   ├── data/
-│   ├── hooks/
+│   ├── data/               # (3개 파일 제거됨)
+│   ├── hooks/              # (4개 파일 제거됨)
 │   ├── types/
-│   ├── ui/
+│   ├── ui/                 # (3개 파일 제거됨, ScrollReveal만 남음)
 │   │   └── ScrollReveal.tsx
-│   └── utils/
+│   └── utils/              # (10개 파일 제거됨, textUtils 등 사용 중인 것만 남음)
+│       ├── dateUtils.ts
+│       ├── textUtils.ts
+│       └── ...
 └── widgets/                # (플레이스홀더)
     └── index.ts
 ```
+
+## Phase 4 확장: 추가 미사용 파일 정리 (2차 작업)
+
+### 4. 전체 프로젝트 재스캔 및 추가 미사용 파일 식별
+
+전체 코드베이스를 재스캔하여 추가로 사용되지 않는 파일 22개를 식별하고 보관 처리:
+
+#### 4.1 데이터 파일 (3개)
+
+| 파일명 | 원본 위치 | 새 위치 | 크기 | 사용 횟수 |
+|---|---|---|---|---|
+| crosswordPuzzles.ts | src/shared/data/ | src/legacy/data-unused/ | 8.0KB | 0회 |
+| spellingBeePuzzles.ts | src/shared/data/ | src/legacy/data-unused/ | 13KB | 0회 |
+| wordlePuzzles.ts | src/shared/data/ | src/legacy/data-unused/ | 14KB | 0회 |
+
+#### 4.2 Hooks (4개)
+
+| 파일명 | 원본 위치 | 새 위치 | 사용 횟수 |
+|---|---|---|---|
+| useAdmin.ts | src/shared/hooks/ | src/legacy/hooks-unused/ | 0회 |
+| useDraggable.ts | src/shared/hooks/ | src/legacy/hooks-unused/ | 0회 |
+| usePosts.ts | src/shared/hooks/ | src/legacy/hooks-unused/ | 0회 |
+| useTheme.ts | src/shared/hooks/ | src/legacy/hooks-unused/ | 0회 |
+
+#### 4.3 Utils (10개)
+
+| 파일명 | 원본 위치 | 새 위치 | 사용 횟수 |
+|---|---|---|---|
+| analytics.ts | src/shared/utils/ | src/legacy/utils-unused/ | 0회 |
+| apiClient.ts | src/shared/utils/ | src/legacy/utils-unused/ | 0회 |
+| articleUrl.ts | src/shared/utils/ | src/legacy/utils-unused/ | 0회 |
+| categoryUtils.ts | src/shared/utils/ | src/legacy/utils-unused/ | 0회 |
+| convertByline.ts | src/shared/utils/ | src/legacy/utils-unused/ | 0회 |
+| formatDate.ts | src/shared/utils/ | src/legacy/utils-unused/ | 0회 |
+| imageUrl.ts | src/shared/utils/ | src/legacy/utils-unused/ | 0회 |
+| parseMarkdown.tsx | src/shared/utils/ | src/legacy/utils-unused/ | 0회 |
+| transcribeStreaming.ts | src/shared/utils/ | src/legacy/utils-unused/ | 0회 |
+| userPreferences.ts | src/shared/utils/ | src/legacy/utils-unused/ | 0회 |
+
+**참고**: `textUtils.ts`는 초기에 미사용으로 식별되었으나 빌드 테스트 중 NewsFeedTab에서 사용 중임을 확인하여 제외
+
+#### 4.4 UI 컴포넌트 (3개)
+
+| 파일명 | 원본 위치 | 새 위치 | 사용 횟수 |
+|---|---|---|---|
+| LoadingSpinner/ | src/shared/ui/ | src/legacy/ui-unused/ | 0회 |
+| ScrollRestoration.tsx | src/shared/ui/ | src/legacy/ui-unused/ | 0회 |
+| ScrollToTop.tsx | src/shared/ui/ | src/legacy/ui-unused/ | 0회 |
+
+#### 4.5 일반 컴포넌트 (2개)
+
+| 파일명 | 원본 위치 | 새 위치 | 사용 횟수 |
+|---|---|---|---|
+| PageTransition.tsx | src/components/ | src/legacy/components-unused/ | 0회 |
+| ConversationalOnboarding.tsx | src/components/onboarding/ | src/legacy/components-unused/ | 0회 |
+
+**Phase 4 확장 정리**: 22개 파일 → legacy 하위 폴더로 이동
+
+### 5. Legacy 폴더 구조 확장
+
+```
+src/legacy/
+├── mbti-unused/          # 15개 MBTI 컴포넌트
+├── data-unused/          # 3개 데이터 파일 (35KB)
+├── hooks-unused/         # 4개 훅
+├── utils-unused/         # 10개 유틸 함수
+├── ui-unused/            # 3개 UI 컴포넌트
+└── components-unused/    # 2개 일반 컴포넌트
+```
+
+## 전체 정리 요약
+
+**Phase 4 총 정리 결과**:
+- **1차 작업** (MBTI 컴포넌트 + FeedPage 중복 코드): 15개 파일
+- **2차 작업** (전체 프로젝트 미사용 파일): 22개 파일
+- **총계**: **37개 파일** legacy 폴더로 이동
+- **절약된 디스크 공간**: 약 35KB (데이터 파일만)
 
 ## 참고사항
 
@@ -130,11 +215,13 @@ src/
 - 모든 변경사항은 빌드 성공 확인 후 적용됨
 - 중복 코드 제거 시 기존 기능 유지 확인
 - 리팩토링 원칙: 구조만 변경, 로직 변경 없음
+- 초기 미사용으로 식별된 파일도 빌드 테스트 중 실제 사용 여부 재확인
 
 ## 작업 방법론
 
 1. **전체 프로젝트 스캔**: `grep -r` 명령어로 각 파일의 import 사용 횟수 조사
-2. **사용 횟수 0회 파일 식별**: 15개 컴포넌트가 미사용으로 확인됨
+2. **사용 횟수 0회 파일 식별**: 1차 15개, 2차 22개 총 37개 파일 확인
 3. **legacy 폴더 생성 및 이동**: 향후 참고를 위해 보관 처리
 4. **중복 코드 식별**: FeedPage.tsx 내 이미 shared/features에 있는 코드 제거
 5. **빌드 검증**: 타입 체크 및 프로덕션 빌드로 안정성 확인
+6. **오류 수정**: 빌드 실패 시 해당 파일 복구 (예: textUtils.ts)
