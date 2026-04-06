@@ -6,9 +6,10 @@ import { ArticleView } from "./ArticleView";
 import { UserMenu } from "@/features/auth";
 import { mockArticles } from "@/shared/data/mockArticles";
 import { BarChart3, BookOpen, Lightbulb, Coffee, Coins, Rocket, Globe, Sparkles, Calendar, Newspaper, Users, Camera, TrendingUp } from "lucide-react";
+import { ScrollReveal } from "@/shared/ui/ScrollReveal";
 
 // Feature Tab Components
-import { QuestionTab } from "@/features/question";
+import { QuestionTab, dailyQuestions } from "@/features/question";
 import { NewsFeedTab } from "@/features/news-feed";
 import { CommunityTab } from "@/features/community";
 import { ArchiveTab } from "@/features/archive";
@@ -16,58 +17,6 @@ import { DnaTab } from "@/features/news-dna";
 
 // 프리페칭 캐시
 const prefetchCache = new Map<string, Article>();
-
-// 스크롤 기반 애니메이션 컴포넌트
-const ScrollReveal = ({
-  children,
-  delay = 0,
-  className = "",
-  id
-}: {
-  children: React.ReactNode;
-  delay?: number;
-  className?: string;
-  id?: string;
-}) => {
-  const ref = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setTimeout(() => setIsVisible(true), delay);
-          observer.unobserve(entry.target);
-        }
-      },
-      {
-        threshold: 0.15,
-        rootMargin: '0px 0px -50px 0px'
-      }
-    );
-
-    if (ref.current) {
-      observer.observe(ref.current);
-    }
-
-    return () => observer.disconnect();
-  }, [delay]);
-
-  return (
-    <div
-      ref={ref}
-      id={id}
-      className={className}
-      style={{
-        opacity: isVisible ? 1 : 0,
-        transform: isVisible ? 'translateY(0)' : 'translateY(60px)',
-        transition: 'opacity 0.8s cubic-bezier(0.22, 1, 0.36, 1), transform 0.8s cubic-bezier(0.22, 1, 0.36, 1)',
-      }}
-    >
-      {children}
-    </div>
-  );
-};
 
 interface MbtiVersion {
   title: string;
@@ -99,44 +48,6 @@ interface Props {
   onSwitchToStory?: () => void;
   onMbtiChange?: (group: MbtiGroupId) => void;
 }
-
-// 아이콘 매핑
-const questionIcons = {
-  chart: BarChart3,
-  book: BookOpen,
-  lightbulb: Lightbulb,
-  coffee: Coffee,
-  coins: Coins,
-  rocket: Rocket,
-  globe: Globe,
-  sparkles: Sparkles,
-};
-
-// 오늘의 질문 데이터
-const dailyQuestions = [
-  {
-    id: "q1",
-    question: "뉴스를 읽을 때,\n당신의 스타일은?",
-    subtitle: "AI가 당신에게 맞는 뉴스를 찾아드려요",
-    options: [
-      { id: "data", label: "팩트와 데이터 중심", desc: "숫자로 증명된 정보가 좋아요", iconType: "chart" as const, mbti: "NT" as MbtiGroupId },
-      { id: "story", label: "스토리와 맥락 중심", desc: "왜 그런지 이해하고 싶어요", iconType: "book" as const, mbti: "NF" as MbtiGroupId },
-      { id: "practical", label: "실용적 정보 중심", desc: "바로 활용할 수 있으면 좋겠어요", iconType: "lightbulb" as const, mbti: "ST" as MbtiGroupId },
-      { id: "easy", label: "쉽고 재미있게", desc: "부담없이 읽고 싶어요", iconType: "coffee" as const, mbti: "SF" as MbtiGroupId },
-    ],
-  },
-  {
-    id: "q2",
-    question: "오늘 가장 끌리는\n뉴스 주제는?",
-    subtitle: "관심사를 기반으로 피드를 구성해요",
-    options: [
-      { id: "economy", label: "경제·금융", desc: "돈의 흐름을 읽고 싶어요", iconType: "coins" as const, category: "경제" },
-      { id: "tech", label: "테크·미래", desc: "새로운 기술이 궁금해요", iconType: "rocket" as const, category: "테크" },
-      { id: "world", label: "글로벌·국제", desc: "세계 이슈가 궁금해요", iconType: "globe" as const, category: "세계" },
-      { id: "life", label: "라이프·트렌드", desc: "일상의 변화가 궁금해요", iconType: "sparkles" as const, category: "사회" },
-    ],
-  },
-];
 
 // MBTI 페르소나 정보
 const personaInfo: Record<MbtiGroupId, { name: string; style: string; color: string }> = {
