@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { X, Upload, Image as ImageIcon, Trash2 } from "lucide-react";
-import type { CreatePostParams } from "@/services/postService";
+import type { CreatePostParams } from "@/shared/services/postService";
 
 const POST_CATEGORIES = ["경제", "정치", "사회", "세계", "테크", "문화"];
 const MBTI_GROUPS = ["NT", "NF", "ST", "SF"] as const;

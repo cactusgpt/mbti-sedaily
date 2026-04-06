@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from "react";
-import { API_URL } from "@/config/api";
+import { API_URL } from "@/shared/config/api";
 
 type Step = "input" | "loading" | "result";
 

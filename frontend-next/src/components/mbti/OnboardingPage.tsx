@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import type { MbtiGroupId } from "@/data/mbtiGroups";
-import { playEditorIntro, stopAudio } from "@/lib/elevenlabs";
+import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
+import { playEditorIntro, stopAudio } from "@/shared/lib/elevenlabs";
 
 // 샘플 뉴스 - 같은 뉴스를 다르게 표현
 const sampleNews = {

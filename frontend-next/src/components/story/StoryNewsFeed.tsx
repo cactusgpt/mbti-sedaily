@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { X, Heart, ExternalLink, TrendingUp, Clock, Zap } from "lucide-react";
-import { API_URL } from "@/config/api";
+import { API_URL } from "@/shared/config/api";
 import { Character2D } from "@/components/character/Character3D";
 
 interface Article {

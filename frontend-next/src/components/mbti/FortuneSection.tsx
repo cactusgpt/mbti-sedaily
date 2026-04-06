@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import type { MbtiGroupId } from "@/data/mbtiGroups";
+import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
 
 interface FortuneData {
   mbti_group: string;

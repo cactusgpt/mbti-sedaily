@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { MbtiGroupId } from "@/data/mbtiGroups";
+import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
 
 const ELEVENLABS_API_KEY = "sk_a6eb7c8b7a591dc6ee5e2b5a1a5dc9c1e0f15821bb69e7c9";
 const CHAT_API_URL = 'https://chzwwtjtgk.execute-api.us-east-1.amazonaws.com/dev/api/chat';

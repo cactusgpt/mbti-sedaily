@@ -1,7 +1,7 @@
 
 
 import { useState, useEffect, useCallback } from "react";
-import { API_URL } from "@/config/api";
+import { API_URL } from "@/shared/config/api";
 
 interface Props {
   articleId: string;

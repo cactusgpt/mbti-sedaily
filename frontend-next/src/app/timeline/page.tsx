@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import type { MbtiGroupId } from "@/data/mbtiGroups";
+import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
 import { TimelineNewsFeed } from "@/components/timeline/TimelineNewsFeed";
 import { MbtiChatBot } from "@/components/mbti/MbtiChatBot";
 

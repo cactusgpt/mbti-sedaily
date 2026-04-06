@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import type { MbtiGroupId } from "@/data/mbtiGroups";
-import { useAuth } from "@/contexts/AuthContext";
-import { recordArticleRead } from "@/lib/userApi";
-import { trackArticleRead } from "@/lib/readingTracker";
-import { API_URL } from "@/config/api";
+import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
+import { useAuth } from "@/features/auth";
+import { recordArticleRead } from "@/shared/lib/userApi";
+import { trackArticleRead } from "@/shared/lib/readingTracker";
+import { API_URL } from "@/shared/config/api";
 
 interface MbtiVersion {
   title: string;

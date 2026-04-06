@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/features/auth";
 import { ArrowLeft, Crown, Sparkles, Headphones, Zap, Shield, Check } from "lucide-react";
 
 type PlanType = "monthly" | "yearly";

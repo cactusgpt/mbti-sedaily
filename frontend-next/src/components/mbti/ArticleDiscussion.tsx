@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import type { MbtiGroupId } from '@/data/mbtiGroups';
+import type { MbtiGroupId } from '@/shared/data/mbtiGroups';
 
 const API_URL = 'https://chzwwtjtgk.execute-api.us-east-1.amazonaws.com/dev/api/chat';
 

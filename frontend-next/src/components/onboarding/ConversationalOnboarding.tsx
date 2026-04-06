@@ -1,7 +1,7 @@
 
 
 import { useState, useEffect } from "react";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/features/auth";
 import { ChevronRight, Sparkles } from "lucide-react";
 
 interface Question {

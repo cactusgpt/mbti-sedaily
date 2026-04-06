@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { MbtiGroupId } from "@/data/mbtiGroups";
-import { getTodayReadCount } from "@/lib/readingTracker";
+import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
+import { getTodayReadCount } from "@/shared/lib/readingTracker";
 
 interface Props {
   selectedGroup: MbtiGroupId;

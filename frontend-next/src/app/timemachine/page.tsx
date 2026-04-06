@@ -3,11 +3,11 @@
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { getFamousBirthdays, type FamousPerson } from "@/data/famousBirthdays";
-import { getSnapshotByDate, CURRENT_SNAPSHOT } from "@/data/economicSnapshots";
-import { INVESTMENT_OPTIONS, calcInvestment, getParallelUniverses } from "@/data/investmentScenarios";
-import { fetchTimeMachineData } from "@/api/timeMachineApi";
-import type { DayNews, HistoricalEvent } from "@/types/timeMachine";
+import { getFamousBirthdays, type FamousPerson } from "@/shared/data/famousBirthdays";
+import { getSnapshotByDate, CURRENT_SNAPSHOT } from "@/shared/data/economicSnapshots";
+import { INVESTMENT_OPTIONS, calcInvestment, getParallelUniverses } from "@/shared/data/investmentScenarios";
+import { fetchTimeMachineData } from "@/shared/api/timeMachineApi";
+import type { DayNews, HistoricalEvent } from "@/shared/types/timeMachine";
 import { Newspaper, Users, Camera, TrendingUp, ArrowLeft, Sparkles, Calendar, Home, Clock, Building, Landmark, Coins, PiggyBank, Car, Store, Bitcoin, Trophy, Award, BarChart2, Building2, Smartphone, Coffee, Crown, Mic2, Palette, Film, BookOpen, Globe, Briefcase, Music, Pen, Gamepad2, Medal, Rocket, type LucideIcon } from "lucide-react";
 
 // 투자 옵션 아이콘 매핑

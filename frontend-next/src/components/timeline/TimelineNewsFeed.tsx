@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Home, ExternalLink, Clock } from "lucide-react";
-import type { MbtiGroupId } from "@/data/mbtiGroups";
-import { API_URL } from "@/config/api";
+import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
+import { API_URL } from "@/shared/config/api";
 
 interface MbtiVersion {
   title: string;

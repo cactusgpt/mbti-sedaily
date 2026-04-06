@@ -1,8 +1,8 @@
 
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { API_URL } from "@/config/api";
-import type { MbtiGroupId } from "@/data/mbtiGroups";
+import { API_URL } from "@/shared/config/api";
+import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
 
 interface Props {
   articleTitle: string;

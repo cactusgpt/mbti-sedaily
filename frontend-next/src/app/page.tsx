@@ -6,7 +6,7 @@ import { FeedPage } from "@/components/mbti/FeedPage";
 import { MbtiChatBot } from "@/components/mbti/MbtiChatBot";
 import { OnboardingPage } from "@/components/mbti/OnboardingPage";
 import { BriefingPage } from "@/components/mbti/BriefingPage";
-import type { MbtiGroupId } from "@/data/mbtiGroups";
+import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
 
 type ViewMode = "story" | "feed" | "editor-select" | "briefing";
 

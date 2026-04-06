@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import type { MbtiGroupId } from "@/data/mbtiGroups";
-import { mbtiGroups } from "@/data/mbtiGroups";
+import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
+import { mbtiGroups } from "@/shared/data/mbtiGroups";
 
 interface Props {
   selectedGroup: MbtiGroupId;

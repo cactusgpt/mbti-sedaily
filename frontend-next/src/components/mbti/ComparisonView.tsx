@@ -1,9 +1,9 @@
 
 
 import { useState } from "react";
-import type { MbtiGroupId } from "@/data/mbtiGroups";
-import { mbtiGroupList, mbtiGroups } from "@/data/mbtiGroups";
-import { sampleArticle } from "@/data/sampleArticles";
+import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
+import { mbtiGroupList, mbtiGroups } from "@/shared/data/mbtiGroups";
+import { sampleArticle } from "@/shared/data/sampleArticles";
 
 interface Props {
   selectedGroup: MbtiGroupId | null;

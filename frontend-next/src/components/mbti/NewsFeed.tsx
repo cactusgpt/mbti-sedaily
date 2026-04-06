@@ -1,9 +1,9 @@
 
 
 import { useState, useEffect } from "react";
-import type { MbtiGroupId } from "@/data/mbtiGroups";
-import { mbtiGroups } from "@/data/mbtiGroups";
-import { API_URL } from "@/config/api";
+import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
+import { mbtiGroups } from "@/shared/data/mbtiGroups";
+import { API_URL } from "@/shared/config/api";
 import { ArticleReactions } from "./ArticleReactions";
 
 interface MbtiVersion {

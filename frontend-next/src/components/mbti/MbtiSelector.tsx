@@ -1,7 +1,7 @@
 
 
-import { mbtiGroupList, mbtiGroups, mbtiTypeToGroup } from "@/data/mbtiGroups";
-import type { MbtiGroupId, MbtiType } from "@/data/mbtiGroups";
+import { mbtiGroupList, mbtiGroups, mbtiTypeToGroup } from "@/shared/data/mbtiGroups";
+import type { MbtiGroupId, MbtiType } from "@/shared/data/mbtiGroups";
 
 interface Props {
   selectedGroup: MbtiGroupId | null;

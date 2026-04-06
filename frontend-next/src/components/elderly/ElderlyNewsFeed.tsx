@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Play, Pause, SkipForward, RotateCcw, Volume2, Home, Settings } from "lucide-react";
 import Link from "next/link";
-import { API_URL } from "@/config/api";
+import { API_URL } from "@/shared/config/api";
 
 interface Article {
   news_id: string;
