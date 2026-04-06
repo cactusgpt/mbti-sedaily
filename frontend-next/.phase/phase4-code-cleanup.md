@@ -52,9 +52,9 @@ import { QuestionTab, dailyQuestions } from "@/features/question";
 
 ## 빌드 상태
 
-✅ TypeScript 타입 체크 통과
+✅ TypeScript 타입 체크 통과 (legacy 폴더 제외)
 ✅ Next.js 빌드 성공 (`npm run build` 통과)
-✅ 14개 페이지 정상 빌드 확인
+✅ 10개 페이지 정상 빌드 확인 (elderly, listen 제거로 14개 → 10개)
 
 ## Git 변경사항
 
@@ -201,12 +201,58 @@ src/legacy/
 └── components-unused/    # 2개 일반 컴포넌트
 ```
 
+## Phase 4 확장 (3차 작업): Orphan Pages 정리
+
+### 6. UI에서 접근 불가능한 페이지 식별 (Orphan Pages)
+
+UI 내에서 링크가 존재하지 않아 직접 URL로만 접근 가능한 "고아 페이지" 식별:
+
+#### 6.1 App Pages (2개)
+
+| 파일명 | 원본 위치 | 새 위치 | 접근성 |
+|---|---|---|---|
+| page.tsx (elderly) | src/app/elderly/ | src/legacy/app-pages-unused/elderly/ | URL 직접 접근만 가능, UI 링크 없음 |
+| page.tsx (listen) | src/app/listen/ | src/legacy/app-pages-unused/listen/ | URL 직접 접근만 가능, UI 링크 없음 |
+
+#### 6.2 Components (2개)
+
+| 파일명 | 원본 위치 | 새 위치 | 사용처 |
+|---|---|---|---|
+| WritePostModal.tsx | src/components/admin/ | src/legacy/components-unused/admin/ | import 사용 0회 |
+| ElderlyNewsFeed.tsx | src/components/elderly/ | src/legacy/components-unused/elderly/ | orphan page에서만 사용 |
+
+#### 6.3 관련 파일 수정
+
+| 파일 | 변경 내용 | 사유 |
+|---|---|---|
+| src/app/sitemap.ts | `/elderly`, `/listen` URL 제거 | SEO에서 제외 |
+| tsconfig.json | `"src/legacy/**/*"` exclude 추가 | 레거시 코드 컴파일 제외 |
+
+### 7. Legacy 폴더 구조 최종 확장
+
+```
+src/legacy/
+├── mbti-unused/            # 15개 MBTI 컴포넌트
+├── data-unused/            # 3개 데이터 파일 (35KB)
+├── hooks-unused/           # 4개 훅
+├── utils-unused/           # 10개 유틸 함수
+├── ui-unused/              # 3개 UI 컴포넌트
+├── components-unused/      # 4개 일반 컴포넌트
+│   ├── admin/              # WritePostModal.tsx
+│   └── elderly/            # ElderlyNewsFeed.tsx
+└── app-pages-unused/       # 2개 Next.js 페이지
+    ├── elderly/            # page.tsx
+    └── listen/             # page.tsx
+```
+
 ## 전체 정리 요약
 
 **Phase 4 총 정리 결과**:
 - **1차 작업** (MBTI 컴포넌트 + FeedPage 중복 코드): 15개 파일
 - **2차 작업** (전체 프로젝트 미사용 파일): 22개 파일
-- **총계**: **37개 파일** legacy 폴더로 이동
+- **3차 작업** (Orphan Pages 정리): 4개 파일 (페이지 2개 + 컴포넌트 2개)
+- **총계**: **41개 파일** legacy 폴더로 이동
+- **빌드 최적화**: 14개 페이지 → 10개 페이지 (-4개)
 - **절약된 디스크 공간**: 약 35KB (데이터 파일만)
 
 ## 참고사항
@@ -216,12 +262,15 @@ src/legacy/
 - 중복 코드 제거 시 기존 기능 유지 확인
 - 리팩토링 원칙: 구조만 변경, 로직 변경 없음
 - 초기 미사용으로 식별된 파일도 빌드 테스트 중 실제 사용 여부 재확인
+- **Orphan Pages**: UI에서 링크가 없어 직접 URL로만 접근 가능한 페이지도 legacy로 이동
 
 ## 작업 방법론
 
 1. **전체 프로젝트 스캔**: `grep -r` 명령어로 각 파일의 import 사용 횟수 조사
 2. **사용 횟수 0회 파일 식별**: 1차 15개, 2차 22개 총 37개 파일 확인
-3. **legacy 폴더 생성 및 이동**: 향후 참고를 위해 보관 처리
-4. **중복 코드 식별**: FeedPage.tsx 내 이미 shared/features에 있는 코드 제거
-5. **빌드 검증**: 타입 체크 및 프로덕션 빌드로 안정성 확인
-6. **오류 수정**: 빌드 실패 시 해당 파일 복구 (예: textUtils.ts)
+3. **Orphan Pages 식별**: UI에서 Link/href/router.push 검색하여 접근 불가능한 페이지 찾기
+4. **legacy 폴더 생성 및 이동**: 향후 참고를 위해 보관 처리
+5. **중복 코드 식별**: FeedPage.tsx 내 이미 shared/features에 있는 코드 제거
+6. **빌드 검증**: 타입 체크 및 프로덕션 빌드로 안정성 확인
+7. **오류 수정**: 빌드 실패 시 해당 파일 복구 (예: textUtils.ts)
+8. **설정 파일 업데이트**: sitemap.ts, tsconfig.json 등 관련 설정 수정
