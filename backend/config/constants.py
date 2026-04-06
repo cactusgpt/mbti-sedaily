@@ -174,6 +174,14 @@ ITEM_TYPE_ARTICLE = 'article'
 ITEM_TYPE_SETTINGS = 'settings_config'
 ITEM_TYPE_COLLECTION_LOG = 'collection_log'
 ITEM_TYPE_ARTICLE_VERSION = 'article_version'
+ITEM_TYPE_NEWS_BRIEFING = 'news_briefing'
+
+# =============================================================================
+# News Briefing (Chatbot Context Cache)
+# =============================================================================
+
+NEWS_BRIEFING_ID = 'news_briefing_latest'
+NEWS_BRIEFING_MAX_AGE_HOURS = 36  # 하루 1회 갱신 기준, 여유 12시간 포함
 
 # =============================================================================
 # Settings Keys

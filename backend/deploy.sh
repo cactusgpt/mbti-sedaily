@@ -82,6 +82,7 @@ LAMBDA_FUNCTIONS=(
   "sedaily-mbti-engagement-dev"
   "sedaily-mbti-tts-dev"
   "sedaily-mbti-time-machine-dev"
+  "sedaily-mbti-briefing-dev"
 )
 
 # Update each function
@@ -112,4 +113,6 @@ echo "  -> Article API logs:"
 echo "     aws logs tail /aws/lambda/sedaily-mbti-article-dev --follow"
 echo "  -> Chatbot API logs:"
 echo "     aws logs tail /aws/lambda/sedaily-mbti-chatbot-dev --follow"
+echo "  -> Briefing Generator logs:"
+echo "     aws logs tail /aws/lambda/sedaily-mbti-briefing-dev --follow"
 echo ""

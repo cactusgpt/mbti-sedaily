@@ -16,6 +16,8 @@ from config.constants import (
     CORS_HEADERS,
     BEDROCK_MODEL_ID_HAIKU,  # Haiku for cost-effective chatbot
     DYNAMODB_TABLE_ARTICLES_DEV,
+    NEWS_BRIEFING_ID,
+    NEWS_BRIEFING_MAX_AGE_HOURS,
 )
 
 logger = logging.getLogger(__name__)
@@ -108,6 +110,45 @@ MBTI_SYSTEM_PROMPTS = {
 }
 
 
+def get_cached_briefing(mbti_group: str) -> Optional[str]:
+    """Fetch the cached news briefing for the given MBTI group.
+    Returns the briefing text if fresh, or None to fall back to article query."""
+    try:
+        dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+        table = dynamodb.Table(DYNAMODB_TABLE_ARTICLES_DEV)
+
+        response = table.get_item(Key={'news_id': NEWS_BRIEFING_ID})
+        item = response.get('Item')
+
+        if not item:
+            return None
+
+        # Check staleness
+        generated_at = item.get('generated_at', '')
+        if generated_at:
+            from datetime import timedelta, timezone
+            gen_time = datetime.fromisoformat(generated_at)
+            kst = timezone(timedelta(hours=9))
+            now = datetime.now(kst)
+            # Make gen_time offset-aware if needed
+            if gen_time.tzinfo is None:
+                gen_time = gen_time.replace(tzinfo=kst)
+            age_hours = (now - gen_time).total_seconds() / 3600
+            if age_hours > NEWS_BRIEFING_MAX_AGE_HOURS:
+                logger.warning(f"Briefing is stale ({age_hours:.1f}h old), falling back to article query")
+                return None
+
+        briefing_key = f'briefing_{mbti_group}'
+        briefing = item.get(briefing_key)
+        if briefing:
+            logger.info(f"Using cached briefing for {mbti_group} (generated: {generated_at})")
+        return briefing
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch cached briefing: {e}")
+        return None
+
+
 def get_recent_articles(limit: int = 5) -> List[Dict[str, Any]]:
     """Fetch recent articles for context"""
     try:
@@ -150,11 +191,17 @@ def build_context_prompt(articles: List[Dict[str, Any]], mbti_group: str) -> str
     return context
 
 
+def build_context_from_briefing(briefing_text: str) -> str:
+    """Build context from pre-generated daily briefing."""
+    return f"\n\n[오늘의 뉴스 브리핑 - 대화 시 참조]\n{briefing_text}\n"
+
+
 async def generate_chat_response(
     user_message: str,
     mbti_group: str,
     conversation_history: List[Dict[str, str]],
-    recent_articles: List[Dict[str, Any]] = None
+    recent_articles: List[Dict[str, Any]] = None,
+    cached_briefing: Optional[str] = None
 ) -> str:
     """
     Generate chat response using Claude API via Bedrock.
@@ -163,7 +210,8 @@ async def generate_chat_response(
         user_message: User's input message
         mbti_group: MBTI group (NT, NF, ST, SF)
         conversation_history: Previous messages in the conversation
-        recent_articles: Recent news articles for context
+        recent_articles: Recent news articles for context (fallback)
+        cached_briefing: Pre-generated MBTI-styled briefing text (preferred)
 
     Returns:
         AI-generated response text
@@ -173,8 +221,10 @@ async def generate_chat_response(
     # Build system prompt
     system_prompt = MBTI_SYSTEM_PROMPTS.get(mbti_group, MBTI_SYSTEM_PROMPTS['SF'])
 
-    # Add context about recent news
-    if recent_articles:
+    # Add news context: prefer cached briefing, fall back to article query
+    if cached_briefing:
+        system_prompt += build_context_from_briefing(cached_briefing)
+    elif recent_articles:
         system_prompt += build_context_prompt(recent_articles, mbti_group)
 
     # Add general instructions
@@ -318,8 +368,9 @@ def lambda_handler(event: dict, context) -> dict:
 
         logger.info(f"Chat request: group={mbti_group}, message_length={len(user_message)}")
 
-        # Fetch recent articles for context
-        recent_articles = get_recent_articles(5)
+        # Try cached briefing first, fall back to article query
+        cached_briefing = get_cached_briefing(mbti_group)
+        recent_articles = None if cached_briefing else get_recent_articles(5)
 
         # Generate response (sync wrapper for async function)
         import asyncio
@@ -332,7 +383,8 @@ def lambda_handler(event: dict, context) -> dict:
                     user_message=user_message,
                     mbti_group=mbti_group,
                     conversation_history=conversation_history,
-                    recent_articles=recent_articles
+                    recent_articles=recent_articles,
+                    cached_briefing=cached_briefing
                 )
             )
         finally:
