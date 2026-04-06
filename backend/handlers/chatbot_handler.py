@@ -233,7 +233,7 @@ async def generate_chat_response(
 [중요 지침]
 1. 서울경제신문의 AI 어시스턴트로서 경제/금융 뉴스에 대해 도움을 드려요
 2. 정확한 정보만 제공하고, 모르는 것은 모른다고 솔직히 말해요
-3. 주가, 지수 등 실시간 데이터가 필요하면 반드시 get_stock_price 도구를 사용하세요. 도구 없이 수치를 만들어내지 마세요
+3. 주가 관련 질문은 반드시 get_stock_price 도구를 사용하세요. 도구가 반환하는 값은 전일 종가 기준입니다. 도구 없이 수치를 만들어내지 마세요
 4. 응답은 간결하게 (200자 내외), 필요시 더 자세히 설명해요
 5. 한국어로 자연스럽게 대화해요
 6. 투자 조언이나 추천은 하지 않아요 (면책)
@@ -243,7 +243,7 @@ async def generate_chat_response(
     tools = [
         {
             "name": "get_stock_price",
-            "description": "한국 주식의 실시간 가격을 조회합니다. 종목명(예: 삼성전자) 또는 종목코드(예: 005930)로 검색할 수 있습니다.",
+            "description": "한국 주식의 전일 종가를 조회합니다. 종목명(예: 삼성전자) 또는 종목코드(예: 005930)로 검색할 수 있습니다.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -345,12 +345,10 @@ async def _handle_tool_use(client, system_prompt: str, tools: list, messages: li
                 "종목명": stock_data["name"],
                 "종목코드": stock_data["code"],
                 "시장": stock_data["market"],
-                "현재가": stock_data["price"],
-                "전일대비": stock_data["change"],
+                "전일종가": stock_data["prev_close"],
+                "전일대비등락": stock_data["change"],
                 "등락률": f"{stock_data['change_percent']}%",
                 "방향": stock_data["direction"],
-                "장상태": stock_data["market_status"],
-                "기준시각": stock_data["traded_at"],
             }, ensure_ascii=False)
         else:
             tool_result = json.dumps({"error": f"'{query}' 종목을 찾을 수 없습니다."}, ensure_ascii=False)
