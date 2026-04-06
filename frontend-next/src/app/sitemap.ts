@@ -32,18 +32,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 0.9,
     },
     {
-      url: `${BASE_URL}/elderly`,
-      lastModified,
-      changeFrequency: 'daily',
-      priority: 0.8,
-    },
-    {
-      url: `${BASE_URL}/listen`,
-      lastModified,
-      changeFrequency: 'daily',
-      priority: 0.8,
-    },
-    {
       url: `${BASE_URL}/timemachine`,
       lastModified,
       changeFrequency: 'weekly',
