@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { MbtiGroupId } from "@/data/mbtiGroups";
 
-const ELEVENLABS_API_KEY = "sk_a6eb7c8b7a591dc6ee5e2b5a1a5dc9c1e0f15821bb69e7c9";
+const ELEVENLABS_API_KEY = import.meta.env.VITE_ELEVENLABS_API_KEY ?? '';
 const CHAT_API_URL = 'https://chzwwtjtgk.execute-api.us-east-1.amazonaws.com/dev/api/chat';
 
 const voiceIds: Record<MbtiGroupId, string> = {
@@ -282,12 +282,14 @@ export function BriefingPage({ groupId, onFinish, onBack }: Props) {
     }
   };
 
-  // Quick questions
-  const quickQuestions = [
-    "오늘 주요 뉴스 알려줘",
-    "경제 뉴스 요약해줘",
-    "쉽게 설명해줘",
-  ];
+  // MBTI 그룹별 퀵 질문
+  const quickQuestionsMap: Record<MbtiGroupId, string[]> = {
+    NT: ["오늘 핵심 뉴스 분석해줘", "시장 데이터 요약해줘", "투자 리스크 알려줘"],
+    NF: ["오늘 뉴스의 의미 알려줘", "사회 변화 흐름 설명해줘", "사람들 반응이 어때?"],
+    ST: ["오늘 뉴스 팩트 정리해줘", "핵심 경제 지표 알려줘", "실용 정보 요약해줘"],
+    SF: ["오늘 뉴스 쉽게 알려줘", "내 생활에 영향 있는 거 뭐야?", "재밌는 뉴스 있어?"],
+  };
+  const quickQuestions = quickQuestionsMap[groupId];
 
   return (
     <div className={`fixed inset-0 bg-gradient-to-br ${editor.bgClass} z-50 flex flex-col`}>

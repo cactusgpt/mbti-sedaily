@@ -86,12 +86,29 @@ const GROUP_COLORS = {
   },
 };
 
-// 퀵 액션 버튼
-const QUICK_ACTIONS = [
-  { label: '오늘 뉴스', query: '오늘 주요 뉴스 알려줘' },
-  { label: '경제 동향', query: '최근 경제 동향이 어때?' },
-  { label: 'MBTI 추천', query: '내 MBTI에 맞는 기사 추천해줘' },
-];
+// MBTI 그룹별 퀵 액션 버튼
+const QUICK_ACTIONS: Record<'NT' | 'NF' | 'ST' | 'SF', { label: string; query: string }[]> = {
+  NT: [
+    { label: '시장 분석', query: '오늘 시장 핵심 데이터 분석해줘' },
+    { label: '투자 리스크', query: '현재 주요 투자 리스크 요인은 뭐야?' },
+    { label: '산업 전망', query: '주목할 산업 트렌드 알려줘' },
+  ],
+  NF: [
+    { label: '오늘의 의미', query: '오늘 뉴스가 사회적으로 어떤 의미가 있어?' },
+    { label: '사람들 반응', query: '이 이슈에 대한 사람들 반응은 어때?' },
+    { label: '변화의 흐름', query: '최근 사회 변화의 큰 흐름을 알려줘' },
+  ],
+  ST: [
+    { label: '팩트 체크', query: '오늘 주요 뉴스 팩트 정리해줘' },
+    { label: '경제 지표', query: '최근 핵심 경제 지표 알려줘' },
+    { label: '실용 정보', query: '오늘 뉴스에서 실생활에 유용한 정보 알려줘' },
+  ],
+  SF: [
+    { label: '쉽게 알려줘', query: '오늘 뉴스 쉽게 설명해줘' },
+    { label: '내 생활 영향', query: '최근 뉴스가 내 일상에 어떤 영향이 있어?' },
+    { label: '추천 기사', query: '오늘 꼭 봐야 할 기사 추천해줘' },
+  ],
+};
 
 export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -326,7 +343,7 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
           {/* Quick Actions */}
           <div className="px-3 py-2 bg-white border-t border-gray-100">
             <div className="flex gap-2 overflow-x-auto pb-1">
-              {QUICK_ACTIONS.map((action) => (
+              {QUICK_ACTIONS[currentGroup].map((action) => (
                 <button
                   key={action.label}
                   onClick={() => sendMessage(action.query)}
