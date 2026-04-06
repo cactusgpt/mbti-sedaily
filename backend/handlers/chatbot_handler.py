@@ -234,12 +234,14 @@ async def generate_chat_response(
 1. 서울경제신문의 AI 어시스턴트로서 경제/금융 뉴스에 대해 도움을 드려요
 2. 정확한 정보만 제공하고, 모르는 것은 모른다고 솔직히 말해요
 3. 주가 관련 질문은 반드시 get_stock_price 도구를 사용하세요. 도구가 반환하는 값은 전일 종가 기준입니다. 도구 없이 수치를 만들어내지 마세요
-4. 응답은 간결하게 (200자 내외), 필요시 더 자세히 설명해요
-5. 한국어로 자연스럽게 대화해요
-6. 투자 조언이나 추천은 하지 않아요 (면책)
+4. 시장 분석 요청 시, 먼저 get_market_index로 코스피/코스닥 지수를 조회하고, 뉴스에서 언급된 종목의 주가를 get_stock_price로 조회하여 실제 데이터 기반으로 분석해주세요
+5. 구체적인 수치, 종목명, 이슈를 포함하여 답변하세요. "변동성 확인 필요", "주목" 같은 모호한 표현은 피하세요
+6. 응답은 충분히 상세하게 (300~500자), 핵심 데이터와 근거를 포함해주세요
+7. 한국어로 자연스럽게 대화해요
+8. 투자 조언이나 추천은 하지 않아요 (면책)
 """
 
-    # Tool definition for stock price lookup
+    # Tool definitions
     tools = [
         {
             "name": "get_stock_price",
@@ -250,6 +252,20 @@ async def generate_chat_response(
                     "query": {
                         "type": "string",
                         "description": "종목명 또는 종목코드 (예: '삼성전자', '005930', 'SK하이닉스')"
+                    }
+                },
+                "required": ["query"]
+            }
+        },
+        {
+            "name": "get_market_index",
+            "description": "코스피(KOSPI) 또는 코스닥(KOSDAQ) 시장 지수를 조회합니다. 시장 분석 시 반드시 이 도구로 실제 지수를 확인하세요.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "시장 지수명 (예: '코스피', '코스닥', 'KOSPI', 'KOSDAQ')"
                     }
                 },
                 "required": ["query"]
@@ -277,7 +293,7 @@ async def generate_chat_response(
         # Call Claude via Bedrock with tool use support
         request_body = json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 1024,
+            "max_tokens": 2048,
             "system": [
                 {
                     "type": "text",
@@ -302,11 +318,12 @@ async def generate_chat_response(
         if response_body.get("stop_reason") == "tool_use":
             return await _handle_tool_use(client, system_prompt, tools, messages, response_body)
 
-        # Normal text response
-        if response_body.get("content") and len(response_body["content"]) > 0:
-            return response_body["content"][0].get("text", "")
-        else:
-            return "죄송해요, 응답을 생성하지 못했어요. 다시 시도해주세요."
+        # Normal text response — find first text block
+        for block in response_body.get("content", []):
+            if block.get("type") == "text" and block.get("text"):
+                return block["text"]
+
+        return "죄송해요, 응답을 생성하지 못했어요. 다시 시도해주세요."
 
     except Exception as e:
         logger.error(f"Bedrock API error: {e}")
@@ -314,87 +331,113 @@ async def generate_chat_response(
 
 
 async def _handle_tool_use(client, system_prompt: str, tools: list, messages: list, response_body: dict) -> str:
-    """Handle Claude's tool use request: execute tool and get final response."""
-    from services.stock_service import lookup_stock
+    """Handle Claude's tool use request: execute tool(s) and get final response.
+    Supports multiple sequential tool calls."""
+    from services.stock_service import lookup_stock, get_market_index
 
-    # Extract tool call from response
-    tool_use_block = None
-    text_blocks = []
-    for block in response_body.get("content", []):
-        if block.get("type") == "tool_use":
-            tool_use_block = block
-        elif block.get("type") == "text" and block.get("text"):
-            text_blocks.append(block["text"])
+    max_iterations = 5  # Prevent infinite loops
+    pre_tool_text = []
+    current_response = response_body
 
-    if not tool_use_block:
-        return text_blocks[0] if text_blocks else "응답을 생성하지 못했어요."
+    for _ in range(max_iterations):
+        # Extract tool calls and text from current response
+        tool_use_blocks = []
+        for block in current_response.get("content", []):
+            if block.get("type") == "tool_use":
+                tool_use_blocks.append(block)
+            elif block.get("type") == "text" and block.get("text"):
+                pre_tool_text.append(block["text"])
 
-    tool_name = tool_use_block["name"]
-    tool_input = tool_use_block.get("input", {})
-    tool_use_id = tool_use_block["id"]
+        # No more tool calls — we're done
+        if not tool_use_blocks:
+            break
 
-    logger.info(f"Tool call: {tool_name}({tool_input})")
+        # Append assistant response to messages
+        messages.append({"role": "assistant", "content": current_response["content"]})
 
-    # Execute the tool
-    if tool_name == "get_stock_price":
-        query = tool_input.get("query", "")
-        stock_data = lookup_stock(query)
+        # Execute all tool calls and build tool results
+        tool_results = []
+        for tool_block in tool_use_blocks:
+            tool_name = tool_block["name"]
+            tool_input = tool_block.get("input", {})
+            tool_use_id = tool_block["id"]
 
-        if stock_data:
-            tool_result = json.dumps({
-                "종목명": stock_data["name"],
-                "종목코드": stock_data["code"],
-                "시장": stock_data["market"],
-                "전일종가": stock_data["prev_close"],
-                "전일대비등락": stock_data["change"],
-                "등락률": f"{stock_data['change_percent']}%",
-                "방향": stock_data["direction"],
-            }, ensure_ascii=False)
-        else:
-            tool_result = json.dumps({"error": f"'{query}' 종목을 찾을 수 없습니다."}, ensure_ascii=False)
-    else:
-        tool_result = json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
+            logger.info(f"Tool call: {tool_name}({tool_input})")
 
-    # Send tool result back to Claude for final response
-    messages.append({"role": "assistant", "content": response_body["content"]})
-    messages.append({
-        "role": "user",
-        "content": [
-            {
+            if tool_name == "get_stock_price":
+                query = tool_input.get("query", "")
+                stock_data = lookup_stock(query)
+
+                if stock_data:
+                    result = json.dumps({
+                        "종목명": stock_data["name"],
+                        "종목코드": stock_data["code"],
+                        "시장": stock_data["market"],
+                        "전일종가": stock_data["prev_close"],
+                        "전일대비등락": stock_data["change"],
+                        "등락률": f"{stock_data['change_percent']}%",
+                        "방향": stock_data["direction"],
+                    }, ensure_ascii=False)
+                else:
+                    result = json.dumps({"error": f"'{query}' 종목을 찾을 수 없습니다."}, ensure_ascii=False)
+            elif tool_name == "get_market_index":
+                query = tool_input.get("query", "")
+                index_data = get_market_index(query)
+
+                if index_data:
+                    result = json.dumps({
+                        "지수명": index_data["name"],
+                        "종가": index_data["close_price"],
+                        "전일대비등락": index_data["change"],
+                        "등락률": f"{index_data['change_percent']}%",
+                        "방향": index_data["direction"],
+                    }, ensure_ascii=False)
+                else:
+                    result = json.dumps({"error": f"'{query}' 지수를 찾을 수 없습니다."}, ensure_ascii=False)
+            else:
+                result = json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
+
+            tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": tool_use_id,
-                "content": tool_result
-            }
-        ]
-    })
+                "content": result,
+            })
 
-    request_body = json.dumps({
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 1024,
-        "system": [
-            {
-                "type": "text",
-                "text": system_prompt,
-                "cache_control": {"type": "ephemeral"}
-            }
-        ],
-        "tools": tools,
-        "messages": messages
-    })
+        # Send all tool results back to Claude
+        messages.append({"role": "user", "content": tool_results})
 
-    response = client.invoke_model(
-        modelId=BEDROCK_MODEL_ID_HAIKU,
-        contentType="application/json",
-        accept="application/json",
-        body=request_body
-    )
+        request_body = json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 2048,
+            "system": [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"}
+                }
+            ],
+            "tools": tools,
+            "messages": messages,
+        })
 
-    final_body = json.loads(response['body'].read())
+        response = client.invoke_model(
+            modelId=BEDROCK_MODEL_ID_HAIKU,
+            contentType="application/json",
+            accept="application/json",
+            body=request_body,
+        )
 
-    if final_body.get("content") and len(final_body["content"]) > 0:
-        for block in final_body["content"]:
-            if block.get("type") == "text":
-                return block["text"]
+        current_response = json.loads(response['body'].read())
+
+        # If stop_reason is not tool_use, extract final text and break
+        if current_response.get("stop_reason") != "tool_use":
+            for block in current_response.get("content", []):
+                if block.get("type") == "text" and block.get("text"):
+                    pre_tool_text.append(block["text"])
+            break
+
+    if pre_tool_text:
+        return "\n\n".join(pre_tool_text)
 
     return "죄송해요, 응답을 생성하지 못했어요."
 

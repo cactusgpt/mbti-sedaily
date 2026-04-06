@@ -13,6 +13,7 @@ from urllib.error import URLError
 logger = logging.getLogger(__name__)
 
 NAVER_STOCK_API = "https://m.stock.naver.com/api/stock/{code}/basic"
+NAVER_INDEX_API = "https://m.stock.naver.com/api/index/{code}/basic"
 NAVER_SEARCH_API = "https://ac.stock.naver.com/ac?q={query}&target=stock"
 USER_AGENT = "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36"
 TIMEOUT = 5
@@ -102,3 +103,41 @@ def lookup_stock(query: str) -> Optional[Dict[str, Any]]:
         code = match["code"]
 
     return get_stock_price(code)
+
+
+# 시장 지수 코드 매핑
+INDEX_CODES = {
+    "코스피": "KOSPI",
+    "KOSPI": "KOSPI",
+    "kospi": "KOSPI",
+    "코스닥": "KOSDAQ",
+    "KOSDAQ": "KOSDAQ",
+    "kosdaq": "KOSDAQ",
+}
+
+
+def get_market_index(query: str) -> Optional[Dict[str, Any]]:
+    """
+    코스피/코스닥 시장 지수를 조회합니다.
+    """
+    code = INDEX_CODES.get(query.strip())
+    if not code:
+        return None
+
+    url = NAVER_INDEX_API.format(code=code)
+    data = _fetch_json(url)
+
+    if not data or not data.get("closePrice"):
+        return None
+
+    compare_info = data.get("compareToPreviousPrice", {})
+    direction = compare_info.get("text", "")
+
+    return {
+        "name": data.get("indexName", code),
+        "code": code,
+        "close_price": data.get("closePrice", ""),
+        "change": data.get("compareToPreviousClosePrice", ""),
+        "change_percent": data.get("fluctuationsRatio", ""),
+        "direction": direction,
+    }

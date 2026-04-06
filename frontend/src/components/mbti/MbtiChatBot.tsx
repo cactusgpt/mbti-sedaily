@@ -4,7 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import { MessageCircle, X, Send, Sparkles } from 'lucide-react';
 
 // API Configuration
-const CHAT_API_URL = 'https://chzwwtjtgk.execute-api.us-east-1.amazonaws.com/dev/api/chat';
+import { API_URL } from '../../config/api';
+const CHAT_API_URL = `${API_URL}/api/chat`;
 
 interface Message {
   id: string;
