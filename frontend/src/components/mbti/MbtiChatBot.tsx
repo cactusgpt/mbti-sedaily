@@ -136,7 +136,7 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
       const welcomeMessage: Message = {
         id: 'welcome',
         role: 'assistant',
-        content: `${persona.emoji} ${persona.greeting}\n\n저는 ${persona.name}이에요. ${persona.role}로 일하고 있어요.\n\n무엇이든 물어보세요!`,
+        content: `${persona.emoji} 안녕하세요. ${persona.name}이에요. ${persona.greeting.replace(/안녕하세요[.!]?\s*/, '')}`,
         timestamp: new Date(),
       };
       setMessages([welcomeMessage]);
