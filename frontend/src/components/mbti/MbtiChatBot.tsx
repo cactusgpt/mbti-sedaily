@@ -23,7 +23,7 @@ const MBTI_PERSONAS = {
   NT: {
     name: '시현',
     role: '전략분석팀 수석연구원',
-    greeting: '안녕하세요. 무엇이 궁금하신가요? 핵심만 빠르게 정리해드릴게요.',
+    greeting: '궁금한 거 있으면 핵심만 빠르게 정리해드릴게요.',
     style: '논리적이고 분석적',
     color: 'blue',
     emoji: '📊',
@@ -31,7 +31,7 @@ const MBTI_PERSONAS = {
   NF: {
     name: '지원',
     role: '오피니언팀 논설위원',
-    greeting: '반가워요. 오늘 어떤 이야기가 궁금하세요? 함께 생각해봐요.',
+    greeting: '오늘 어떤 이야기가 궁금하세요? 함께 생각해봐요.',
     style: '성찰적이고 따뜻한',
     color: 'violet',
     emoji: '💡',
@@ -39,7 +39,7 @@ const MBTI_PERSONAS = {
   ST: {
     name: '정훈',
     role: '팩트체크 에디터',
-    greeting: '안녕하세요. 정확한 정보가 필요하시면 말씀하세요.',
+    greeting: '정확한 정보가 필요하시면 말씀하세요.',
     style: '정확하고 체계적',
     color: 'green',
     emoji: '📋',
@@ -47,7 +47,7 @@ const MBTI_PERSONAS = {
   SF: {
     name: '하은',
     role: 'MZ 독자 담당 에디터',
-    greeting: '안녕하세요! 뭐가 궁금하세요? 쉽게 설명해드릴게요 😊',
+    greeting: '뭐가 궁금하세요? 쉽게 설명해드릴게요 😊',
     style: '친근하고 공감적',
     color: 'orange',
     emoji: '💬',
@@ -113,7 +113,9 @@ const QUICK_ACTIONS: Record<'NT' | 'NF' | 'ST' | 'SF', { label: string; query: s
 export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messagesByGroup, setMessagesByGroup] = useState<Record<string, Message[]>>({
+    NT: [], NF: [], ST: [], SF: [],
+  });
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [currentGroup, setCurrentGroup] = useState(mbtiGroup);
@@ -123,6 +125,14 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
 
   const persona = MBTI_PERSONAS[currentGroup];
   const colors = GROUP_COLORS[currentGroup];
+  const messages = messagesByGroup[currentGroup];
+
+  const setMessages = (updater: Message[] | ((prev: Message[]) => Message[])) => {
+    setMessagesByGroup(prev => ({
+      ...prev,
+      [currentGroup]: typeof updater === 'function' ? updater(prev[currentGroup]) : updater,
+    }));
+  };
 
   // Show after delay
   useEffect(() => {
@@ -136,7 +146,7 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
       const welcomeMessage: Message = {
         id: 'welcome',
         role: 'assistant',
-        content: `${persona.emoji} 안녕하세요. ${persona.name}이에요. ${persona.greeting.replace(/안녕하세요[.!]?\s*/, '')}`,
+        content: `${persona.emoji} 안녕하세요! ${persona.name}이에요. ${persona.greeting}`,
         timestamp: new Date(),
       };
       setMessages([welcomeMessage]);
@@ -155,19 +165,11 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
     }
   }, [isOpen]);
 
-  // Handle MBTI group change
+  // Handle MBTI group change — switch to separate conversation
   const handleGroupChange = (group: 'NT' | 'NF' | 'ST' | 'SF') => {
+    if (group === currentGroup) return;
     setCurrentGroup(group);
     onMbtiChange?.(group);
-
-    const newPersona = MBTI_PERSONAS[group];
-    const changeMessage: Message = {
-      id: `change-${Date.now()}`,
-      role: 'assistant',
-      content: `${newPersona.emoji} 안녕하세요! ${newPersona.name}이에요.\n\n${newPersona.greeting}`,
-      timestamp: new Date(),
-    };
-    setMessages(prev => [...prev, changeMessage]);
   };
 
   // Send message
