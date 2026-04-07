@@ -112,12 +112,30 @@ const QUICK_ACTIONS: Record<'NT' | 'NF' | 'ST' | 'SF', { label: string; query: s
   ],
 };
 
+const STORAGE_KEY = 'mbti-chatbot-messages';
+
+function loadMessages(): Record<string, Message[]> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { NT: [], NF: [], ST: [], SF: [] };
+    const parsed = JSON.parse(raw);
+    // Restore Date objects
+    for (const group of Object.keys(parsed)) {
+      parsed[group] = parsed[group].map((m: Message) => ({
+        ...m,
+        timestamp: new Date(m.timestamp),
+      }));
+    }
+    return parsed;
+  } catch {
+    return { NT: [], NF: [], ST: [], SF: [] };
+  }
+}
+
 export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
-  const [messagesByGroup, setMessagesByGroup] = useState<Record<string, Message[]>>({
-    NT: [], NF: [], ST: [], SF: [],
-  });
+  const [messagesByGroup, setMessagesByGroup] = useState<Record<string, Message[]>>(loadMessages);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [currentGroup, setCurrentGroup] = useState(mbtiGroup);
@@ -135,6 +153,11 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
       [currentGroup]: typeof updater === 'function' ? updater(prev[currentGroup]) : updater,
     }));
   };
+
+  // Persist messages to localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messagesByGroup));
+  }, [messagesByGroup]);
 
   // Show after delay
   useEffect(() => {
