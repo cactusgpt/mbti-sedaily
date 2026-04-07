@@ -6,6 +6,7 @@ import { MessageCircle, X, Send, Sparkles } from 'lucide-react';
 // API Configuration
 import { API_URL } from '../../config/api';
 const CHAT_API_URL = `${API_URL}/api/chat`;
+const CHAT_STREAM_API_URL = `${API_URL}/api/chat/stream`;
 
 interface Message {
   id: string;
@@ -173,7 +174,7 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
     onMbtiChange?.(group);
   };
 
-  // Send message
+  // Send message with streaming support (falls back to non-streaming)
   const sendMessage = async (content: string) => {
     if (!content.trim() || isLoading) return;
 
@@ -187,50 +188,103 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
     setInput('');
     setIsLoading(true);
 
-    try {
-      // Build conversation history for API (exclude welcome message)
-      const conversationHistory = messages
-        .filter(m => m.id !== 'welcome')
-        .map(m => ({
-          role: m.role,
-          content: m.content
-        }));
+    const conversationHistory = messages
+      .filter(m => m.id !== 'welcome')
+      .map(m => ({ role: m.role, content: m.content }));
 
-      // Call chatbot API
-      const response = await fetch(CHAT_API_URL, {
+    const requestBody = JSON.stringify({
+      message: content.trim(),
+      mbti_group: currentGroup,
+      conversation_history: conversationHistory,
+    });
+
+    const assistantId = `assistant-${Date.now()}`;
+
+    try {
+      // Try streaming first
+      const response = await fetch(CHAT_STREAM_API_URL, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: content.trim(),
-          mbti_group: currentGroup,
-          conversation_history: conversationHistory,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
       });
 
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+      if (!response.ok || !response.body) {
+        throw new Error('stream-unavailable');
       }
 
-      const data = await response.json();
+      // Create empty assistant message, then fill incrementally
+      setMessages(prev => [...prev, {
+        id: assistantId, role: 'assistant', content: '', timestamp: new Date(),
+      }]);
+      setIsLoading(false);
 
-      const assistantMessage: Message = {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        content: data.response || '응답을 받지 못했어요.',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error('Chat error:', error);
-      const errorMessage: Message = {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: '죄송해요, 오류가 발생했어요. 잠시 후 다시 시도해주세요!',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'text') {
+              setMessagesByGroup(prev => {
+                const groupMsgs = prev[currentGroup];
+                const last = groupMsgs[groupMsgs.length - 1];
+                if (last?.id === assistantId) {
+                  return {
+                    ...prev,
+                    [currentGroup]: [
+                      ...groupMsgs.slice(0, -1),
+                      { ...last, content: last.content + data.content },
+                    ],
+                  };
+                }
+                return prev;
+              });
+            }
+          } catch { /* skip malformed SSE */ }
+        }
+      }
+    } catch (streamError) {
+      // Fallback to non-streaming API
+      try {
+        const response = await fetch(CHAT_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody,
+        });
+
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        const data = await response.json();
+
+        setMessages(prev => {
+          // Remove empty streaming placeholder if exists
+          const filtered = prev.filter(m => m.id !== assistantId);
+          return [...filtered, {
+            id: assistantId, role: 'assistant',
+            content: data.response || '응답을 받지 못했어요.',
+            timestamp: new Date(),
+          }];
+        });
+      } catch (fallbackError) {
+        console.error('Chat error:', fallbackError);
+        setMessages(prev => {
+          const filtered = prev.filter(m => m.id !== assistantId);
+          return [...filtered, {
+            id: `error-${Date.now()}`, role: 'assistant',
+            content: '죄송해요, 오류가 발생했어요. 잠시 후 다시 시도해주세요!',
+            timestamp: new Date(),
+          }];
+        });
+      }
     } finally {
       setIsLoading(false);
     }

@@ -196,48 +196,9 @@ def build_context_from_briefing(briefing_text: str) -> str:
     return f"\n\n[오늘의 뉴스 브리핑 - 대화 시 참조]\n{briefing_text}\n"
 
 
-async def generate_chat_response(
-    user_message: str,
-    mbti_group: str,
-    conversation_history: List[Dict[str, str]],
-    recent_articles: List[Dict[str, Any]] = None,
-    cached_briefing: Optional[str] = None
-) -> str:
-    """
-    Generate chat response using Claude API via Bedrock.
+# ── Shared helpers ──────────────────────────────────────────────
 
-    Args:
-        user_message: User's input message
-        mbti_group: MBTI group (NT, NF, ST, SF)
-        conversation_history: Previous messages in the conversation
-        recent_articles: Recent news articles for context (fallback)
-        cached_briefing: Pre-generated MBTI-styled briefing text (preferred)
-
-    Returns:
-        AI-generated response text
-    """
-    client = get_bedrock_client()
-
-    # Build system prompt
-    system_prompt = MBTI_SYSTEM_PROMPTS.get(mbti_group, MBTI_SYSTEM_PROMPTS['SF'])
-
-    # Add news context: prefer cached briefing, fall back to article query
-    if cached_briefing:
-        system_prompt += build_context_from_briefing(cached_briefing)
-    elif recent_articles:
-        system_prompt += build_context_prompt(recent_articles, mbti_group)
-    else:
-        system_prompt += """
-
-[뉴스 컨텍스트 없음]
-현재 오늘의 뉴스 브리핑 데이터에 접근할 수 없습니다.
-- get_market_index 도구로 코스피/코스닥 실시간 지수를 조회하고, get_stock_price로 주요 종목 주가를 조회하여 실제 데이터 기반으로 답변하세요.
-- 뉴스 내용에 대한 질문에는 "현재 뉴스 데이터를 불러올 수 없어서, 시장 데이터 기반으로 답변드릴게요"라고 안내한 뒤 도구를 활용해 답변하세요.
-- 절대로 뉴스 내용을 지어내지 마세요.
-"""
-
-    # Add general instructions
-    system_prompt += """
+GENERAL_INSTRUCTIONS = """
 
 [중요 지침]
 1. 서울경제신문의 AI 어시스턴트로서 경제/금융 뉴스에 대해 도움을 드려요
@@ -250,8 +211,34 @@ async def generate_chat_response(
 8. 투자 조언이나 추천은 하지 않아요 (면책)
 """
 
-    # Tool definitions
-    tools = [
+NO_CONTEXT_INSTRUCTIONS = """
+
+[뉴스 컨텍스트 없음]
+현재 오늘의 뉴스 브리핑 데이터에 접근할 수 없습니다.
+- get_market_index 도구로 코스피/코스닥 실시간 지수를 조회하고, get_stock_price로 주요 종목 주가를 조회하여 실제 데이터 기반으로 답변하세요.
+- 뉴스 내용에 대한 질문에는 "현재 뉴스 데이터를 불러올 수 없어서, 시장 데이터 기반으로 답변드릴게요"라고 안내한 뒤 도구를 활용해 답변하세요.
+- 절대로 뉴스 내용을 지어내지 마세요.
+"""
+
+
+def _build_full_system_prompt(mbti_group: str, recent_articles=None, cached_briefing=None) -> str:
+    """Build complete system prompt with context and instructions."""
+    prompt = MBTI_SYSTEM_PROMPTS.get(mbti_group, MBTI_SYSTEM_PROMPTS['SF'])
+
+    if cached_briefing:
+        prompt += build_context_from_briefing(cached_briefing)
+    elif recent_articles:
+        prompt += build_context_prompt(recent_articles, mbti_group)
+    else:
+        prompt += NO_CONTEXT_INSTRUCTIONS
+
+    prompt += GENERAL_INSTRUCTIONS
+    return prompt
+
+
+def _get_tools() -> list:
+    """Return tool definitions for Claude."""
+    return [
         {
             "name": "get_stock_price",
             "description": "한국 주식의 전일 종가를 조회합니다. 종목명(예: 삼성전자) 또는 종목코드(예: 005930)로 검색할 수 있습니다.",
@@ -282,21 +269,78 @@ async def generate_chat_response(
         }
     ]
 
-    # Build messages for Claude
-    messages = []
 
-    # Add conversation history (last 6 messages max for context)
+def _execute_tool(tool_name: str, tool_input: dict) -> str:
+    """Execute a single tool and return result as JSON string."""
+    from services.stock_service import lookup_stock, get_market_index
+
+    if tool_name == "get_stock_price":
+        query = tool_input.get("query", "")
+        stock_data = lookup_stock(query)
+        if stock_data:
+            return json.dumps({
+                "종목명": stock_data["name"],
+                "종목코드": stock_data["code"],
+                "시장": stock_data["market"],
+                "전일종가": stock_data["prev_close"],
+                "전일대비등락": stock_data["change"],
+                "등락률": f"{stock_data['change_percent']}%",
+                "방향": stock_data["direction"],
+            }, ensure_ascii=False)
+        return json.dumps({"error": f"'{query}' 종목을 찾을 수 없습니다."}, ensure_ascii=False)
+
+    elif tool_name == "get_market_index":
+        query = tool_input.get("query", "")
+        index_data = get_market_index(query)
+        if index_data:
+            return json.dumps({
+                "지수명": index_data["name"],
+                "종가": index_data["close_price"],
+                "전일대비등락": index_data["change"],
+                "등락률": f"{index_data['change_percent']}%",
+                "방향": index_data["direction"],
+            }, ensure_ascii=False)
+        return json.dumps({"error": f"'{query}' 지수를 찾을 수 없습니다."}, ensure_ascii=False)
+
+    return json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
+
+
+def _build_messages(conversation_history: list, user_message: str) -> list:
+    """Build messages array for Claude API."""
+    messages = []
     for msg in conversation_history[-6:]:
         messages.append({
             "role": msg.get("role", "user"),
             "content": msg.get("content", "")
         })
+    messages.append({"role": "user", "content": user_message})
+    return messages
 
-    # Add current user message
-    messages.append({
-        "role": "user",
-        "content": user_message
-    })
+
+async def generate_chat_response(
+    user_message: str,
+    mbti_group: str,
+    conversation_history: List[Dict[str, str]],
+    recent_articles: List[Dict[str, Any]] = None,
+    cached_briefing: Optional[str] = None
+) -> str:
+    """
+    Generate chat response using Claude API via Bedrock.
+
+    Args:
+        user_message: User's input message
+        mbti_group: MBTI group (NT, NF, ST, SF)
+        conversation_history: Previous messages in the conversation
+        recent_articles: Recent news articles for context (fallback)
+        cached_briefing: Pre-generated MBTI-styled briefing text (preferred)
+
+    Returns:
+        AI-generated response text
+    """
+    client = get_bedrock_client()
+    system_prompt = _build_full_system_prompt(mbti_group, recent_articles, cached_briefing)
+    tools = _get_tools()
+    messages = _build_messages(conversation_history, user_message)
 
     try:
         # Call Claude via Bedrock with tool use support
@@ -340,16 +384,12 @@ async def generate_chat_response(
 
 
 async def _handle_tool_use(client, system_prompt: str, tools: list, messages: list, response_body: dict) -> str:
-    """Handle Claude's tool use request: execute tool(s) and get final response.
-    Supports multiple sequential tool calls."""
-    from services.stock_service import lookup_stock, get_market_index
-
-    max_iterations = 5  # Prevent infinite loops
+    """Handle Claude's tool use request: execute tool(s) and get final response."""
+    max_iterations = 5
     pre_tool_text = []
     current_response = response_body
 
     for _ in range(max_iterations):
-        # Extract tool calls and text from current response
         tool_use_blocks = []
         for block in current_response.get("content", []):
             if block.get("type") == "tool_use":
@@ -357,74 +397,27 @@ async def _handle_tool_use(client, system_prompt: str, tools: list, messages: li
             elif block.get("type") == "text" and block.get("text"):
                 pre_tool_text.append(block["text"])
 
-        # No more tool calls — we're done
         if not tool_use_blocks:
             break
 
-        # Append assistant response to messages
         messages.append({"role": "assistant", "content": current_response["content"]})
 
-        # Execute all tool calls and build tool results
         tool_results = []
         for tool_block in tool_use_blocks:
-            tool_name = tool_block["name"]
-            tool_input = tool_block.get("input", {})
-            tool_use_id = tool_block["id"]
-
-            logger.info(f"Tool call: {tool_name}({tool_input})")
-
-            if tool_name == "get_stock_price":
-                query = tool_input.get("query", "")
-                stock_data = lookup_stock(query)
-
-                if stock_data:
-                    result = json.dumps({
-                        "종목명": stock_data["name"],
-                        "종목코드": stock_data["code"],
-                        "시장": stock_data["market"],
-                        "전일종가": stock_data["prev_close"],
-                        "전일대비등락": stock_data["change"],
-                        "등락률": f"{stock_data['change_percent']}%",
-                        "방향": stock_data["direction"],
-                    }, ensure_ascii=False)
-                else:
-                    result = json.dumps({"error": f"'{query}' 종목을 찾을 수 없습니다."}, ensure_ascii=False)
-            elif tool_name == "get_market_index":
-                query = tool_input.get("query", "")
-                index_data = get_market_index(query)
-
-                if index_data:
-                    result = json.dumps({
-                        "지수명": index_data["name"],
-                        "종가": index_data["close_price"],
-                        "전일대비등락": index_data["change"],
-                        "등락률": f"{index_data['change_percent']}%",
-                        "방향": index_data["direction"],
-                    }, ensure_ascii=False)
-                else:
-                    result = json.dumps({"error": f"'{query}' 지수를 찾을 수 없습니다."}, ensure_ascii=False)
-            else:
-                result = json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
-
+            logger.info(f"Tool call: {tool_block['name']}({tool_block.get('input', {})})")
+            result = _execute_tool(tool_block["name"], tool_block.get("input", {}))
             tool_results.append({
                 "type": "tool_result",
-                "tool_use_id": tool_use_id,
+                "tool_use_id": tool_block["id"],
                 "content": result,
             })
 
-        # Send all tool results back to Claude
         messages.append({"role": "user", "content": tool_results})
 
         request_body = json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 2048,
-            "system": [
-                {
-                    "type": "text",
-                    "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"}
-                }
-            ],
+            "system": [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
             "tools": tools,
             "messages": messages,
         })
@@ -435,20 +428,115 @@ async def _handle_tool_use(client, system_prompt: str, tools: list, messages: li
             accept="application/json",
             body=request_body,
         )
-
         current_response = json.loads(response['body'].read())
 
-        # If stop_reason is not tool_use, extract final text and break
         if current_response.get("stop_reason") != "tool_use":
             for block in current_response.get("content", []):
                 if block.get("type") == "text" and block.get("text"):
                     pre_tool_text.append(block["text"])
             break
 
-    if pre_tool_text:
-        return "\n\n".join(pre_tool_text)
+    return "\n\n".join(pre_tool_text) if pre_tool_text else "죄송해요, 응답을 생성하지 못했어요."
 
-    return "죄송해요, 응답을 생성하지 못했어요."
+
+# ── Streaming support ───────────────────────────────────────────
+
+def generate_chat_response_stream(
+    user_message: str,
+    mbti_group: str,
+    conversation_history: list,
+    recent_articles: list = None,
+    cached_briefing: str = None
+):
+    """Synchronous generator yielding text chunks from Bedrock streaming API.
+    Handles tool use transparently — tools are resolved without streaming,
+    then the final text response is streamed to the caller."""
+    client = get_bedrock_client()
+    system_prompt = _build_full_system_prompt(mbti_group, recent_articles, cached_briefing)
+    tools = _get_tools()
+    messages = _build_messages(conversation_history, user_message)
+
+    for iteration in range(3):
+        request_body = json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 2048,
+            "system": [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
+            "tools": tools,
+            "messages": messages
+        })
+
+        response = client.invoke_model_with_response_stream(
+            modelId=BEDROCK_MODEL_ID_HAIKU,
+            contentType="application/json",
+            accept="application/json",
+            body=request_body
+        )
+
+        stream = response.get('body')
+        content_blocks = []
+        tool_blocks = []
+        current_tool = None
+        current_tool_input = ""
+
+        for event in stream:
+            chunk_bytes = event.get('chunk', {}).get('bytes', b'')
+            if not chunk_bytes:
+                continue
+            chunk = json.loads(chunk_bytes)
+            event_type = chunk.get('type')
+
+            if event_type == 'content_block_start':
+                block = chunk.get('content_block', {})
+                if block.get('type') == 'tool_use':
+                    current_tool = {"id": block['id'], "name": block['name']}
+                    current_tool_input = ""
+                elif block.get('type') == 'text':
+                    content_blocks.append({"type": "text", "text": ""})
+
+            elif event_type == 'content_block_delta':
+                delta = chunk.get('delta', {})
+                if delta.get('type') == 'text_delta':
+                    text = delta.get('text', '')
+                    if text:
+                        if content_blocks and content_blocks[-1].get('type') == 'text':
+                            content_blocks[-1]['text'] += text
+                        yield text
+                elif delta.get('type') == 'input_json_delta':
+                    current_tool_input += delta.get('partial_json', '')
+
+            elif event_type == 'content_block_stop':
+                if current_tool:
+                    tool_block = {
+                        "type": "tool_use",
+                        "id": current_tool['id'],
+                        "name": current_tool['name'],
+                        "input": json.loads(current_tool_input) if current_tool_input else {}
+                    }
+                    content_blocks.append(tool_block)
+                    tool_blocks.append(tool_block)
+                    current_tool = None
+                    current_tool_input = ""
+
+        # No tool use — text was already yielded
+        if not tool_blocks:
+            return
+
+        # Handle tool use, then loop to stream the follow-up
+        logger.info(f"Stream: handling {len(tool_blocks)} tool calls (iteration {iteration})")
+        messages.append({"role": "assistant", "content": content_blocks})
+
+        tool_results = []
+        for tb in tool_blocks:
+            result = _execute_tool(tb['name'], tb['input'])
+            logger.info(f"Tool {tb['name']} → {result[:100]}")
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tb['id'],
+                "content": result
+            })
+        messages.append({"role": "user", "content": tool_results})
+
+    yield "죄송해요, 응답을 생성하지 못했어요."
 
 
 def lambda_handler(event: dict, context) -> dict:

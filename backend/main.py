@@ -10,7 +10,11 @@ import uvicorn
 from config import settings
 from handlers.saju_handler import lambda_handler as saju_handler
 from handlers.time_machine_handler import get_time_machine_data
-from handlers.chatbot_handler import generate_chat_response, get_cached_briefing, get_recent_articles
+from fastapi.responses import StreamingResponse
+from handlers.chatbot_handler import (
+    generate_chat_response, generate_chat_response_stream,
+    get_cached_briefing, get_recent_articles,
+)
 
 app = FastAPI(
     title="Sedaily-MBTI API",
@@ -84,6 +88,34 @@ async def chat(request: Request):
         "response": response_text,
         "mbti_group": mbti_group,
     }
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(request: Request):
+    """MBTI 챗봇 스트리밍 엔드포인트 (SSE)"""
+    body = await request.json()
+    user_message = body.get("message", "").strip()
+    mbti_group = body.get("mbti_group", "SF").upper()
+    conversation_history = body.get("conversation_history", [])
+
+    if not user_message:
+        return JSONResponse(status_code=400, content={"error": "메시지를 입력해주세요."})
+
+    cached_briefing = get_cached_briefing(mbti_group)
+    recent_articles = None if cached_briefing else get_recent_articles(5)
+
+    def event_generator():
+        for chunk in generate_chat_response_stream(
+            user_message=user_message,
+            mbti_group=mbti_group,
+            conversation_history=conversation_history,
+            recent_articles=recent_articles,
+            cached_briefing=cached_briefing,
+        ):
+            yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.get("/time-machine")
