@@ -63,6 +63,15 @@ async def chat(request: Request):
     cached_briefing = get_cached_briefing(mbti_group)
     recent_articles = None if cached_briefing else get_recent_articles(5)
 
+    import logging
+    logger = logging.getLogger(__name__)
+    if cached_briefing:
+        logger.info(f"[chat] Using cached briefing for {mbti_group} ({len(cached_briefing)} chars)")
+    elif recent_articles:
+        logger.info(f"[chat] Using {len(recent_articles)} recent articles as context")
+    else:
+        logger.warning("[chat] No news context available — briefing and articles both empty")
+
     response_text = await generate_chat_response(
         user_message=user_message,
         mbti_group=mbti_group,

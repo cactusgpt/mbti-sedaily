@@ -226,6 +226,15 @@ async def generate_chat_response(
         system_prompt += build_context_from_briefing(cached_briefing)
     elif recent_articles:
         system_prompt += build_context_prompt(recent_articles, mbti_group)
+    else:
+        system_prompt += """
+
+[뉴스 컨텍스트 없음]
+현재 오늘의 뉴스 브리핑 데이터에 접근할 수 없습니다.
+- get_market_index 도구로 코스피/코스닥 실시간 지수를 조회하고, get_stock_price로 주요 종목 주가를 조회하여 실제 데이터 기반으로 답변하세요.
+- 뉴스 내용에 대한 질문에는 "현재 뉴스 데이터를 불러올 수 없어서, 시장 데이터 기반으로 답변드릴게요"라고 안내한 뒤 도구를 활용해 답변하세요.
+- 절대로 뉴스 내용을 지어내지 마세요.
+"""
 
     # Add general instructions
     system_prompt += """
