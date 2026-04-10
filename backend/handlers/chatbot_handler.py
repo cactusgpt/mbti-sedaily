@@ -2,6 +2,14 @@
 MBTI Chatbot Handler Lambda Function
 Provides AI-powered chat responses styled for each MBTI group (NT, NF, ST, SF).
 Uses Claude API via AWS Bedrock.
+
+RAG Pipeline:
+  1. User message → Bedrock Titan Embeddings (embed query)
+  2. Embedding → OpenSearch hybrid search (text BM25 + kNN vector)
+  3. Top 5 results → context for Claude response generation
+  4. Fallback: if OpenSearch unavailable → DynamoDB GSI recent articles
+
+Persona system: 시현(NT), 지원(NF), 정훈(ST), 하은(SF)
 """
 import logging
 import boto3
@@ -10,11 +18,12 @@ import os
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
+from config import settings
 from config.constants import (
     MBTI_GROUPS,
     MBTI_GROUP_INFO,
     CORS_HEADERS,
-    BEDROCK_MODEL_ID_HAIKU,  # Haiku for cost-effective chatbot
+    BEDROCK_MODEL_ID_HAIKU,
     DYNAMODB_TABLE_ARTICLES_DEV,
 )
 
@@ -108,18 +117,109 @@ MBTI_SYSTEM_PROMPTS = {
 }
 
 
-def get_recent_articles(limit: int = 5) -> List[Dict[str, Any]]:
-    """Fetch recent articles for context"""
+# ── Article context retrieval ────────────────────────────────────────────────
+
+def _get_opensearch():
+    """Create OpenSearch client if configured. Returns None otherwise."""
+    if not settings.opensearch_endpoint:
+        return None
+    try:
+        from clients.opensearch_client import OpenSearchClient
+        return OpenSearchClient(
+            endpoint=settings.opensearch_endpoint,
+            index_name=settings.opensearch_index,
+            region=settings.region,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to init OpenSearch client: {e}")
+        return None
+
+
+def _get_embedding_client():
+    """Create embedding client. Returns None on import failure."""
+    try:
+        from clients.embedding_client import EmbeddingClient
+        return EmbeddingClient()
+    except Exception as e:
+        logger.warning(f"Failed to init EmbeddingClient: {e}")
+        return None
+
+
+def _fetch_context_rag(
+    user_message: str,
+    mbti_group: str,
+    limit: int = 5,
+) -> Optional[List[Dict[str, Any]]]:
+    """
+    RAG context retrieval via OpenSearch hybrid search.
+
+    1. Embed the user message
+    2. Hybrid search (text BM25 + kNN vector, weighted 0.3/0.7)
+    3. Filter to MBTI group if available
+    4. Return top results
+
+    Returns None if OpenSearch or embedding is unavailable (triggers fallback).
+    """
+    os_client = _get_opensearch()
+    if not os_client:
+        return None
+
+    embed_client = _get_embedding_client()
+    if not embed_client:
+        return None
+
+    try:
+        embedding = embed_client.embed_text(user_message)
+
+        filters: Dict[str, Any] = {}
+        if mbti_group:
+            filters['mbti_group'] = mbti_group
+
+        hits = os_client.hybrid_search(
+            query=user_message,
+            embedding=embedding,
+            filters=filters if filters else None,
+            size=limit,
+            text_weight=0.3,
+            vector_weight=0.7,
+        )
+
+        if hits:
+            logger.info(f"RAG context: {len(hits)} articles from OpenSearch hybrid search")
+            return hits
+
+        # If no results with MBTI filter, retry without it
+        if mbti_group:
+            hits = os_client.hybrid_search(
+                query=user_message,
+                embedding=embedding,
+                size=limit,
+            )
+            if hits:
+                logger.info(f"RAG context: {len(hits)} articles (no MBTI filter)")
+                return hits
+
+        return None
+
+    except Exception as e:
+        logger.warning(f"RAG context retrieval failed: {e}")
+        return None
+
+
+def get_recent_articles_dynamodb(limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    Fallback: fetch recent articles from DynamoDB GSI.
+    Used when OpenSearch is unavailable.
+    """
     try:
         dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
         table = dynamodb.Table(DYNAMODB_TABLE_ARTICLES_DEV)
 
-        # Query recent articles using GSI
         from boto3.dynamodb.conditions import Key
         response = table.query(
             IndexName='category-published_at-index',
             KeyConditionExpression=Key('category').eq('경제'),
-            ScanIndexForward=False,  # Descending order
+            ScanIndexForward=False,
             Limit=limit
         )
 
@@ -134,27 +234,38 @@ def get_recent_articles(limit: int = 5) -> List[Dict[str, Any]]:
 
         return articles
     except Exception as e:
-        logger.warning(f"Failed to fetch recent articles: {e}")
+        logger.warning(f"Failed to fetch recent articles from DynamoDB: {e}")
         return []
 
 
-def build_context_prompt(articles: List[Dict[str, Any]], mbti_group: str) -> str:
-    """Build context about recent news for the chatbot"""
+def build_context_prompt(articles: List[Dict[str, Any]], source: str) -> str:
+    """Build context about news for the chatbot."""
     if not articles:
         return ""
 
-    context = "\n\n[최근 뉴스 컨텍스트 - 필요시 참조]\n"
+    context = f"\n\n[최근 관련 뉴스 컨텍스트 — {source}]\n"
     for i, article in enumerate(articles[:5], 1):
-        context += f"{i}. {article['title']} ({article['category']}, {article['published_at'][:10]})\n"
+        title = article.get('title') or article.get('title_ko', '')
+        category = article.get('category', '')
+        published = article.get('published_at', '')[:10]
+
+        # Include body snippet if available (from OpenSearch)
+        body = article.get('body_text', '')
+        snippet = f" | {body[:100]}..." if body else ""
+
+        context += f"{i}. {title} ({category}, {published}){snippet}\n"
 
     return context
 
+
+# ── Chat response generation ────────────────────────────────────────────────
 
 async def generate_chat_response(
     user_message: str,
     mbti_group: str,
     conversation_history: List[Dict[str, str]],
-    recent_articles: List[Dict[str, Any]] = None
+    context_articles: List[Dict[str, Any]],
+    context_source: str,
 ) -> str:
     """
     Generate chat response using Claude API via Bedrock.
@@ -163,7 +274,8 @@ async def generate_chat_response(
         user_message: User's input message
         mbti_group: MBTI group (NT, NF, ST, SF)
         conversation_history: Previous messages in the conversation
-        recent_articles: Recent news articles for context
+        context_articles: Articles for RAG context
+        context_source: 'opensearch_rag' or 'dynamodb_fallback'
 
     Returns:
         AI-generated response text
@@ -173,9 +285,8 @@ async def generate_chat_response(
     # Build system prompt
     system_prompt = MBTI_SYSTEM_PROMPTS.get(mbti_group, MBTI_SYSTEM_PROMPTS['SF'])
 
-    # Add context about recent news
-    if recent_articles:
-        system_prompt += build_context_prompt(recent_articles, mbti_group)
+    # Add RAG context
+    system_prompt += build_context_prompt(context_articles, context_source)
 
     # Add general instructions
     system_prompt += """
@@ -183,9 +294,10 @@ async def generate_chat_response(
 [중요 지침]
 1. 서울경제신문의 AI 어시스턴트로서 경제/금융 뉴스에 대해 도움을 드려요
 2. 정확한 정보만 제공하고, 모르는 것은 모른다고 솔직히 말해요
-3. 응답은 간결하게 (200자 내외), 필요시 더 자세히 설명해요
-4. 한국어로 자연스럽게 대화해요
-5. 투자 조언이나 추천은 하지 않아요 (면책)
+3. 위의 뉴스 컨텍스트를 활용하여 구체적이고 관련성 높은 답변을 해요
+4. 응답은 간결하게 (200자 내외), 필요시 더 자세히 설명해요
+5. 한국어로 자연스럽게 대화해요
+6. 투자 조언이나 추천은 하지 않아요 (면책)
 """
 
     # Build messages for Claude
@@ -206,7 +318,6 @@ async def generate_chat_response(
 
     try:
         # Call Claude via Bedrock with prompt caching
-        # System prompt uses cache_control for cost optimization
         request_body = json.dumps({
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": 1024,
@@ -214,14 +325,14 @@ async def generate_chat_response(
                 {
                     "type": "text",
                     "text": system_prompt,
-                    "cache_control": {"type": "ephemeral"}  # 5분 캐싱
+                    "cache_control": {"type": "ephemeral"}
                 }
             ],
             "messages": messages
         })
 
         response = client.invoke_model(
-            modelId=BEDROCK_MODEL_ID_HAIKU,  # Haiku 3.5 for cost-effective chatbot
+            modelId=BEDROCK_MODEL_ID_HAIKU,
             contentType="application/json",
             accept="application/json",
             body=request_body
@@ -238,6 +349,8 @@ async def generate_chat_response(
         logger.error(f"Bedrock API error: {e}")
         raise
 
+
+# ── Lambda handler ───────────────────────────────────────────────────────────
 
 def lambda_handler(event: dict, context) -> dict:
     """
@@ -257,11 +370,8 @@ def lambda_handler(event: dict, context) -> dict:
     {
         "response": "AI 응답 텍스트",
         "mbti_group": "NT",
-        "persona": {
-            "name": "시현",
-            "role": "전략분석팀 수석연구원",
-            "emoji": "📊"
-        }
+        "persona": { "name": "시현", "role": "전략분석팀 수석연구원", "emoji": "📊" },
+        "context_source": "opensearch_rag" | "dynamodb_fallback"
     }
     """
     try:
@@ -314,14 +424,23 @@ def lambda_handler(event: dict, context) -> dict:
             }
 
         if mbti_group not in MBTI_GROUPS:
-            mbti_group = 'SF'  # Default fallback
+            mbti_group = 'SF'
 
         logger.info(f"Chat request: group={mbti_group}, message_length={len(user_message)}")
 
-        # Fetch recent articles for context
-        recent_articles = get_recent_articles(5)
+        # ── RAG context retrieval with fallback ──────────────────────────
 
-        # Generate response (sync wrapper for async function)
+        context_source = 'opensearch_rag'
+        context_articles = _fetch_context_rag(user_message, mbti_group, limit=5)
+
+        if context_articles is None:
+            # Fallback to DynamoDB
+            context_source = 'dynamodb_fallback'
+            context_articles = get_recent_articles_dynamodb(5)
+            logger.info("Using DynamoDB fallback for chatbot context")
+
+        # ── Generate response ────────────────────────────────────────────
+
         import asyncio
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -332,7 +451,8 @@ def lambda_handler(event: dict, context) -> dict:
                     user_message=user_message,
                     mbti_group=mbti_group,
                     conversation_history=conversation_history,
-                    recent_articles=recent_articles
+                    context_articles=context_articles,
+                    context_source=context_source,
                 )
             )
         finally:
@@ -353,6 +473,7 @@ def lambda_handler(event: dict, context) -> dict:
                 'response': response_text,
                 'mbti_group': mbti_group,
                 'persona': persona_map.get(mbti_group, persona_map['SF']),
+                'context_source': context_source,
                 'timestamp': datetime.now().isoformat()
             }, ensure_ascii=False)
         }

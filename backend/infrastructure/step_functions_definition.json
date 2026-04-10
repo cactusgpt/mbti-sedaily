@@ -1,0 +1,270 @@
+{
+  "Comment": "AI LENS MBTI Article Transformation Pipeline — 4-step + Supervisor",
+  "StartAt": "Step1_Select",
+  "TimeoutSeconds": 900,
+  "States": {
+
+    "Step1_Select": {
+      "Type": "Task",
+      "Comment": "Load articles from S3 XML, apply rule + Nova filtering",
+      "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-step1-dev",
+      "TimeoutSeconds": 300,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed", "States.Timeout", "Lambda.ServiceException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "PipelineFailure"
+        }
+      ],
+      "ResultPath": "$.step1_result",
+      "Next": "CheckStep1HasArticles"
+    },
+
+    "CheckStep1HasArticles": {
+      "Type": "Choice",
+      "Comment": "Skip remaining steps if no articles were selected",
+      "Choices": [
+        {
+          "Variable": "$.step1_result.body.metrics.selected",
+          "NumericGreaterThan": 0,
+          "Next": "Step2_Classify"
+        }
+      ],
+      "Default": "NoArticles"
+    },
+
+    "NoArticles": {
+      "Type": "Pass",
+      "Comment": "No articles to process — exit gracefully",
+      "Result": {
+        "step": "supervisor",
+        "stored_articles": [],
+        "rejected_articles": [],
+        "failed_articles": [],
+        "metrics": {
+          "input_count": 0,
+          "stored_count": 0,
+          "reason": "no_articles_selected"
+        }
+      },
+      "ResultPath": "$.pipeline_result",
+      "End": true
+    },
+
+    "Step2_Classify": {
+      "Type": "Task",
+      "Comment": "Nova MBTI classification + per-category allocation",
+      "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-step2-dev",
+      "InputPath": "$.step1_result.body",
+      "TimeoutSeconds": 300,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed", "States.Timeout", "Lambda.ServiceException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "PipelineFailure"
+        }
+      ],
+      "ResultPath": "$.step2_result",
+      "Next": "PrepareTransformBatches"
+    },
+
+    "PrepareTransformBatches": {
+      "Type": "Pass",
+      "Comment": "Extract classified articles array for Map state iteration. Each Map iteration receives a sub-batch of articles.",
+      "Parameters": {
+        "date.$": "$.step2_result.body.date",
+        "classified_articles.$": "$.step2_result.body.classified_articles",
+        "classification_map.$": "$.step2_result.body.classification_map"
+      },
+      "ResultPath": "$.transform_input",
+      "Next": "Step3_TransformMap"
+    },
+
+    "Step3_TransformMap": {
+      "Type": "Map",
+      "Comment": "Process articles in parallel batches of 3 (Map over ItemBatcher). Each invocation runs step3 on a subset of classified articles. MaxConcurrency=3 to respect Bedrock throttle limits.",
+      "MaxConcurrency": 3,
+      "ItemsPath": "$.transform_input.classified_articles",
+      "ItemBatcher": {
+        "MaxItemsPerBatch": 3
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "TransformBatch",
+        "States": {
+          "TransformBatch": {
+            "Type": "Task",
+            "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-step3-dev",
+            "Parameters": {
+              "step": 2,
+              "date.$": "$.transform_input.date",
+              "classified_articles.$": "$.Items",
+              "classification_map.$": "$.transform_input.classification_map",
+              "metrics": {}
+            },
+            "TimeoutSeconds": 300,
+            "Retry": [
+              {
+                "ErrorEquals": ["States.TaskFailed", "States.Timeout", "Lambda.ServiceException"],
+                "IntervalSeconds": 15,
+                "MaxAttempts": 2,
+                "BackoffRate": 2.0
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.batch_error",
+                "Next": "BatchFailed"
+              }
+            ],
+            "End": true
+          },
+          "BatchFailed": {
+            "Type": "Pass",
+            "Comment": "Mark this batch as failed but don't block the whole pipeline",
+            "Parameters": {
+              "body": {
+                "step": 3,
+                "transformed_articles": [],
+                "failed_articles": [
+                  {
+                    "news_id": "batch",
+                    "title": "Entire batch failed",
+                    "error.$": "States.Format('Batch error: {}', $.batch_error.Cause)"
+                  }
+                ],
+                "metrics": {
+                  "transformed_count": 0,
+                  "failed_count": 1
+                }
+              }
+            },
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.step3_batches",
+      "Next": "MergeTransformResults"
+    },
+
+    "MergeTransformResults": {
+      "Type": "Task",
+      "Comment": "Merge parallel batch results into a single step3 output. Uses a lightweight Lambda that concatenates arrays.",
+      "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-merge-dev",
+      "Parameters": {
+        "date.$": "$.transform_input.date",
+        "batches.$": "$.step3_batches"
+      },
+      "TimeoutSeconds": 30,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed"],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 1,
+          "BackoffRate": 1.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "PipelineFailure"
+        }
+      ],
+      "ResultPath": "$.step3_result",
+      "Next": "Step4_Validate"
+    },
+
+    "Step4_Validate": {
+      "Type": "Task",
+      "Comment": "Nova quality validation — spelling, grammar, style, facts",
+      "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-step4-dev",
+      "InputPath": "$.step3_result.body",
+      "TimeoutSeconds": 300,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed", "States.Timeout", "Lambda.ServiceException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "PipelineFailure"
+        }
+      ],
+      "ResultPath": "$.step4_result",
+      "Next": "Supervisor"
+    },
+
+    "Supervisor": {
+      "Type": "Task",
+      "Comment": "Final quality gate (Nova cross-version review) + S3/DynamoDB storage",
+      "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-supervisor-dev",
+      "InputPath": "$.step4_result.body",
+      "TimeoutSeconds": 300,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed", "States.Timeout", "Lambda.ServiceException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "PipelineFailure"
+        }
+      ],
+      "ResultPath": "$.pipeline_result",
+      "End": true
+    },
+
+    "PipelineFailure": {
+      "Type": "Task",
+      "Comment": "Log the pipeline failure and exit. Does NOT re-raise — the execution ends as succeeded with an error log.",
+      "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-supervisor-dev",
+      "Parameters": {
+        "step": 4,
+        "date.$": "$$.Execution.Input.date",
+        "validated_articles": [],
+        "flagged_articles": [],
+        "failed_articles": [
+          {
+            "news_id": "pipeline",
+            "title": "Pipeline-level failure",
+            "error.$": "States.Format('Step failed: {}', $.error.Cause)"
+          }
+        ],
+        "metrics": {}
+      },
+      "TimeoutSeconds": 60,
+      "ResultPath": "$.pipeline_result",
+      "End": true
+    }
+  }
+}

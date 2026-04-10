@@ -286,10 +286,16 @@ async def _async_handler(event: dict, context) -> dict:
                 })
             }
         
-        # Initialize services
+        # Initialize services with S3 body retrieval
+        from clients.s3_article_client import S3ArticleClient
+        s3_article_client = S3ArticleClient(
+            bucket_name=settings.s3_article_body_bucket,
+            region=settings.s3_article_body_region,
+        )
         dynamodb_client = DynamoDBClient(
-            table_name="sedaily-mbti-articles-dev",
-            region=settings.region
+            table_name=settings.dynamodb_table_articles,
+            region=settings.region,
+            s3_article_client=s3_article_client,
         )
 
         # Create handler and process request

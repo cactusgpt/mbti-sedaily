@@ -1,6 +1,13 @@
 """
 S3 Articles Handler Lambda Function
-Fetches articles directly from S3 XML storage (sedaily-news-xml-storage)
+Fetches articles directly from S3 XML storage (sedaily-news-xml-storage).
+
+This handler reads ORIGINAL articles from the raw XML bucket (ap-northeast-2),
+NOT from the Article DB (DynamoDB + S3 body). It serves as the primary list
+endpoint before MBTI transformation is applied.
+
+For MBTI-transformed article detail, use article_handler.py which reads from
+the split Article DB (DynamoDB metadata + S3 body pointer).
 
 Endpoints:
 - GET /s3-articles?date=YYYYMMDD&limit=30&category=경제

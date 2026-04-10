@@ -1,0 +1,200 @@
+"""
+Step 3: Tone & Manner Transformation
+=====================================
+Calls Claude (via Bedrock) to rewrite each article into 4 MBTI versions.
+ONE model call per article generates ALL 4 versions simultaneously, using
+the combined prompt built from /prompts/nt.md, nf.md, st.md, sf.md.
+
+Uses Claude (NOT Nova) — Korean rewriting is a complex task.
+
+Input (from Step 2):
+  {
+    "step": 2,
+    "date": "20260408",
+    "classified_articles": [
+      { ...article..., "target_groups": ["NT","NF","ST","SF"] }
+    ],
+    "classification_map": { ... },
+    "metrics": { ... }
+  }
+
+Output (passed to Step 4):
+  {
+    "step": 3,
+    "date": "20260408",
+    "transformed_articles": [
+      {
+        ...article metadata...,
+        "versions": {
+          "NT": { "title": "...", "body": "..." },
+          "NF": { "title": "...", "body": "..." },
+          "ST": { "title": "...", "body": "..." },
+          "SF": { "title": "...", "body": "..." }
+        },
+        "transform_usage": { "input_tokens": ..., "output_tokens": ... }
+      }
+    ],
+    "failed_articles": [
+      { "news_id": "...", "title": "...", "error": "..." }
+    ],
+    "metrics": {
+      "input_count": 11,
+      "transformed_count": 10,
+      "failed_count": 1,
+      "total_input_tokens": ...,
+      "total_output_tokens": ...,
+      "duration_ms": 45000
+    }
+  }
+"""
+import asyncio
+import json
+import logging
+import re
+import time
+from datetime import datetime, timezone, timedelta
+from typing import Dict, Any, List
+
+import boto3
+from botocore.config import Config
+
+from config.constants import (
+    BEDROCK_MODEL_ID_HAIKU,
+    BEDROCK_REGION,
+    MBTI_GROUPS,
+)
+from clients.mbti_transform_service import MbtiTransformService, TransformError
+from core.decorators import lambda_handler as handler_decorator
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+
+# ── Main logic ───────────────────────────────────────────────────────────────
+
+async def _transform_articles(event_body: Dict[str, Any]) -> Dict[str, Any]:
+    start = time.time()
+
+    date_str = event_body['date']
+    articles = event_body['classified_articles']
+    logger.info(f"Step 3: Transforming {len(articles)} articles for {date_str}")
+
+    transform_service = MbtiTransformService(region=BEDROCK_REGION)
+
+    transformed = []
+    failed = []
+    total_input_tokens = 0
+    total_output_tokens = 0
+
+    for idx, article in enumerate(articles):
+        news_id = article['news_id']
+        title = article.get('title', '')
+        content = article.get('content_clean', '')
+
+        if not content or not content.strip():
+            logger.warning(f"Skipping {news_id}: empty content")
+            failed.append({
+                'news_id': news_id,
+                'title': title[:80],
+                'error': 'empty_content',
+            })
+            continue
+
+        logger.info(
+            f"Transforming [{idx+1}/{len(articles)}] {news_id}: "
+            f"{title[:50]}..."
+        )
+
+        try:
+            result = await transform_service.transform_article(
+                title=title,
+                subtitle=article.get('sub_title', ''),
+                content=content,
+                category=article.get('category', '경제'),
+            )
+
+            versions = result['versions']
+            usage = result['usage']
+            total_input_tokens += usage.get('input_tokens', 0)
+            total_output_tokens += usage.get('output_tokens', 0)
+
+            # Build output article with metadata + versions
+            out = {
+                'news_id': news_id,
+                'title': title,
+                'sub_title': article.get('sub_title', ''),
+                'content_clean': content,
+                'content_raw': article.get('content_raw', ''),
+                'content_blocks': article.get('content_blocks', []),
+                'category': article.get('category', ''),
+                'published_at': article.get('published_at', ''),
+                'author_name': article.get('author_name', ''),
+                'author_email': article.get('author_email', ''),
+                'images': article.get('images', []),
+                'url': article.get('url', ''),
+                'related_news': article.get('related_news', []),
+                'is_breaking_news': article.get('is_breaking_news', False),
+                'target_groups': article.get('target_groups', list(MBTI_GROUPS)),
+                'versions': versions,
+                'transform_usage': usage,
+            }
+            transformed.append(out)
+
+            logger.info(f"Transformed {news_id} successfully")
+
+        except TransformError as e:
+            logger.error(f"Transform failed for {news_id}: {e}")
+            failed.append({
+                'news_id': news_id,
+                'title': title[:80],
+                'error': str(e)[:200],
+            })
+
+        except Exception as e:
+            logger.error(f"Unexpected error transforming {news_id}: {e}", exc_info=True)
+            failed.append({
+                'news_id': news_id,
+                'title': title[:80],
+                'error': str(e)[:200],
+            })
+
+    elapsed = int((time.time() - start) * 1000)
+    logger.info(
+        f"Step 3 complete: {len(transformed)} transformed, "
+        f"{len(failed)} failed, "
+        f"tokens={total_input_tokens}in/{total_output_tokens}out, "
+        f"{elapsed}ms"
+    )
+
+    return {
+        'step': 3,
+        'date': date_str,
+        'transformed_articles': transformed,
+        'failed_articles': failed,
+        'metrics': {
+            'input_count': len(articles),
+            'transformed_count': len(transformed),
+            'failed_count': len(failed),
+            'total_input_tokens': total_input_tokens,
+            'total_output_tokens': total_output_tokens,
+            'duration_ms': elapsed,
+        },
+    }
+
+
+# ── Lambda entry point ───────────────────────────────────────────────────────
+
+@handler_decorator
+async def lambda_handler(event: dict, context) -> dict:
+    """Step 3 Lambda: Tone & Manner Transformation (Claude)."""
+    body = event.get('body', event)
+
+    if body.get('step') != 2:
+        logger.warning(f"Expected step 2 input, got step {body.get('step')}")
+
+    result = await _transform_articles(body)
+
+    return {
+        'statusCode': 200,
+        'body': result,
+    }

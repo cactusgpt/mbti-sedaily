@@ -23,6 +23,7 @@ import json
 import time
 from config import settings
 from config.constants import CATEGORIES_KOREAN, CATEGORY_SEARCH_ALIASES
+from clients.s3_article_client import S3ArticleClient
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -160,6 +161,19 @@ def search_dynamodb_optimized(
     start_idx = (page - 1) * page_size
     end_idx = start_idx + page_size
     paginated_items = all_items[start_idx:end_idx]
+
+    # Enrich paginated items with S3 body data for new-style articles
+    s3_client = S3ArticleClient(
+        bucket_name=settings.s3_article_body_bucket,
+        region=getattr(settings, 's3_article_body_region', 'us-east-1'),
+    )
+
+    for item in paginated_items:
+        if item.get('s3_body_uri') and not item.get('content_ko'):
+            news_id = item.get('news_id', '')
+            body_data = s3_client.get_body(news_id)
+            if body_data:
+                item.update(body_data)
 
     # Transform to article format
     articles = []

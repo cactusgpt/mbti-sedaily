@@ -3,7 +3,7 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
 import { API_URL } from "@/shared/config/api";
 import { ArticleView } from "./ArticleView";
-import { UserMenu } from "@/features/auth";
+import { UserMenu, useAuth } from "@/features/auth";
 import { mockArticles } from "@/shared/data/mockArticles";
 import { BarChart3, BookOpen, Lightbulb, Coffee, Coins, Rocket, Globe, Sparkles, Calendar, Newspaper, Users, Camera, TrendingUp } from "lucide-react";
 import { ScrollReveal } from "@/shared/ui/ScrollReveal";
@@ -132,6 +132,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { user } = useAuth();
 
   // URL에서 초기 탭 상태 읽기
   const getInitialTab = useCallback(() => {
@@ -349,55 +350,178 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   // 랭킹 기간 필터
   const [rankingPeriod, setRankingPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
 
-  // 오디오 플레이어 상태 (목업)
+  // 오디오 플레이어 상태 — real podcast API
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioProgress, setAudioProgress] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const [currentPlayingArticle, setCurrentPlayingArticle] = useState<{
     title: string;
     category: string;
+    podcastId?: string;
   } | null>(null);
   const [showPaywall, setShowPaywall] = useState(false);
-  const [hasUnlockedAudio, setHasUnlockedAudio] = useState(false); // 구독자 여부
+  const [hasUnlockedAudio, setHasUnlockedAudio] = useState(false);
+  const [podcastLoading, setPodcastLoading] = useState(false);
+  const [podcastError, setPodcastError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // 1분 미리듣기 제한 (전체 3분 중 33.3%)
-  const FREE_PREVIEW_LIMIT = 33.3;
+  const FREE_PREVIEW_SECONDS = 60;
 
-  // 오디오 재생 시작 (목업)
-  const startAudioBriefing = () => {
+  // Audio element event handlers
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onTimeUpdate = () => {
+      setAudioCurrentTime(audio.currentTime);
+      const dur = audio.duration || 1;
+      setAudioProgress((audio.currentTime / dur) * 100);
+
+      // Paywall: stop at 1 minute for non-subscribers
+      if (!hasUnlockedAudio && audio.currentTime >= FREE_PREVIEW_SECONDS) {
+        audio.pause();
+        setIsPlaying(false);
+        setShowPaywall(true);
+      }
+    };
+
+    const onLoadedMetadata = () => {
+      setAudioDuration(audio.duration);
+    };
+
+    const onEnded = () => {
+      setIsPlaying(false);
+      setAudioProgress(100);
+    };
+
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
+
+    return () => {
+      audio.removeEventListener('timeupdate', onTimeUpdate);
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
+    };
+  }, [hasUnlockedAudio]);
+
+  // Start audio briefing — check for existing podcast, generate if needed
+  const startAudioBriefing = async () => {
     const firstArticle = articles[0];
-    if (firstArticle) {
-      setCurrentPlayingArticle({
-        title: firstArticle.title,
-        category: firstArticle.category
-      });
-      setShowAudioPlayer(true);
-      setIsPlaying(true);
-      setAudioProgress(0);
+    if (!firstArticle) return;
+
+    setCurrentPlayingArticle({
+      title: firstArticle.title,
+      category: firstArticle.category,
+    });
+    setShowAudioPlayer(true);
+    setPodcastLoading(true);
+    setPodcastError(null);
+
+    try {
+      const { getArticlePodcast, generatePodcast, waitForPodcast } = await import('@/shared/lib/podcastApi');
+
+      // 1. Check if podcast already exists
+      let podcast = await getArticlePodcast(firstArticle.news_id, selectedGroup);
+
+      if (podcast?.audio_url) {
+        // Existing podcast — play immediately
+        loadAndPlay(podcast.audio_url, podcast.podcast_id);
+        return;
+      }
+
+      if (podcast && !podcast.audio_url) {
+        // Podcast exists but no presigned URL — fetch full details
+        const { getPodcast } = await import('@/shared/lib/podcastApi');
+        const full = await getPodcast(podcast.podcast_id);
+        if (full?.audio_url) {
+          loadAndPlay(full.audio_url, full.podcast_id);
+          return;
+        }
+      }
+
+      // 2. No podcast — generate one
+      const generated = await generatePodcast(firstArticle.news_id, selectedGroup);
+      setCurrentPlayingArticle(prev => prev ? { ...prev, podcastId: generated.podcast_id } : null);
+
+      // 3. Poll until ready
+      const ready = await waitForPodcast(generated.podcast_id);
+      loadAndPlay(ready.audio_url!, ready.podcast_id);
+
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '오디오 생성에 실패했습니다';
+      setPodcastError(msg);
+      setPodcastLoading(false);
     }
   };
 
-  // 프로그레스 애니메이션 (목업) - 1분 제한
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    const maxProgress = hasUnlockedAudio ? 100 : FREE_PREVIEW_LIMIT;
+  const loadAndPlay = (audioUrl: string, podcastId: string) => {
+    setPodcastLoading(false);
+    setCurrentPlayingArticle(prev => prev ? { ...prev, podcastId } : null);
 
-    if (isPlaying && audioProgress < maxProgress) {
-      interval = setInterval(() => {
-        setAudioProgress(prev => {
-          const next = prev + 0.5;
-          // 1분 도달 시 페이월 표시
-          if (!hasUnlockedAudio && next >= FREE_PREVIEW_LIMIT) {
-            setIsPlaying(false);
-            setShowPaywall(true);
-            return FREE_PREVIEW_LIMIT;
-          }
-          return Math.min(next, maxProgress);
-        });
-      }, 500);
+    if (audioRef.current) {
+      audioRef.current.src = audioUrl;
+      audioRef.current.load();
+      audioRef.current.play().catch(() => {});
+      setIsPlaying(true);
     }
-    return () => clearInterval(interval);
-  }, [isPlaying, audioProgress, hasUnlockedAudio]);
+  };
+
+  const togglePlayPause = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play().catch(() => {});
+    }
+  };
+
+  const seekAudio = (progressPercent: number) => {
+    const audio = audioRef.current;
+    if (!audio || !audio.duration) return;
+
+    const maxProgress = hasUnlockedAudio ? 100 : (FREE_PREVIEW_SECONDS / audio.duration) * 100;
+    const clamped = Math.min(Math.max(0, progressPercent), maxProgress);
+    audio.currentTime = (clamped / 100) * audio.duration;
+    setAudioProgress(clamped);
+
+    if (!hasUnlockedAudio && audio.currentTime >= FREE_PREVIEW_SECONDS) {
+      audio.pause();
+      setIsPlaying(false);
+      setShowPaywall(true);
+    }
+  };
+
+  const skipAudio = (seconds: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const newTime = audio.currentTime + seconds;
+    const maxTime = hasUnlockedAudio ? audio.duration : FREE_PREVIEW_SECONDS;
+    audio.currentTime = Math.min(Math.max(0, newTime), maxTime);
+
+    if (!hasUnlockedAudio && audio.currentTime >= FREE_PREVIEW_SECONDS) {
+      audio.pause();
+      setIsPlaying(false);
+      setShowPaywall(true);
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
 
   // 유저 프로필 데이터 (온도, 칭호, MBTI, 아바타)
   const userProfiles: { [key: string]: { temperature: number; title: string; titleType: 'crown' | 'star' | 'lightning' | 'heart' | 'book' | 'chart'; badges: { name: string; type: 'trophy' | 'fire' | 'chat' | 'bulb' | 'target' | 'chart' }[]; mbti: string; avatar: string } } = {
@@ -684,8 +808,8 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
     }
   };
 
-  // 문장 아카이빙
-  const archiveSentence = (text: string, articleId: string, articleTitle: string, articlePublishedAt?: string) => {
+  // 문장 아카이빙 — logged-in: server API, anonymous: local state
+  const archiveSentence = async (text: string, articleId: string, articleTitle: string, articlePublishedAt?: string) => {
     const newSentence: ArchivedSentence = {
       id: `${articleId}-${Date.now()}`,
       text,
@@ -694,7 +818,32 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
       articlePublishedAt,
       createdAt: new Date(),
     };
+
+    // Optimistic: add to local state immediately
     setArchivedSentences(prev => [newSentence, ...prev]);
+
+    // If logged in, also save to server
+    if (user?.userId) {
+      try {
+        const { saveArchiveSentence } = await import('@/shared/lib/archiveApi');
+        const result = await saveArchiveSentence({
+          user_id: user.userId,
+          text,
+          article_id: articleId,
+          article_title: articleTitle,
+          article_published_at: articlePublishedAt,
+        });
+        // Replace local ID with server ID
+        setArchivedSentences(prev =>
+          prev.map(s => s.id === newSentence.id
+            ? { ...s, id: result.sentence.id, createdAt: new Date(result.sentence.created_at) }
+            : s
+          )
+        );
+      } catch (err) {
+        console.warn('Server archive save failed (local save kept):', err);
+      }
+    }
   };
 
   const currentQuestion = dailyQuestions[currentQuestionIndex];
@@ -1472,35 +1621,19 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
         </div>
       )}
 
-      {/* 하단 오디오 플레이어 (목업) */}
+      {/* Hidden HTML5 audio element */}
+      <audio ref={audioRef} preload="none" />
+
+      {/* 하단 오디오 플레이어 */}
       {showAudioPlayer && (
         <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-100 shadow-[0_-2px_10px_rgba(0,0,0,0.06)]">
-          {/* 프로그레스 바 - 클릭/드래그 가능 */}
+          {/* 프로그레스 바 */}
           <div
             className="absolute top-0 left-0 right-0 h-3 -mt-1.5 cursor-pointer group"
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
-              const clickX = e.clientX - rect.left;
-              const percentage = (clickX / rect.width) * 100;
-              const maxProgress = hasUnlockedAudio ? 100 : FREE_PREVIEW_LIMIT;
-              setAudioProgress(Math.min(Math.max(0, percentage), maxProgress));
-            }}
-            onMouseDown={(e) => {
-              const handleDrag = (moveEvent: MouseEvent) => {
-                const rect = (e.target as HTMLElement).parentElement?.getBoundingClientRect();
-                if (rect) {
-                  const dragX = moveEvent.clientX - rect.left;
-                  const percentage = (dragX / rect.width) * 100;
-                  const maxProgress = hasUnlockedAudio ? 100 : FREE_PREVIEW_LIMIT;
-                  setAudioProgress(Math.min(Math.max(0, percentage), maxProgress));
-                }
-              };
-              const handleUp = () => {
-                document.removeEventListener('mousemove', handleDrag);
-                document.removeEventListener('mouseup', handleUp);
-              };
-              document.addEventListener('mousemove', handleDrag);
-              document.addEventListener('mouseup', handleUp);
+              const pct = ((e.clientX - rect.left) / rect.width) * 100;
+              seekAudio(pct);
             }}
           >
             <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[3px] bg-gray-200 group-hover:h-[5px] transition-all">
@@ -1508,7 +1641,6 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                 className="h-full bg-gray-900 relative"
                 style={{ width: `${audioProgress}%` }}
               >
-                {/* 드래그 핸들 */}
                 <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-gray-900 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm" />
               </div>
             </div>
@@ -1529,7 +1661,6 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                     className="w-full h-full object-cover"
                   />
                 </div>
-                {/* 재생 중 표시 */}
                 {isPlaying && (
                   <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-gray-900 rounded-full flex items-center justify-center">
                     <div className="flex items-end gap-[1.5px] h-2">
@@ -1539,42 +1670,50 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                     </div>
                   </div>
                 )}
+                {podcastLoading && (
+                  <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-amber-500 rounded-full flex items-center justify-center">
+                    <div className="w-2.5 h-2.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
               </div>
 
               {/* 재생 정보 */}
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-medium text-gray-900 truncate leading-tight">
-                  {currentPlayingArticle?.title || '오늘의 뉴스 브리핑'}
+                  {podcastLoading ? '오디오 생성 중...' :
+                   podcastError ? '오디오 생성 실패' :
+                   currentPlayingArticle?.title || '오늘의 뉴스 브리핑'}
                 </p>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[11px] text-gray-400 tabular-nums">
-                    {Math.floor(audioProgress * 3 / 100)}:{String(Math.floor((audioProgress * 180 / 100) % 60)).padStart(2, '0')}
-                    <span className="mx-0.5">/</span>
-                    {hasUnlockedAudio ? '3:00' : '1:00'}
-                  </span>
-                  {!hasUnlockedAudio && (
-                    <span className="text-[10px] font-medium text-amber-600">미리듣기</span>
+                  {podcastError ? (
+                    <button
+                      onClick={startAudioBriefing}
+                      className="text-[11px] text-blue-500 font-medium"
+                    >
+                      다시 시도
+                    </button>
+                  ) : (
+                    <>
+                      <span className="text-[11px] text-gray-400 tabular-nums">
+                        {formatTime(audioCurrentTime)}
+                        <span className="mx-0.5">/</span>
+                        {hasUnlockedAudio ? formatTime(audioDuration) : formatTime(Math.min(audioDuration, FREE_PREVIEW_SECONDS))}
+                      </span>
+                      {!hasUnlockedAudio && audioDuration > 0 && (
+                        <span className="text-[10px] font-medium text-amber-600">미리듣기</span>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
 
-              {/* 컨트롤 버튼 */}
+              {/* 컨트롤 */}
               <div className="flex items-center">
-                {/* 이전 콘텐츠 */}
-                <button className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">
-                  <svg className="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M6 6h2v12H6V6zm3.5 6l8.5 6V6l-8.5 6z" />
-                  </svg>
-                </button>
-
-                {/* 5초 뒤로 */}
                 <button
-                  onClick={() => {
-                    const newProgress = Math.max(0, audioProgress - (5 / 180) * 100);
-                    setAudioProgress(newProgress);
-                  }}
+                  onClick={() => skipAudio(-5)}
                   className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors relative"
                   title="5초 뒤로"
+                  disabled={podcastLoading}
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12.5 8V4L7 9l5.5 5v-4c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4.5c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
@@ -1582,12 +1721,16 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                   <span className="absolute text-[8px] font-bold" style={{ top: '52%', left: '50%', transform: 'translate(-50%, -50%)' }}>5</span>
                 </button>
 
-                {/* 재생/일시정지 */}
                 <button
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="w-10 h-10 flex items-center justify-center rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-all active:scale-95 mx-1"
+                  onClick={togglePlayPause}
+                  disabled={podcastLoading}
+                  className={`w-10 h-10 flex items-center justify-center rounded-full text-white transition-all active:scale-95 mx-1 ${
+                    podcastLoading ? 'bg-gray-300' : 'bg-blue-500 hover:bg-blue-600'
+                  }`}
                 >
-                  {isPlaying ? (
+                  {podcastLoading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : isPlaying ? (
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
                     </svg>
@@ -1598,19 +1741,11 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                   )}
                 </button>
 
-                {/* 5초 앞으로 */}
                 <button
-                  onClick={() => {
-                    const maxProgress = hasUnlockedAudio ? 100 : FREE_PREVIEW_LIMIT;
-                    const newProgress = Math.min(maxProgress, audioProgress + (5 / 180) * 100);
-                    setAudioProgress(newProgress);
-                    if (!hasUnlockedAudio && newProgress >= FREE_PREVIEW_LIMIT) {
-                      setIsPlaying(false);
-                      setShowPaywall(true);
-                    }
-                  }}
+                  onClick={() => skipAudio(5)}
                   className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors relative"
                   title="5초 앞으로"
+                  disabled={podcastLoading}
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M11.5 8V4l5.5 5-5.5 5v-4c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/>
@@ -1618,19 +1753,18 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                   <span className="absolute text-[8px] font-bold" style={{ top: '52%', left: '50%', transform: 'translate(-50%, -50%)' }}>5</span>
                 </button>
 
-                {/* 다음 콘텐츠 */}
-                <button className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">
-                  <svg className="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-                  </svg>
-                </button>
-
-                {/* 닫기 */}
                 <button
                   onClick={() => {
+                    if (audioRef.current) {
+                      audioRef.current.pause();
+                      audioRef.current.src = '';
+                    }
                     setShowAudioPlayer(false);
                     setIsPlaying(false);
                     setAudioProgress(0);
+                    setAudioCurrentTime(0);
+                    setPodcastLoading(false);
+                    setPodcastError(null);
                   }}
                   className="w-8 h-8 flex items-center justify-center rounded-full text-gray-300 hover:text-gray-600 hover:bg-gray-50 transition-all ml-1"
                 >
@@ -1642,7 +1776,6 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
             </div>
           </div>
 
-          {/* 이퀄라이저 애니메이션 스타일 */}
           <style>{`
             @keyframes soundbar1 {
               0%, 100% { height: 30%; }

@@ -1,10 +1,17 @@
 'use client';
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { ArchivedSentence, MbtiArticle, TabType } from "@/shared/types/mbti";
 import { getWeekDays, isSameDay, getMonthDays } from "@/shared/utils/dateUtils";
+import { useAuth } from "@/features/auth";
+import {
+  listArchiveSentences,
+  deleteArchiveSentence,
+  searchSimilarSentences,
+  type ArchiveSentenceResponse,
+  type SimilarSentence,
+} from "@/shared/lib/archiveApi";
 
-// 하위 호환성을 위한 타입 별칭
 type Article = MbtiArticle;
 
 interface Props {
@@ -18,6 +25,18 @@ interface Props {
   showToast: () => void;
 }
 
+/** Convert server response to frontend ArchivedSentence type */
+function toFrontendSentence(s: ArchiveSentenceResponse): ArchivedSentence {
+  return {
+    id: s.id,
+    text: s.text,
+    articleId: s.article_id,
+    articleTitle: s.article_title,
+    articlePublishedAt: s.article_published_at,
+    createdAt: new Date(s.created_at),
+  };
+}
+
 export function ArchiveTab({
   archiveDate,
   setArchiveDate,
@@ -28,16 +47,107 @@ export function ArchiveTab({
   articles,
   showToast,
 }: Props) {
-  // 내부 상태
+  const { user, isAuthenticated } = useAuth();
+
+  // UI state
   const [showArchiveCalendar, setShowArchiveCalendar] = useState(false);
   const [archiveCalendarMonth, setArchiveCalendarMonth] = useState<Date>(new Date());
 
+  // Loading/error state
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Similarity search state
+  const [similarResults, setSimilarResults] = useState<SimilarSentence[]>([]);
+  const [similarLoading, setSimilarLoading] = useState(false);
+  const [similarSentenceId, setSimilarSentenceId] = useState<string | null>(null);
+
+  // ── Load from server on mount (logged-in users) ───────────────────────
+  useEffect(() => {
+    if (!isAuthenticated || !user?.userId) return;
+
+    let cancelled = false;
+
+    async function loadFromServer() {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const data = await listArchiveSentences(user!.userId);
+        if (!cancelled) {
+          const serverSentences = data.sentences.map(toFrontendSentence);
+          setArchivedSentences(serverSentences);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('Archive API unavailable, keeping local data:', err);
+          // Keep existing local data as fallback
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+
+    loadFromServer();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, user?.userId, setArchivedSentences]);
+
+  // ── Delete handler ────────────────────────────────────────────────────
+  const handleDelete = useCallback(async (sentence: ArchivedSentence) => {
+    setDeletingId(sentence.id);
+
+    // Optimistic: remove from local state immediately
+    setArchivedSentences(prev => prev.filter(s => s.id !== sentence.id));
+
+    // If logged in, also delete from server
+    if (isAuthenticated && user?.userId) {
+      try {
+        await deleteArchiveSentence(sentence.id, user.userId);
+      } catch (err) {
+        console.warn('Server delete failed (local delete kept):', err);
+        // Don't roll back — local state is source of truth for UX
+      }
+    }
+
+    setDeletingId(null);
+  }, [isAuthenticated, user?.userId, setArchivedSentences]);
+
+  // ── Similarity search handler ─────────────────────────────────────────
+  const handleSimilarSearch = useCallback(async (sentence: ArchivedSentence) => {
+    if (!isAuthenticated || !user?.userId) return;
+
+    // Toggle: if already showing for this sentence, close
+    if (similarSentenceId === sentence.id) {
+      setSimilarSentenceId(null);
+      setSimilarResults([]);
+      return;
+    }
+
+    setSimilarSentenceId(sentence.id);
+    setSimilarLoading(true);
+    setSimilarResults([]);
+
+    try {
+      const result = await searchSimilarSentences(user.userId, sentence.text, 5);
+      if (result) {
+        setSimilarResults(result.similar_sentences);
+      } else {
+        // null = pgvector not configured
+        setSimilarResults([]);
+      }
+    } catch (err) {
+      console.warn('Similarity search failed:', err);
+      setSimilarResults([]);
+    } finally {
+      setSimilarLoading(false);
+    }
+  }, [isAuthenticated, user?.userId, similarSentenceId]);
+
   return (
     <div className="min-h-[calc(100vh-120px)]">
-      {/* 날짜 네비게이션 - 뉴스피드와 동일한 스타일 */}
+      {/* 날짜 네비게이션 */}
       {archivedSentences.length > 0 && (
         <div className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm">
-          {/* 월/주 네비게이션 */}
           <div className="flex items-center justify-center gap-4 py-3 px-4">
             <button
               onClick={() => {
@@ -119,7 +229,7 @@ export function ArchiveTab({
         </div>
       )}
 
-      {/* 아카이브 캘린더 팝업 */}
+      {/* 캘린더 팝업 */}
       {showArchiveCalendar && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowArchiveCalendar(false)}>
           <div className="bg-white rounded-2xl shadow-2xl p-6 w-[340px]" onClick={(e) => e.stopPropagation()}>
@@ -203,8 +313,25 @@ export function ArchiveTab({
 
       <div className="max-w-[600px] mx-auto px-6 py-12">
 
-        {archivedSentences.length === 0 ? (
-          // 빈 상태 - 감성적인 디자인
+        {/* Loading skeleton */}
+        {isLoading && (
+          <div className="space-y-4 animate-pulse">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-gray-100 rounded-2xl h-28" />
+            ))}
+          </div>
+        )}
+
+        {/* Error message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl text-[14px]">
+            {error}
+            <button onClick={() => setError(null)} className="ml-2 underline">닫기</button>
+          </div>
+        )}
+
+        {!isLoading && archivedSentences.length === 0 ? (
+          /* 빈 상태 */
           <div className="text-center py-20">
             <div
               className="relative w-24 h-24 mx-auto mb-8"
@@ -245,9 +372,9 @@ export function ArchiveTab({
               </span>
             </button>
           </div>
-        ) : (
+        ) : !isLoading && (
           <>
-            {/* 헤더 - 개인화된 메시지 */}
+            {/* 헤더 */}
             <div className="text-center mb-12" style={{ animation: 'fadeIn 0.6s ease-out' }}>
               <p className="text-[14px] text-amber-600 font-medium mb-2">
                 {archivedSentences.length === 1 ? '첫 번째 문장을 저장했어요' :
@@ -258,9 +385,12 @@ export function ArchiveTab({
               <h2 className="text-[28px] font-bold text-gray-900">
                 {archivedSentences.length}개의 문장
               </h2>
+              {isAuthenticated && (
+                <p className="text-[12px] text-gray-400 mt-1">서버에 동기화됨</p>
+              )}
             </div>
 
-            {/* 오늘의 회상 카드 (2개 이상일 때) */}
+            {/* 오늘의 회상 카드 */}
             {archivedSentences.length >= 2 && (
               <div
                 className="mb-10 p-8 bg-gradient-to-br from-amber-50 to-orange-50 rounded-3xl border border-amber-100/50"
@@ -278,7 +408,7 @@ export function ArchiveTab({
               </div>
             )}
 
-            {/* 날짜별 그룹화된 문장 목록 */}
+            {/* 날짜별 문장 목록 */}
             {(() => {
               const filteredSentences = archivedSentences.filter(s => isSameDay(new Date(s.createdAt), archiveDate));
 
@@ -311,11 +441,13 @@ export function ArchiveTab({
                   {filteredSentences.map((sentence, idx) => {
                     const savedDate = new Date(sentence.createdAt);
                     const timeStr = savedDate.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+                    const isDeleting = deletingId === sentence.id;
+                    const isShowingSimilar = similarSentenceId === sentence.id;
 
                     return (
                       <div
                         key={sentence.id}
-                        className="group relative"
+                        className={`group relative ${isDeleting ? 'opacity-50' : ''}`}
                         style={{ animation: `fadeIn 0.4s ease-out ${0.1 + idx * 0.03}s both` }}
                       >
                         <div className="bg-white rounded-2xl p-5 border border-gray-100/80 shadow-[0_1px_3px_rgba(0,0,0,0.04)] hover:border-gray-200 hover:shadow-[0_4px_12px_rgba(0,0,0,0.08)] transition-all duration-300 flex gap-4">
@@ -346,6 +478,18 @@ export function ArchiveTab({
                               <div className="flex items-center gap-2">
                                 <span className="text-[11px] text-gray-300">저장 {timeStr}</span>
                                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  {/* Similarity search button (logged-in only) */}
+                                  {isAuthenticated && (
+                                    <button
+                                      onClick={() => handleSimilarSearch(sentence)}
+                                      className={`p-1.5 rounded-lg transition-colors ${isShowingSimilar ? 'bg-violet-100' : 'hover:bg-violet-50'}`}
+                                      title="유사한 문장 찾기"
+                                    >
+                                      <svg className={`w-4 h-4 ${isShowingSimilar ? 'text-violet-500' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                                      </svg>
+                                    </button>
+                                  )}
                                   <button
                                     onClick={() => {
                                       navigator.clipboard.writeText(`"${sentence.text}"\n- ${sentence.articleTitle}`);
@@ -358,7 +502,8 @@ export function ArchiveTab({
                                     </svg>
                                   </button>
                                   <button
-                                    onClick={() => setArchivedSentences(prev => prev.filter(s => s.id !== sentence.id))}
+                                    onClick={() => handleDelete(sentence)}
+                                    disabled={isDeleting}
                                     className="p-1.5 hover:bg-red-50 rounded-lg transition-colors"
                                   >
                                     <svg className="w-4 h-4 text-gray-400 hover:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -368,6 +513,32 @@ export function ArchiveTab({
                                 </div>
                               </div>
                             </div>
+
+                            {/* Similarity results (inline) */}
+                            {isShowingSimilar && (
+                              <div className="mt-4 pt-4 border-t border-gray-100">
+                                {similarLoading ? (
+                                  <div className="flex items-center gap-2 text-[13px] text-gray-400">
+                                    <div className="w-4 h-4 border-2 border-violet-300 border-t-transparent rounded-full animate-spin" />
+                                    유사한 문장 검색 중...
+                                  </div>
+                                ) : similarResults.length > 0 ? (
+                                  <div className="space-y-2">
+                                    <p className="text-[12px] font-medium text-violet-600 mb-2">유사한 문장 {similarResults.length}개</p>
+                                    {similarResults.map((result, i) => (
+                                      <div key={i} className="p-3 bg-violet-50/50 rounded-xl text-[13px] text-gray-700 leading-relaxed">
+                                        <p>&quot;{result.sentence_text}&quot;</p>
+                                        <p className="text-[11px] text-gray-400 mt-1">
+                                          유사도: {((1 - result.distance) * 100).toFixed(0)}%
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <p className="text-[13px] text-gray-400">유사한 문장을 찾을 수 없어요</p>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -377,10 +548,9 @@ export function ArchiveTab({
               );
             })()}
 
-            {/* AI 기반 추천 섹션 */}
+            {/* AI 추천 섹션 */}
             {archivedSentences.length >= 1 && (
               <div className="mt-12 pt-8 border-t border-gray-100" style={{ animation: 'fadeIn 0.6s ease-out 0.3s both' }}>
-                {/* AI 추천 헤더 */}
                 <div className="bg-gradient-to-r from-violet-50 to-blue-50 rounded-2xl p-5 mb-6">
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 bg-white rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] border border-gray-100/60 flex items-center justify-center flex-shrink-0">
@@ -401,7 +571,6 @@ export function ArchiveTab({
                   </div>
                 </div>
 
-                {/* 추천 기사 목록 */}
                 <div className="space-y-3">
                   {articles
                     .filter(article => !archivedSentences.some(s => s.articleId === article.news_id))
@@ -441,7 +610,6 @@ export function ArchiveTab({
                   ))}
                 </div>
 
-                {/* 더보기 */}
                 <button className="w-full mt-4 py-3 text-[13px] text-gray-500 hover:text-violet-600 transition-colors flex items-center justify-center gap-1">
                   더 많은 추천 보기
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -451,14 +619,9 @@ export function ArchiveTab({
               </div>
             )}
 
-            {/* 마무리 메시지 */}
-            <div
-              className="mt-16 text-center"
-              style={{ animation: 'fadeIn 0.6s ease-out 0.5s both' }}
-            >
-              <p className="text-[14px] text-gray-400 mb-6">
-                더 많은 문장을 발견해보세요
-              </p>
+            {/* 마무리 */}
+            <div className="mt-16 text-center" style={{ animation: 'fadeIn 0.6s ease-out 0.5s both' }}>
+              <p className="text-[14px] text-gray-400 mb-6">더 많은 문장을 발견해보세요</p>
               <button
                 onClick={() => setActiveTab("feed")}
                 className="px-6 py-3 bg-gray-100 text-gray-700 rounded-xl text-[14px] font-medium hover:bg-gray-200 transition-colors"
