@@ -109,6 +109,30 @@ export function FortuneResult({ data }: Props) {
         </Section>
       )}
 
+      {/* 오늘의 운세 */}
+      {todayFortune && (
+        <Section title="오늘의 운세">
+          <p className="mb-3">
+            오늘은 <strong className={EL_COLORS[todayFortune.dayOh]}>{todayFortune.dayPillar}({todayFortune.dayPillarHanja})</strong>일입니다.
+            나의 일간 기준 <strong>{todayFortune.ss}</strong>의 날이며, 12운성은 <strong>{todayFortune.us}</strong>입니다.
+          </p>
+          {todayFortune.ssReading && <p className="mb-3">{todayFortune.ssReading}</p>}
+          <p className={todayFortune.sinsal.length ? 'mb-3' : ''}>12운성 <strong>{todayFortune.us}</strong> — {todayFortune.usReading}</p>
+          {todayFortune.sinsal.length > 0 && (
+            <div className="border-t border-gray-100 pt-3">
+              {todayFortune.sinsal.map((s, i) => (
+                <div key={i} className="mb-2 last:mb-0">
+                  <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold mr-1.5 border ${s.good === true ? 'text-green-600 border-green-200' : s.good === false ? 'text-red-500 border-red-200' : 'text-yellow-600 border-yellow-200'}`}>
+                    {s.name}
+                  </span>
+                  <span className="text-[12px] text-gray-500">{s.desc}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Section>
+      )}
+
       {/* 상세 해석 */}
       {chongun?.detail && (
         <Section title="상세 해석">
@@ -174,30 +198,6 @@ export function FortuneResult({ data }: Props) {
             </div>
           </div>
           <p className="text-[12px] italic text-gray-500">{chongun.iljiDetail.conclusion}</p>
-        </Section>
-      )}
-
-      {/* 오늘의 운세 */}
-      {todayFortune && (
-        <Section title="오늘의 운세">
-          <p className="mb-3">
-            오늘은 <strong className={EL_COLORS[todayFortune.dayOh]}>{todayFortune.dayPillar}({todayFortune.dayPillarHanja})</strong>일입니다.
-            나의 일간 기준 <strong>{todayFortune.ss}</strong>의 날이며, 12운성은 <strong>{todayFortune.us}</strong>입니다.
-          </p>
-          {todayFortune.ssReading && <p className="mb-3">{todayFortune.ssReading}</p>}
-          <p className={todayFortune.sinsal.length ? 'mb-3' : ''}>12운성 <strong>{todayFortune.us}</strong> — {todayFortune.usReading}</p>
-          {todayFortune.sinsal.length > 0 && (
-            <div className="border-t border-gray-100 pt-3">
-              {todayFortune.sinsal.map((s, i) => (
-                <div key={i} className="mb-2 last:mb-0">
-                  <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-semibold mr-1.5 border ${s.good === true ? 'text-green-600 border-green-200' : s.good === false ? 'text-red-500 border-red-200' : 'text-yellow-600 border-yellow-200'}`}>
-                    {s.name}
-                  </span>
-                  <span className="text-[12px] text-gray-500">{s.desc}</span>
-                </div>
-              ))}
-            </div>
-          )}
         </Section>
       )}
 
