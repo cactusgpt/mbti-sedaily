@@ -80,7 +80,7 @@ export function DailyCalendar({ ilgan }: Props) {
               <div className={`text-[12px] font-medium ${isToday ? 'text-white' : dow === 0 ? 'text-red-400' : dow === 6 ? 'text-blue-400' : 'text-gray-700'}`}>
                 {day}
               </div>
-              <div className={`text-[11px] font-bold ${isToday ? 'text-gray-300' : EL_COLORS[cgOh] || 'text-gray-500'}`}>
+              <div className={`text-[11px] font-bold ${isToday ? 'text-gray-300' : 'text-gray-500'}`}>
                 {ganji}
               </div>
               {ss && (
