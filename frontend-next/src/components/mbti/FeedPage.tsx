@@ -14,6 +14,7 @@ import { NewsFeedTab } from "@/features/news-feed";
 import { CommunityTab } from "@/features/community";
 import { ArchiveTab } from "@/features/archive";
 import { DnaTab } from "@/features/news-dna";
+import { FortuneTab } from "@/features/fortune";
 
 // 프리페칭 캐시
 const prefetchCache = new Map<string, Article>();
@@ -903,8 +904,8 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
 
         {/* 오늘의 운세 */}
         {activeTab === "fortune" && (
-          <div className="flex-1">
-            {/* TODO: 오늘의 운세 콘텐츠 */}
+          <div className="flex-1 py-6">
+            <FortuneTab />
           </div>
         )}
       </main>
