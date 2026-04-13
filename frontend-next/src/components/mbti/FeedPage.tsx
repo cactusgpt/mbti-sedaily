@@ -805,8 +805,8 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
 
             {/* 우측 메뉴 */}
             <div className="flex items-center gap-3 flex-shrink-0">
-              <div className={`px-3 py-1.5 rounded-full ${persona.color} bg-opacity-10`}>
-                <span className={`text-[13px] font-medium ${persona.color.replace('bg-', 'text-')}`}>
+              <div className={`px-3 py-1.5 rounded-full ${persona.color}`}>
+                <span className="text-[13px] font-medium text-white">
                   {persona.name}
                 </span>
               </div>
