@@ -157,7 +157,8 @@ export function buildChongun(ps: Pillar[]): ChongunResult | null {
     // ILJI_DETAIL 상세 해석
     const ijd = ILJI_DETAIL[ilji];
     if (ijd) {
-      result.iljiDetail = { summary: ijd.특성_총평, strengths: ijd.강점, weaknesses: ijd.약점, conclusion: ijd.종합요약 };
+      const ijdConclusion = typeof ijd.종합요약 === 'string' ? ijd.종합요약 : `${ijd.종합요약?.강점_살리기 || ''} ${ijd.종합요약?.약점_보완하기 || ''}`.trim();
+      result.iljiDetail = { summary: ijd.특성_총평, strengths: ijd.강점, weaknesses: ijd.약점, conclusion: ijdConclusion };
     }
   }
   return result;
