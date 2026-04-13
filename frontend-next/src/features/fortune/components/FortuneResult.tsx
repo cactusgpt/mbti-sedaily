@@ -1,5 +1,6 @@
 import { CG_OH, JJ_OH, OH_HJ, JJG, sipsung, unsung, type Pillar, type ChongunResult, type TodayFortuneResult, type DaeunEntry, type YeonunEntry, type WolunEntry } from '../lib/engine';
 import { SajuTable } from './SajuTable';
+import { DailyCalendar } from './DailyCalendar';
 
 const EL_COLORS: Record<string, string> = {
   '목': 'text-green-600', '화': 'text-red-500', '토': 'text-yellow-600',
@@ -213,6 +214,9 @@ export function FortuneResult({ data }: Props) {
             activeCheck={(col) => (col as unknown as WolunEntry).month === now.getMonth() + 1} />
         </div>
       )}
+
+      {/* 일진 달력 */}
+      {ilgan && <DailyCalendar ilgan={ilgan} />}
     </div>
   );
 }
