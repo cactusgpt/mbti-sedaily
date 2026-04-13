@@ -116,6 +116,7 @@ export function FortuneTab() {
 
   return (
     <div className="max-w-[480px] mx-auto">
+      <h2 className="text-[22px] font-bold text-gray-900 mb-6">오늘의 운세</h2>
       {/* 성별 */}
       <div className="mb-6">
         <label className="block text-[13px] font-semibold text-gray-800 mb-2">성별</label>
