@@ -2,7 +2,7 @@
  * 사주 해석 엔진 — 데이터 + 순수 계산 로직
  * DOM 의존 없음
  */
-import { calculateSaju, getGapja, getSolarTermsByYear } from '@fullstackfamily/manseryeok';
+import { calculateSaju, getGapja } from '@fullstackfamily/manseryeok';
 
 // ── 매핑 데이터 ──
 export const CG_OH: Record<string, string> = {'甲':'목','乙':'목','丙':'화','丁':'화','戊':'토','己':'토','庚':'금','辛':'금','壬':'수','癸':'수'};
@@ -248,6 +248,37 @@ export function buildTodayFortune(ps: Pillar[]): TodayFortuneResult | null {
 export interface DaeunEntry extends GapjaEntry { age: number; }
 export interface DaeunResult { daeuns: DaeunEntry[]; daeunsu: number; }
 
+// 절기(節氣) 근사 날짜 - 월별 절입일 (양력 기준 평균)
+// 인월(寅)=입춘~, 묘월(卯)=경칩~, ... 축월(丑)=소한~
+const JEOLGI_APPROX: [number, number][] = [
+  [2, 4],   // 1: 입춘 (인월 시작)
+  [3, 6],   // 2: 경칩 (묘월)
+  [4, 5],   // 3: 청명 (진월)
+  [5, 6],   // 4: 입하 (사월)
+  [6, 6],   // 5: 망종 (오월)
+  [7, 7],   // 6: 소서 (미월)
+  [8, 8],   // 7: 입추 (신월)
+  [9, 8],   // 8: 백로 (유월)
+  [10, 8],  // 9: 한로 (술월)
+  [11, 7],  // 10: 입동 (해월)
+  [12, 7],  // 11: 대설 (자월)
+  [1, 6],   // 12: 소한 (축월)
+];
+
+function getJeolgiDates(year: number): Date[] {
+  const dates: Date[] = [];
+  for (const [m, d] of JEOLGI_APPROX) {
+    const y = m === 1 ? year + 1 : year; // 소한은 다음해 1월
+    dates.push(new Date(y, m - 1, d));
+  }
+  // 이전해 절기도 추가 (역행 계산용)
+  for (const [m, d] of JEOLGI_APPROX) {
+    const y = m === 1 ? year : year - 1;
+    dates.push(new Date(y, m - 1, d));
+  }
+  return dates.sort((a, b) => a.getTime() - b.getTime());
+}
+
 export function calcDaeun(saju: ReturnType<typeof calculateSaju>, gender: string, bY: number, bM: number, bD: number): DaeunResult {
   const yCg = saju.yearPillarHanja[0];
   const mCg = saju.monthPillarHanja[0]; const mJj = saju.monthPillarHanja[1];
@@ -256,17 +287,17 @@ export function calcDaeun(saju: ReturnType<typeof calculateSaju>, gender: string
   const mIdx = g60idx(mCg, mJj);
   const bDate = new Date(bY, bM-1, bD);
   let daeunsu = 5;
-  try {
-    let terms = [...getSolarTermsByYear(bY)];
-    try{terms=terms.concat(getSolarTermsByYear(bY+1));}catch{}
-    try{terms=getSolarTermsByYear(bY-1).concat(terms);}catch{}
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const jeolgi = terms.filter((t: any) =>t.type==='jeolgi').sort((a: any, b: any)=>{const ad=a.datetime||a.date;const bd=b.datetime||b.date;return new Date(ad).getTime()-new Date(bd).getTime();});
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const getDate = (t: any) => new Date(t.datetime || t.date);
-    if(fwd){const n=jeolgi.find((t: any)=>getDate(t)>bDate);if(n)daeunsu=Math.round((getDate(n).getTime()-bDate.getTime())/(1000*60*60*24)/3);}
-    else{const p=[...jeolgi].reverse().find((t: any)=>getDate(t)<=bDate);if(p)daeunsu=Math.round((bDate.getTime()-getDate(p).getTime())/(1000*60*60*24)/3);}
-  }catch{}
+
+  // 절기 기반 대운수 계산
+  const jeolgiDates = getJeolgiDates(bY);
+  if (fwd) {
+    const next = jeolgiDates.find(d => d > bDate);
+    if (next) daeunsu = Math.round((next.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24) / 3);
+  } else {
+    const prev = [...jeolgiDates].reverse().find(d => d <= bDate);
+    if (prev) daeunsu = Math.round((bDate.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24) / 3);
+  }
+
   if(daeunsu<1)daeunsu=1; if(daeunsu>10)daeunsu=10;
   const result: DaeunEntry[]=[];
   for(let i=1;i<=10;i++){const off=fwd?i:-i;const idx=((mIdx+off)%60+60)%60;result.push({age:daeunsu+(i-1)*10,...G60[idx]});}
