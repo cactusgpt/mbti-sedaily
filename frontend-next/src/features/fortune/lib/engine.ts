@@ -292,10 +292,10 @@ export function calcDaeun(saju: ReturnType<typeof calculateSaju>, gender: string
   const jeolgiDates = getJeolgiDates(bY);
   if (fwd) {
     const next = jeolgiDates.find(d => d > bDate);
-    if (next) daeunsu = Math.round((next.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24) / 3);
+    if (next) daeunsu = Math.floor((next.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24) / 3);
   } else {
     const prev = [...jeolgiDates].reverse().find(d => d <= bDate);
-    if (prev) daeunsu = Math.round((bDate.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24) / 3);
+    if (prev) daeunsu = Math.floor((bDate.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24) / 3);
   }
 
   if(daeunsu<1)daeunsu=1; if(daeunsu>10)daeunsu=10;
