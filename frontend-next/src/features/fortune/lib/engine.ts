@@ -65,34 +65,30 @@ export function parsePillar(hg: string, hj: string): Pillar {
   return {c,j,ck,jk,co:CG_OH[c]||'',jo:JJ_OH[j]||''};
 }
 
-// ── 총운 ──
-const ILGAN_NATURE: Record<string, { 음양: string; 오행: string; 상징: string; 성향: string }> = {
-  '甲': { 음양:'양', 오행:'목', 상징:'큰 나무', 성향:'곧고 강직하며 리더십이 있습니다. 정의감이 강하고 자존심이 높으며, 새로운 것을 개척하는 선구자적 기질을 타고났습니다. 한번 뿌리를 내리면 쉽게 흔들리지 않는 뚝심이 있으나, 고집이 세고 융통성이 부족할 수 있습니다.' },
-  '乙': { 음양:'음', 오행:'목', 상징:'풀과 꽃', 성향:'유연하고 적응력이 뛰어납니다. 부드럽고 섬세하며 예술적 감각이 있고, 겉으로는 유순해 보이지만 내면은 질기고 끈기가 있습니다. 사람 사이에서 갈등을 조율하는 중재 능력이 탁월합니다.' },
-  '丙': { 음양:'양', 오행:'화', 상징:'태양', 성향:'밝고 열정적이며 주변을 환하게 밝힙니다. 활발하고 사교적이며 정이 많고 솔직합니다. 에너지가 넘쳐 여러 일을 동시에 벌이는 추진력이 있으나, 성급하고 감정 기복이 있을 수 있습니다.' },
-  '丁': { 음양:'음', 오행:'화', 상징:'촛불', 성향:'은은하고 따뜻하며 지적입니다. 내면의 열정이 강하고 섬세한 관찰력을 지니며, 한 분야를 깊이 파고드는 집중력이 뛰어납니다. 속마음을 잘 드러내지 않아 내면에 스트레스가 쌓일 수 있습니다.' },
-  '戊': { 음양:'양', 오행:'토', 상징:'큰 산', 성향:'듬직하고 신뢰감이 있으며 포용력이 큽니다. 중후하고 믿음직하며 중재자 역할을 잘 합니다. 어떤 풍파에도 흔들리지 않는 안정감이 있으나, 변화에 둔감하고 시작이 느릴 수 있습니다.' },
-  '己': { 음양:'음', 오행:'토', 상징:'논밭', 성향:'온화하고 현실적이며 실속이 있습니다. 모성애가 강하고 다른 사람을 잘 보살피며, 겸손하고 인내심이 강합니다. 다만 의심이 많고 소심해질 수 있으며, 자기 희생이 과할 수 있습니다.' },
-  '庚': { 음양:'양', 오행:'금', 상징:'바위와 쇠', 성향:'강인하고 결단력이 있으며 의리가 있습니다. 냉철하고 실행력이 뛰어나며, 승부욕이 강하고 직설적입니다. 위기 상황에서 더 강해지는 근성이 있으나, 거칠고 독선적일 수 있습니다.' },
-  '辛': { 음양:'음', 오행:'금', 상징:'보석', 성향:'섬세하고 감수성이 풍부하며 완벽주의적입니다. 심미안이 뛰어나고 자기만의 기준이 확고합니다. 예리하고 깔끔하며 높은 품질의 결과물을 만들어내나, 예민하고 비판적일 수 있습니다.' },
-  '壬': { 음양:'양', 오행:'수', 상징:'큰 바다', 성향:'지혜롭고 포용력이 크며 자유로운 영혼입니다. 창의적이고 진취적이며 큰 흐름을 읽는 직관력이 뛰어납니다. 낙천적이고 대범하나, 변덕스럽거나 방종할 수 있습니다.' },
-  '癸': { 음양:'음', 오행:'수', 상징:'이슬과 빗물', 성향:'조용하고 직관력이 뛰어나며 영적 감수성이 있습니다. 인내심이 강하고 깊은 사고력으로 본질을 꿰뚫습니다. 은밀하게 일을 추진하는 능력이 있으나, 우울하거나 폐쇄적일 수 있습니다.' },
-};
+// ── JSON DB import ──
+import cheonganDB from './cheongan_db.json';
+import jijiDB from './jiji_db.json';
 
-const WOLJI_SEASON: Record<string, { 계절: string; 기운: string }> = {
-  '寅': { 계절:'봄(초춘)', 기운:'만물이 깨어나는 시기로, 새로운 시작과 성장의 에너지가 강합니다.' },
-  '卯': { 계절:'봄(중춘)', 기운:'생명력이 가장 무성한 때로, 꽃이 피고 만물이 활짝 피어나는 에너지입니다.' },
-  '辰': { 계절:'봄(늦봄)', 기운:'봄의 마무리로, 성장한 것을 정리하고 다음 단계를 준비하는 전환의 에너지입니다.' },
-  '巳': { 계절:'여름(초하)', 기운:'열기가 시작되는 시기로, 내면의 열정이 본격적으로 드러나는 에너지입니다.' },
-  '午': { 계절:'여름(한여름)', 기운:'양기가 극에 달한 시기로, 열정과 활력이 최고조에 이르는 에너지입니다.' },
-  '未': { 계절:'여름(늦여름)', 기운:'풍요와 결실이 시작되는 때로, 그간의 노력이 열매를 맺기 시작하는 에너지입니다.' },
-  '申': { 계절:'가을(초추)', 기운:'서늘한 바람이 불기 시작하며, 수확과 정리의 에너지가 작용합니다.' },
-  '酉': { 계절:'가을(한가을)', 기운:'결실의 정점으로, 완성과 마무리에 집중하는 에너지입니다.' },
-  '戌': { 계절:'가을(늦가을)', 기운:'만물이 쇠하기 시작하며, 지키고 수호하는 에너지가 강합니다.' },
-  '亥': { 계절:'겨울(초동)', 기운:'만물이 저장되기 시작하며, 내면을 돌아보고 지혜를 축적하는 에너지입니다.' },
-  '子': { 계절:'겨울(한겨울)', 기운:'가장 깊은 어둠 속에서 새로운 양기가 싹트는 시기로, 잠재력이 잉태되는 에너지입니다.' },
-  '丑': { 계절:'겨울(늦겨울)', 기운:'겨울의 마무리로, 인내하며 봄을 기다리는 축적과 준비의 에너지입니다.' },
+// ── 총운 (JSON DB 기반) ──
+const CHEONGAN = cheonganDB.CHEONGAN as Record<string, { 한글: string; 음양: string; 오행: string; 상징: string; 성향: string; 키워드: string[] }>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ILGAN_DETAIL = cheonganDB.ILGAN_DETAIL as Record<string, any>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const JIJI = jijiDB.JIJI as Record<string, any>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ILJI_DETAIL = jijiDB.ILJI_DETAIL as Record<string, any>;
+
+const WOLJI_SEASON: Record<string, { 계절: string; 기운: string }> = {};
+const WOLJI_MAP: Record<string, { branch: string; season: string }> = {
+  '寅': { branch: '寅', season: '봄(초춘)' }, '卯': { branch: '卯', season: '봄(중춘)' }, '辰': { branch: '辰', season: '봄(늦봄)' },
+  '巳': { branch: '巳', season: '여름(초하)' }, '午': { branch: '午', season: '여름(한여름)' }, '未': { branch: '未', season: '여름(늦여름)' },
+  '申': { branch: '申', season: '가을(초추)' }, '酉': { branch: '酉', season: '가을(한가을)' }, '戌': { branch: '戌', season: '가을(늦가을)' },
+  '亥': { branch: '亥', season: '겨울(초동)' }, '子': { branch: '子', season: '겨울(한겨울)' }, '丑': { branch: '丑', season: '겨울(늦겨울)' },
 };
+for (const [key, val] of Object.entries(WOLJI_MAP)) {
+  const jiji = JIJI[val.branch];
+  WOLJI_SEASON[key] = { 계절: val.season, 기운: jiji ? `${jiji.상징}의 시기입니다. ${jiji.성향.split('.')[0]}.` : '' };
+}
 
 function getSeasonRelation(ilganOh: string, woljiOh: string): string {
   if (ilganOh === woljiOh) return '비화(比和) 관계로, 자기 계절을 만나 기운이 왕성합니다. 본래 기질이 강하게 발현되며 자신감이 넘칩니다.';
@@ -122,23 +118,48 @@ function getIljuReading(cgH: string, jjH: string): string {
   return r + (descs[rel]||'');
 }
 
-export interface ChongunResult { symbol: string; yinyang: string; element: string; nature: string; season?: { name: string; desc: string }; seasonRelation?: string; iljuReading?: string; }
+export interface ChongunResult {
+  symbol: string; yinyang: string; element: string; nature: string; keywords: string[];
+  detail?: { summary: string; behavior: string; social: string; strengths: string[]; weaknesses: string[]; improvement: string; jobs: { field: string; role: string; reason: string }[]; conclusion: string };
+  season?: { name: string; desc: string }; seasonRelation?: string; iljuReading?: string;
+  iljiDetail?: { summary: string; strengths: string[]; weaknesses: string[]; conclusion: string };
+}
 
 export function buildChongun(ps: Pillar[]): ChongunResult | null {
   const ilgan = ps[1].c; const ilji = ps[1].j; const wolji = ps[2].j;
   if (!ilgan) return null;
-  const nature = ILGAN_NATURE[ilgan]; if (!nature) return null;
+  const cg = CHEONGAN[ilgan]; if (!cg) return null;
   const ilganOh = CG_OH[ilgan]; const woljiOh = wolji ? JJ_OH[wolji] : null;
   const season = wolji ? WOLJI_SEASON[wolji] : null;
 
   const result: ChongunResult = {
-    symbol: nature.상징, yinyang: nature.음양, element: nature.오행, nature: nature.성향,
+    symbol: cg.상징, yinyang: cg.음양, element: cg.오행, nature: cg.성향, keywords: cg.키워드,
   };
+
+  // ILGAN_DETAIL 상세 해석
+  const detail = ILGAN_DETAIL[ilgan];
+  if (detail) {
+    result.detail = {
+      summary: detail.특성_총평, behavior: detail.표현_행동양식, social: detail.교류방식,
+      strengths: detail.강점, weaknesses: detail.약점, improvement: detail.개선방안,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      jobs: detail.추천직업.map((j: any) => ({ field: j.분야, role: j.역할, reason: j.이유 })),
+      conclusion: typeof detail.종합요약 === 'string' ? detail.종합요약 : `${detail.종합요약?.강점_살리기 || ''} ${detail.종합요약?.약점_보완하기 || ''}`.trim(),
+    };
+  }
+
   if (season) {
     result.season = { name: season.계절, desc: season.기운 };
     if (woljiOh) result.seasonRelation = getSeasonRelation(ilganOh, woljiOh);
   }
-  if (ilji) result.iljuReading = getIljuReading(ilgan, ilji);
+  if (ilji) {
+    result.iljuReading = getIljuReading(ilgan, ilji);
+    // ILJI_DETAIL 상세 해석
+    const ijd = ILJI_DETAIL[ilji];
+    if (ijd) {
+      result.iljiDetail = { summary: ijd.특성_총평, strengths: ijd.강점, weaknesses: ijd.약점, conclusion: ijd.종합요약 };
+    }
+  }
   return result;
 }
 
