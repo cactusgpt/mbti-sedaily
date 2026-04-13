@@ -136,8 +136,8 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   // URL에서 초기 탭 상태 읽기
   const getInitialTab = useCallback(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam && ['question', 'feed', 'community', 'archive', 'dna'].includes(tabParam)) {
-      return tabParam as "question" | "feed" | "community" | "archive" | "dna";
+    if (tabParam && ['question', 'feed', 'community', 'archive', 'dna', 'fortune'].includes(tabParam)) {
+      return tabParam as "question" | "feed" | "community" | "archive" | "dna" | "fortune";
     }
     return "question";
   }, [searchParams]);
@@ -238,10 +238,10 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   const [showArchive, setShowArchive] = useState(false);
 
   // 탭 상태 - URL에서 초기값 읽기
-  const [activeTab, setActiveTabState] = useState<"question" | "feed" | "community" | "archive" | "dna">(getInitialTab);
+  const [activeTab, setActiveTabState] = useState<"question" | "feed" | "community" | "archive" | "dna" | "fortune">(getInitialTab);
 
   // 탭 변경 함수 - URL도 함께 업데이트 (replaceState로 히스토리에 안 쌓임)
-  const setActiveTab = useCallback((tab: "question" | "feed" | "community" | "archive" | "dna") => {
+  const setActiveTab = useCallback((tab: "question" | "feed" | "community" | "archive" | "dna" | "fortune") => {
     setActiveTabState(tab);
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', tab);
@@ -609,7 +609,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
       // URL에서 탭 상태 복원
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get('tab');
-      if (tabParam && ['question', 'feed', 'community', 'archive', 'dna'].includes(tabParam)) {
+      if (tabParam && ['question', 'feed', 'community', 'archive', 'dna', 'fortune'].includes(tabParam)) {
         setActiveTabState(tabParam as typeof activeTab);
       }
     };
@@ -790,6 +790,17 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
               >
                 나의 DNA
               </button>
+
+              <button
+                onClick={() => setActiveTab("fortune")}
+                className={`px-4 py-2 text-[14px] font-medium rounded-lg transition-colors duration-200 ${
+                  activeTab === "fortune"
+                    ? "bg-gray-100 text-gray-900"
+                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                }`}
+              >
+                오늘의 운세
+              </button>
             </nav>
 
             {/* 우측 메뉴 */}
@@ -888,6 +899,13 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
             selectedGroup={selectedGroup}
             setActiveTab={setActiveTab}
           />
+        )}
+
+        {/* 오늘의 운세 */}
+        {activeTab === "fortune" && (
+          <div className="flex-1">
+            {/* TODO: 오늘의 운세 콘텐츠 */}
+          </div>
         )}
       </main>
 
