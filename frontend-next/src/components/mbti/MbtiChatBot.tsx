@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { MessageCircle, X, Send, Sparkles } from 'lucide-react';
 
 // API Configuration
-import { API_URL } from '../../config/api';
+import { API_URL } from '../../shared/config/api';
 const CHAT_API_URL = `${API_URL}/api/chat`;
 const CHAT_STREAM_API_URL = `${API_URL}/api/chat/stream`;
 
