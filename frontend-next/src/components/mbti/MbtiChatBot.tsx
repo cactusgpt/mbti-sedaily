@@ -4,7 +4,9 @@ import { useState, useEffect, useRef } from 'react';
 import { MessageCircle, X, Send, Sparkles } from 'lucide-react';
 
 // API Configuration
-const CHAT_API_URL = 'https://chzwwtjtgk.execute-api.us-east-1.amazonaws.com/dev/api/chat';
+import { API_URL } from '../../config/api';
+const CHAT_API_URL = `${API_URL}/api/chat`;
+const CHAT_STREAM_API_URL = `${API_URL}/api/chat/stream`;
 
 interface Message {
   id: string;
@@ -23,7 +25,7 @@ const MBTI_PERSONAS = {
   NT: {
     name: '시현',
     role: '전략분석팀 수석연구원',
-    greeting: '안녕하세요. 무엇이 궁금하신가요? 핵심만 빠르게 정리해드릴게요.',
+    greeting: '궁금한 거 있으면 핵심만 빠르게 정리해드릴게요.',
     style: '논리적이고 분석적',
     color: 'blue',
     emoji: '📊',
@@ -31,7 +33,7 @@ const MBTI_PERSONAS = {
   NF: {
     name: '지원',
     role: '오피니언팀 논설위원',
-    greeting: '반가워요. 오늘 어떤 이야기가 궁금하세요? 함께 생각해봐요.',
+    greeting: '오늘 어떤 이야기가 궁금하세요? 함께 생각해봐요.',
     style: '성찰적이고 따뜻한',
     color: 'violet',
     emoji: '💡',
@@ -39,7 +41,7 @@ const MBTI_PERSONAS = {
   ST: {
     name: '정훈',
     role: '팩트체크 에디터',
-    greeting: '안녕하세요. 정확한 정보가 필요하시면 말씀하세요.',
+    greeting: '정확한 정보가 필요하시면 말씀하세요.',
     style: '정확하고 체계적',
     color: 'green',
     emoji: '📋',
@@ -47,7 +49,7 @@ const MBTI_PERSONAS = {
   SF: {
     name: '하은',
     role: 'MZ 독자 담당 에디터',
-    greeting: '안녕하세요! 뭐가 궁금하세요? 쉽게 설명해드릴게요 😊',
+    greeting: '뭐가 궁금하세요? 쉽게 설명해드릴게요 😊',
     style: '친근하고 공감적',
     color: 'orange',
     emoji: '💬',
@@ -86,17 +88,54 @@ const GROUP_COLORS = {
   },
 };
 
-// 퀵 액션 버튼
-const QUICK_ACTIONS = [
-  { label: '오늘 뉴스', query: '오늘 주요 뉴스 알려줘' },
-  { label: '경제 동향', query: '최근 경제 동향이 어때?' },
-  { label: 'MBTI 추천', query: '내 MBTI에 맞는 기사 추천해줘' },
-];
+// MBTI 그룹별 퀵 액션 버튼
+const QUICK_ACTIONS: Record<'NT' | 'NF' | 'ST' | 'SF', { label: string; query: string }[]> = {
+  NT: [
+    { label: '오늘 시장 핵심 데이터 분석해줘', query: '오늘 시장 핵심 데이터 분석해줘' },
+    { label: '현재 주요 투자 리스크 요인은 뭐야?', query: '현재 주요 투자 리스크 요인은 뭐야?' },
+    { label: '주목할 산업 트렌드 알려줘', query: '주목할 산업 트렌드 알려줘' },
+  ],
+  NF: [
+    { label: '오늘 뉴스가 사회적으로 어떤 의미가 있어?', query: '오늘 뉴스가 사회적으로 어떤 의미가 있어?' },
+    { label: '이 이슈에 대한 사람들 반응은 어때?', query: '이 이슈에 대한 사람들 반응은 어때?' },
+    { label: '최근 사회 변화의 큰 흐름을 알려줘', query: '최근 사회 변화의 큰 흐름을 알려줘' },
+  ],
+  ST: [
+    { label: '오늘 주요 뉴스 팩트 정리해줘', query: '오늘 주요 뉴스 팩트 정리해줘' },
+    { label: '최근 핵심 경제 지표 알려줘', query: '최근 핵심 경제 지표 알려줘' },
+    { label: '오늘 뉴스에서 실생활에 유용한 정보 알려줘', query: '오늘 뉴스에서 실생활에 유용한 정보 알려줘' },
+  ],
+  SF: [
+    { label: '오늘 뉴스 쉽게 설명해줘', query: '오늘 뉴스 쉽게 설명해줘' },
+    { label: '최근 뉴스가 내 일상에 어떤 영향이 있어?', query: '최근 뉴스가 내 일상에 어떤 영향이 있어?' },
+    { label: '오늘 꼭 봐야 할 기사 추천해줘', query: '오늘 꼭 봐야 할 기사 추천해줘' },
+  ],
+};
+
+const STORAGE_KEY = 'mbti-chatbot-messages';
+
+function loadMessages(): Record<string, Message[]> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return { NT: [], NF: [], ST: [], SF: [] };
+    const parsed = JSON.parse(raw);
+    // Restore Date objects
+    for (const group of Object.keys(parsed)) {
+      parsed[group] = parsed[group].map((m: Message) => ({
+        ...m,
+        timestamp: new Date(m.timestamp),
+      }));
+    }
+    return parsed;
+  } catch {
+    return { NT: [], NF: [], ST: [], SF: [] };
+  }
+}
 
 export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messagesByGroup, setMessagesByGroup] = useState<Record<string, Message[]>>(loadMessages);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [currentGroup, setCurrentGroup] = useState(mbtiGroup);
@@ -106,6 +145,19 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
 
   const persona = MBTI_PERSONAS[currentGroup];
   const colors = GROUP_COLORS[currentGroup];
+  const messages = messagesByGroup[currentGroup];
+
+  const setMessages = (updater: Message[] | ((prev: Message[]) => Message[])) => {
+    setMessagesByGroup(prev => ({
+      ...prev,
+      [currentGroup]: typeof updater === 'function' ? updater(prev[currentGroup]) : updater,
+    }));
+  };
+
+  // Persist messages to localStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(messagesByGroup));
+  }, [messagesByGroup]);
 
   // Show after delay
   useEffect(() => {
@@ -119,7 +171,7 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
       const welcomeMessage: Message = {
         id: 'welcome',
         role: 'assistant',
-        content: `${persona.emoji} ${persona.greeting}\n\n저는 ${persona.name}이에요. ${persona.role}로 일하고 있어요.\n\n무엇이든 물어보세요!`,
+        content: `${persona.emoji} 안녕하세요! ${persona.name}이에요. ${persona.greeting}`,
         timestamp: new Date(),
       };
       setMessages([welcomeMessage]);
@@ -138,22 +190,14 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
     }
   }, [isOpen]);
 
-  // Handle MBTI group change
+  // Handle MBTI group change — switch to separate conversation
   const handleGroupChange = (group: 'NT' | 'NF' | 'ST' | 'SF') => {
+    if (group === currentGroup) return;
     setCurrentGroup(group);
     onMbtiChange?.(group);
-
-    const newPersona = MBTI_PERSONAS[group];
-    const changeMessage: Message = {
-      id: `change-${Date.now()}`,
-      role: 'assistant',
-      content: `${newPersona.emoji} 안녕하세요! ${newPersona.name}이에요.\n\n${newPersona.greeting}`,
-      timestamp: new Date(),
-    };
-    setMessages(prev => [...prev, changeMessage]);
   };
 
-  // Send message
+  // Send message with streaming support (falls back to non-streaming)
   const sendMessage = async (content: string) => {
     if (!content.trim() || isLoading) return;
 
@@ -167,50 +211,103 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
     setInput('');
     setIsLoading(true);
 
-    try {
-      // Build conversation history for API (exclude welcome message)
-      const conversationHistory = messages
-        .filter(m => m.id !== 'welcome')
-        .map(m => ({
-          role: m.role,
-          content: m.content
-        }));
+    const conversationHistory = messages
+      .filter(m => m.id !== 'welcome')
+      .map(m => ({ role: m.role, content: m.content }));
 
-      // Call chatbot API
-      const response = await fetch(CHAT_API_URL, {
+    const requestBody = JSON.stringify({
+      message: content.trim(),
+      mbti_group: currentGroup,
+      conversation_history: conversationHistory,
+    });
+
+    const assistantId = `assistant-${Date.now()}`;
+
+    try {
+      // Try streaming first
+      const response = await fetch(CHAT_STREAM_API_URL, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: content.trim(),
-          mbti_group: currentGroup,
-          conversation_history: conversationHistory,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
       });
 
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+      if (!response.ok || !response.body) {
+        throw new Error('stream-unavailable');
       }
 
-      const data = await response.json();
+      // Create empty assistant message, then fill incrementally
+      setMessages(prev => [...prev, {
+        id: assistantId, role: 'assistant', content: '', timestamp: new Date(),
+      }]);
+      setIsLoading(false);
 
-      const assistantMessage: Message = {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        content: data.response || '응답을 받지 못했어요.',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error('Chat error:', error);
-      const errorMessage: Message = {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: '죄송해요, 오류가 발생했어요. 잠시 후 다시 시도해주세요!',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.type === 'text') {
+              setMessagesByGroup(prev => {
+                const groupMsgs = prev[currentGroup];
+                const last = groupMsgs[groupMsgs.length - 1];
+                if (last?.id === assistantId) {
+                  return {
+                    ...prev,
+                    [currentGroup]: [
+                      ...groupMsgs.slice(0, -1),
+                      { ...last, content: last.content + data.content },
+                    ],
+                  };
+                }
+                return prev;
+              });
+            }
+          } catch { /* skip malformed SSE */ }
+        }
+      }
+    } catch (streamError) {
+      // Fallback to non-streaming API
+      try {
+        const response = await fetch(CHAT_API_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: requestBody,
+        });
+
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        const data = await response.json();
+
+        setMessages(prev => {
+          // Remove empty streaming placeholder if exists
+          const filtered = prev.filter(m => m.id !== assistantId);
+          return [...filtered, {
+            id: assistantId, role: 'assistant',
+            content: data.response || '응답을 받지 못했어요.',
+            timestamp: new Date(),
+          }];
+        });
+      } catch (fallbackError) {
+        console.error('Chat error:', fallbackError);
+        setMessages(prev => {
+          const filtered = prev.filter(m => m.id !== assistantId);
+          return [...filtered, {
+            id: `error-${Date.now()}`, role: 'assistant',
+            content: '죄송해요, 오류가 발생했어요. 잠시 후 다시 시도해주세요!',
+            timestamp: new Date(),
+          }];
+        });
+      }
     } finally {
       setIsLoading(false);
     }
@@ -326,7 +423,7 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
           {/* Quick Actions */}
           <div className="px-3 py-2 bg-white border-t border-gray-100">
             <div className="flex gap-2 overflow-x-auto pb-1">
-              {QUICK_ACTIONS.map((action) => (
+              {QUICK_ACTIONS[currentGroup].map((action) => (
                 <button
                   key={action.label}
                   onClick={() => sendMessage(action.query)}
