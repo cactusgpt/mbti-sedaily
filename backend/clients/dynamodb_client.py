@@ -108,7 +108,80 @@ class DynamoDBClient:
             return response.get('Item')
         except Exception:
             return None
-    
+
+    async def get_transformed_articles_by_date(self, date_str: str, limit: int = 30) -> list:
+        """
+        Get all MBTI-transformed articles for a given date.
+
+        Queries ALL 7 categories via the GSI, filters to articles that have
+        s3_body_uri (meaning they were transformed by the pipeline), then
+        fetches body content from S3 for each article.
+
+        Args:
+            date_str: Date in YYYYMMDD format
+            limit: Maximum articles to return
+
+        Returns:
+            List of article dicts with MBTI versions merged from S3
+        """
+        import asyncio
+        from boto3.dynamodb.conditions import Key
+        from config.constants import CATEGORIES_KOREAN
+
+        start = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        end = f"{start}~"
+
+        def _query_category(category: str) -> list:
+            try:
+                response = self.table.query(
+                    IndexName='category-published_at-index',
+                    KeyConditionExpression=(
+                        Key('category').eq(category)
+                        & Key('published_at').between(start, end)
+                    ),
+                )
+                return response.get('Items', [])
+            except Exception as e:
+                logger.warning(
+                    f"Failed to query category '{category}' for {date_str}: {e}"
+                )
+                return []
+
+        category_results = await asyncio.gather(
+            *(asyncio.to_thread(_query_category, cat) for cat in CATEGORIES_KOREAN)
+        )
+
+        seen_ids: set = set()
+        articles: list = []
+        for items in category_results:
+            for item in items:
+                nid = item.get('news_id')
+                if not nid or nid in seen_ids:
+                    continue
+                seen_ids.add(nid)
+                articles.append(item)
+
+        articles = [a for a in articles if a.get('s3_body_uri')]
+        articles.sort(key=lambda a: a.get('published_at', ''), reverse=True)
+        articles = articles[:limit]
+
+        if not self._s3_article_client:
+            return articles
+
+        semaphore = asyncio.Semaphore(30)
+
+        async def _fetch_body(article: dict) -> dict:
+            async with semaphore:
+                body = await asyncio.to_thread(
+                    self._s3_article_client.get_body, article['news_id']
+                )
+            if body:
+                article.update(body)
+            return article
+
+        enriched = await asyncio.gather(*(_fetch_body(a) for a in articles))
+        return enriched
+
     async def get_naver_tv_url(self, published_at: str) -> str:
         """Get Naver TV URL from settings based on publication date"""
         try:

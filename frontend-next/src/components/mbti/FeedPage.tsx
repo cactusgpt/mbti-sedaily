@@ -2,6 +2,9 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
 import { API_URL } from "@/shared/config/api";
+import { fetchCommunityPosts, votePost, addComment, createCommunityPost, fetchComments } from "@/shared/lib/communityApi";
+import { fetchDailyQuestions, saveQuestionAnswer } from "@/shared/lib/questionApi";
+import type { DailyQuestionItem } from "@/features/question";
 import { ArticleView } from "./ArticleView";
 import { UserMenu, useAuth } from "@/features/auth";
 import { mockArticles } from "@/shared/data/mockArticles";
@@ -156,6 +159,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
   const [showQuestions, setShowQuestions] = useState(true);
+  const [aiQuestions, setAiQuestions] = useState<DailyQuestionItem[]>([]);
 
   // 아카이빙 관련 상태 - 목업 데이터
   const [archivedSentences, setArchivedSentences] = useState<ArchivedSentence[]>(() => {
@@ -581,105 +585,27 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   };
 
   // 커뮤니티 목업 데이터 - 아카이빙 문장 + 코멘트 형태
-  const [communityPosts, setCommunityPosts] = useState([
-    {
-      id: "p1",
-      userName: "서연",
-      userMbti: "INTJ",
-      userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=analyst&backgroundColor=e8f4f8&scale=90",
-      timeAgo: "방금 전",
-      archivedSentence: "AI 반도체 점유율 32%로 1위를 탈환했다는 것은 단순한 수치 이상의 의미를 갖는다.",
-      userComment: "드디어 삼성이 움직이기 시작했다. HBM 기술력만 따라잡으면 진짜 반격 시작일듯",
-      articleTitle: "반도체 전쟁, 삼성의 반격이 시작됐다",
-      tags: ["반도체", "삼성전자", "HBM"],
-      upvotes: 34,
-      commentCount: 12,
-      commentList: [
-        { id: "c1", userName: "지우", userMbti: "ISTP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=practical&backgroundColor=f0fdf4&scale=90", text: "HBM4 양산 시점이 관건일듯", timeAgo: "10분 전", likes: 5 },
-        { id: "c2", userName: "하은", userMbti: "ENFP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=storyteller&backgroundColor=faf5ff&scale=90", text: "엔비디아 납품 물량이 늘어나야 진짜 의미있지 않을까요?", timeAgo: "30분 전", likes: 8 },
-        { id: "c3", userName: "민준", userMbti: "ESFJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=friend&backgroundColor=fff7ed&scale=90", text: "삼성 화이팅", timeAgo: "1시간 전", likes: 2 },
-        { id: "c3a", userName: "도윤", userMbti: "ENTJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=leader&backgroundColor=fef3c7&scale=90", text: "TSMC랑 격차 줄이려면 최소 2년은 걸릴 듯", timeAgo: "2시간 전", likes: 11 },
-        { id: "c3b", userName: "수아", userMbti: "INFJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=dreamer&backgroundColor=e0e7ff&scale=90", text: "파운드리 점유율도 같이 봐야 전체 그림이 보여요", timeAgo: "2시간 전", likes: 7 },
-        { id: "c3c", userName: "예준", userMbti: "INTP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=thinker&backgroundColor=f3e8ff&scale=90", text: "HBM3E는 이미 양산 중이고 HBM4가 내년 상반기 목표라던데", timeAgo: "3시간 전", likes: 15 },
-        { id: "c3d", userName: "시우", userMbti: "ESTP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=action&backgroundColor=fce7f3&scale=90", text: "주가는 이미 반영된 거 아닌가요?", timeAgo: "4시간 전", likes: 4 },
-        { id: "c3e", userName: "지아", userMbti: "ISFP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=artist&backgroundColor=ccfbf1&scale=90", text: "장기 투자 관점에서 보면 좋은 뉴스", timeAgo: "5시간 전", likes: 9 },
-        { id: "c3f", userName: "현우", userMbti: "ESTJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=exec&backgroundColor=fee2e2&scale=90", text: "실적으로 증명해야 진짜죠", timeAgo: "6시간 전", likes: 6 },
-        { id: "c3g", userName: "유나", userMbti: "ENFJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=mentor&backgroundColor=dbeafe&scale=90", text: "한국 반도체 화이팅입니다!", timeAgo: "7시간 전", likes: 3 },
-        { id: "c3h", userName: "준서", userMbti: "ISTJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=steady&backgroundColor=fef9c3&scale=90", text: "객관적 데이터 감사합니다", timeAgo: "8시간 전", likes: 2 },
-        { id: "c3i", userName: "채원", userMbti: "ESFP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=performer&backgroundColor=d1fae5&scale=90", text: "드디어 좋은 소식이네요 ㅎㅎ", timeAgo: "어제", likes: 1 },
-      ],
-    },
-    {
-      id: "p2",
-      userName: "하은",
-      userMbti: "ENFP",
-      userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=storyteller&backgroundColor=faf5ff&scale=90",
-      timeAgo: "1시간 전",
-      archivedSentence: "금리 인하 시점이 예상보다 빨라질 수 있다는 신호다.",
-      userComment: "예금 만기 되면 어디로 옮겨야 하나... 채권 ETF 알아봐야겠다",
-      articleTitle: "연준의 새로운 메시지, 시장은 어떻게 반응할까",
-      tags: ["금리", "연준", "채권"],
-      upvotes: 67,
-      commentCount: 23,
-      commentList: [
-        { id: "c4", userName: "서연", userMbti: "INTJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=analyst&backgroundColor=e8f4f8&scale=90", text: "KODEX 국고채 10년 추천드려요", timeAgo: "20분 전", likes: 12 },
-        { id: "c5", userName: "지우", userMbti: "ISTP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=practical&backgroundColor=f0fdf4&scale=90", text: "저는 미국 장기채 ETF로 갈아탔어요", timeAgo: "45분 전", likes: 7 },
-      ],
-    },
-    {
-      id: "p3",
-      userName: "지우",
-      userMbti: "ISTP",
-      userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=practical&backgroundColor=f0fdf4&scale=90",
-      timeAgo: "3시간 전",
-      archivedSentence: "전기차 배터리 가격이 kWh당 100달러 아래로 떨어지면 내연기관차와의 가격 경쟁이 본격화된다.",
-      userComment: "지금 차 바꾸려는데 이거 보고 1년만 더 기다리기로 함",
-      articleTitle: "배터리 가격 하락, 전기차 대중화 앞당긴다",
-      tags: ["전기차", "배터리"],
-      upvotes: 89,
-      commentCount: 31,
-      commentList: [
-        { id: "c6", userName: "민준", userMbti: "ESFJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=friend&backgroundColor=fff7ed&scale=90", text: "저도 기다리는 중.. 충전 인프라도 더 좋아지겠죠", timeAgo: "1시간 전", likes: 15 },
-        { id: "c7", userName: "서연", userMbti: "INTJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=analyst&backgroundColor=e8f4f8&scale=90", text: "LFP 배터리 가격 하락이 더 빠를 것 같아요", timeAgo: "2시간 전", likes: 9 },
-      ],
-    },
-    {
-      id: "p4",
-      userName: "민준",
-      userMbti: "ESFJ",
-      userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=friend&backgroundColor=fff7ed&scale=90",
-      timeAgo: "5시간 전",
-      archivedSentence: "이번 실적은 시장 예상치를 15% 상회하는 수준으로, 3분기 연속 어닝 서프라이즈를 기록했다.",
-      userComment: "빅테크 진짜 무섭다... 떨어질 때 좀 살걸",
-      articleTitle: "빅테크 실적 시즌, 예상을 뛰어넘다",
-      tags: ["빅테크", "실적", "투자"],
-      upvotes: 45,
-      commentCount: 8,
-      commentList: [
-        { id: "c8", userName: "서연", userMbti: "INTJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=analyst&backgroundColor=e8f4f8&scale=90", text: "지금이라도 늦지 않았어요 장기 투자 관점에서는", timeAgo: "3시간 전", likes: 6 },
-      ],
-    },
-    {
-      id: "p5",
-      userName: "서연",
-      userMbti: "INTJ",
-      userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=analyst&backgroundColor=e8f4f8&scale=90",
-      timeAgo: "어제",
-      archivedSentence: "부동산 PF 부실 우려가 현실화되면서 건설사들의 자금 조달에 빨간불이 켜졌다.",
-      userComment: "분양가 떨어지면 좋겠는데... 현실적으로 힘들려나",
-      articleTitle: "건설업계, PF 위기 본격화",
-      tags: ["부동산", "PF", "건설"],
-      upvotes: 52,
-      commentCount: 19,
-      commentList: [
-        { id: "c9", userName: "지우", userMbti: "ISTP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=practical&backgroundColor=f0fdf4&scale=90", text: "분양가는 안떨어지고 할인분양만 늘어날듯", timeAgo: "5시간 전", likes: 11 },
-        { id: "c10", userName: "하은", userMbti: "ENFP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=storyteller&backgroundColor=faf5ff&scale=90", text: "지방은 이미 많이 떨어졌더라고요", timeAgo: "8시간 전", likes: 4 },
-      ],
-    },
-  ]);
+  const [communityPosts, setCommunityPosts] = useState<{
+    id: string; userName: string; userMbti: string; userAvatar: string;
+    timeAgo: string; archivedSentence: string; userComment: string;
+    articleTitle: string; tags: string[]; upvotes: number;
+    commentCount: number; commentList: { id: string; userName: string; userMbti: string; userAvatar: string; text: string; timeAgo: string; likes: number }[];
+  }[]>([]);
 
   // 인기 태그
   const trendingTags = ["반도체", "금리", "전기차", "AI", "부동산", "빅테크", "투자"];
+
+  // 커뮤니티 포스트 로드
+  useEffect(() => {
+    const dateStr = formatDateStr(selectedDate);
+    fetchCommunityPosts(dateStr).then(posts => setCommunityPosts(posts));
+  }, [selectedDate]);
+
+  // AI 질문 로드
+  useEffect(() => {
+    const dateStr = formatDateStr(selectedDate);
+    fetchDailyQuestions(dateStr).then(qs => setAiQuestions(qs));
+  }, [selectedDate]);
 
   // 프리페칭
   const prefetchingRef = useRef<Set<string>>(new Set());
@@ -745,39 +671,45 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
     if (viewArticle) window.history.back();
   }, [viewArticle]);
 
-  // 기사 로드 - S3에서 선택된 날짜 기사 가져오기
+  // 기사 로드 - MBTI 변환된 기사 우선, 없으면 S3 XML → 검색 API 순으로 fallback
   useEffect(() => {
     async function fetchArticles() {
       try {
         setLoading(true);
         const dateStr = formatDateStr(selectedDate);
-        // S3에서 해당 날짜 기사 가져오기
-        const res = await fetch(`${API_URL}/s3-articles?date=${dateStr}&limit=30`);
+
+        // Primary: MBTI-transformed articles from pipeline DB (versions pre-loaded)
+        const res = await fetch(`${API_URL}/api/articles?date=${dateStr}&mbti_group=${selectedGroup}&limit=30`);
         const data = await res.json();
         if (data.articles?.length > 0) {
           setArticles(data.articles);
-        } else {
-          // S3에 기사가 없으면 기존 search API로 fallback
-          const targetDate = selectedDate.toISOString().slice(0, 10);
-          const nextDay = new Date(selectedDate);
-          nextDay.setDate(nextDay.getDate() + 1);
-          const searchRes = await fetch(`${API_URL}/api/search`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              query: "*",
-              filters: { published_from: targetDate, published_until: nextDay.toISOString().slice(0, 10) },
-              page: 1,
-              page_size: 30,
-            }),
-          });
-          const searchData = await searchRes.json();
-          if (searchData.articles?.length > 0) {
-            setArticles(searchData.articles);
-          } else {
-            setArticles([]);
-          }
+          return;
         }
+
+        // Fallback 1: raw S3 XML articles (for dates before pipeline was active)
+        const xmlRes = await fetch(`${API_URL}/s3-articles?date=${dateStr}&limit=30`);
+        const xmlData = await xmlRes.json();
+        if (xmlData.articles?.length > 0) {
+          setArticles(xmlData.articles);
+          return;
+        }
+
+        // Fallback 2: search API
+        const targetDate = selectedDate.toISOString().slice(0, 10);
+        const nextDay = new Date(selectedDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        const searchRes = await fetch(`${API_URL}/api/search`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: "*",
+            filters: { published_from: targetDate, published_until: nextDay.toISOString().slice(0, 10) },
+            page: 1,
+            page_size: 30,
+          }),
+        });
+        const searchData = await searchRes.json();
+        setArticles(searchData.articles?.length > 0 ? searchData.articles : []);
       } catch {
         setArticles([]);
       } finally {
@@ -785,9 +717,11 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
       }
     }
     fetchArticles();
-  }, [selectedDate]);
+  }, [selectedDate, selectedGroup]);
 
   // 질문 답변 선택
+  const activeQuestionsList = aiQuestions.length > 0 ? aiQuestions : dailyQuestions;
+
   const handleSelectAnswer = (questionId: string, optionId: string, mbti?: MbtiGroupId) => {
     setSelectedAnswers(prev => ({ ...prev, [questionId]: optionId }));
 
@@ -797,8 +731,13 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
       localStorage.setItem("mbti-group", mbti);
     }
 
+    // 답변 서버 저장 (fire-and-forget)
+    if (user?.userId && mbti) {
+      saveQuestionAnswer({ user_id: user.userId, question_id: questionId, option_id: optionId, mbti });
+    }
+
     // 다음 질문으로 또는 피드로
-    if (currentQuestionIndex < dailyQuestions.length - 1) {
+    if (currentQuestionIndex < activeQuestionsList.length - 1) {
       setTimeout(() => setCurrentQuestionIndex(prev => prev + 1), 300);
     } else {
       setTimeout(() => {
@@ -846,7 +785,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
     }
   };
 
-  const currentQuestion = dailyQuestions[currentQuestionIndex];
+  const currentQuestion = activeQuestionsList[Math.min(currentQuestionIndex, activeQuestionsList.length - 1)];
   const persona = personaInfo[selectedGroup];
 
   // 뉴스 DNA 데이터 (예시)
@@ -943,8 +882,8 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
 
             {/* 우측 메뉴 */}
             <div className="flex items-center gap-3 flex-shrink-0">
-              <div className={`px-3 py-1.5 rounded-full ${persona.color} bg-opacity-10`}>
-                <span className={`text-[13px] font-medium ${persona.color.replace('bg-', 'text-')}`}>
+              <div className={`px-3 py-1.5 rounded-full ${persona.color}`}>
+                <span className="text-[13px] font-medium text-white">
                   {persona.name}
                 </span>
               </div>
@@ -966,6 +905,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
               setShowQuestions(false);
               setActiveTab("feed");
             }}
+            questions={aiQuestions}
           />
         )}
 
@@ -1533,24 +1473,23 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
               </button>
               <h3 className="text-[16px] font-bold text-gray-900">새 글 작성</h3>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (selectedArchiveForPost && postComment.trim()) {
-                    // 새 글 추가
-                    const newPost = {
-                      id: `p${Date.now()}`,
-                      userName: persona.name,
-                      userMbti: selectedGroup,
-                      userAvatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${persona.name}&backgroundColor=fef3c7&scale=90`,
-                      timeAgo: "방금 전",
-                      archivedSentence: selectedArchiveForPost.text,
-                      userComment: postComment,
-                      articleTitle: selectedArchiveForPost.articleTitle,
-                      tags: ["새글"],
-                      upvotes: 0,
-                      commentCount: 0,
-                      commentList: [],
-                    };
-                    setCommunityPosts([newPost, ...communityPosts]);
+                    const userId = user?.userId || 'anonymous';
+                    const newPost = await createCommunityPost({
+                      user_id: userId,
+                      user_name: user?.name || persona.name,
+                      user_mbti: selectedGroup,
+                      user_avatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${persona.name}&backgroundColor=fef3c7&scale=90`,
+                      archived_sentence: selectedArchiveForPost.text,
+                      user_comment: postComment,
+                      article_id: selectedArchiveForPost.articleId || '',
+                      article_title: selectedArchiveForPost.articleTitle,
+                      tags: [],
+                    });
+                    if (newPost) {
+                      setCommunityPosts(prev => [newPost, ...prev]);
+                    }
                     setShowWriteModal(false);
                     setSelectedArchiveForPost(null);
                     setPostComment("");

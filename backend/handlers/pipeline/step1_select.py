@@ -1,39 +1,60 @@
 """
-Step 1: Article Selection
-=========================
-Loads articles from S3 XML, applies rule-based filtering, then uses
-Amazon Nova for AI-based filtering of borderline cases.
+Step 1: Article Selection (Per-MBTI-Type)
+==========================================
+Loads articles from S3 XML, applies rule-based pre-filtering, scores each
+candidate with Amazon Nova Lite on 4 MBTI-specific dimensions, and selects
+the top 30 per MBTI type (NT, NF, ST, SF) honoring per-category minimums.
+
+Full article data is stored in S3 to keep the Step Functions payload under
+the 256 KB inter-state limit; only lightweight metadata passes through.
+
+Flow:
+  1. Rule-based pre-filter (_quick_filter)    — drops deleted / too short /
+     인사/부고/속보 / routine market closings. Typically 286 → ~200 survivors.
+  2. AI scoring via Nova Lite (_ai_score_nova) — each survivor is scored
+     1-10 on 4 MBTI-type dimensions (NT/NF/ST/SF aptitude) plus quality,
+     in batches of 20. Batches run in parallel under a small semaphore.
+     If ALL batches fail, falls back to recency-based selection.
+  3. Per-type top-30 selection (_select_per_type) — for each MBTI type,
+     ranks by composite score (0.7 × type_score + 0.3 × quality), applies
+     category diversity minimums, then selects top 30.
+  4. S3 offload — full article data for all unique selected articles is
+     uploaded to S3; only lightweight metadata and type assignments pass
+     through the Step Functions state.
 
 Input (Lambda event):
   {
-    "date": "20260408",          # optional, defaults to today KST
+    "date": "20260413",         # optional, defaults to today KST
     "source": "schedule" | "manual"
   }
 
 Output (passed to Step 2):
   {
     "step": 1,
-    "date": "20260408",
-    "selected_articles": [
-      {
-        "news_id": "2K78XY958Z",
-        "title": "...",
-        "sub_title": "...",
-        "content_clean": "...",
-        "category": "경제",
-        "published_at": "...",
-        "author_name": "...",
-        "images": [...],
-        "url": "..."
-      }
+    "date": "20260413",
+    "selected_articles_s3_uri": "s3://...",
+    "selected_article_ids": ["id1", "id2", ...],
+    "selected_articles_summary": [
+      {"news_id": "...", "title": "...", "category": "경제", "published_at": "..."}
     ],
+    "type_assignments": {
+      "NT": ["id1", "id5", ...],
+      "NF": ["id2", "id5", ...],
+      "ST": ["id3", "id6", ...],
+      "SF": ["id4", "id7", ...]
+    },
     "metrics": {
-      "total_in_xml": 250,
+      "total_in_xml": 286,
       "excluded_deleted": 12,
-      "excluded_rules": 35,
-      "excluded_ai": 8,
-      "selected": 195,
-      "duration_ms": 4523
+      "excluded_rules": 73,
+      "scored": 201,
+      "selected": 85,
+      "total_unique_selected": 85,
+      "per_type": {"NT": 30, "NF": 30, "ST": 30, "SF": 30},
+      "overlap_count": 35,
+      "fallback_used": false,
+      "scoring_duration_ms": 8500,
+      "duration_ms": 9200
     }
   }
 """
@@ -42,22 +63,25 @@ import json
 import logging
 import re
 import time
+from collections import defaultdict
 from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import boto3
 from botocore.config import Config
 
 from clients.s3_xml_client import S3XMLClient
-from config import settings
 from config.constants import (
     BEDROCK_MODEL_ID_NOVA,
     BEDROCK_REGION,
+    DYNAMODB_TABLE_ARTICLES_DEV,
+    S3_ARTICLE_BODY_BUCKET_DEV,
 )
 from core.decorators import lambda_handler as handler_decorator
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
 
 # ── Rule-based filter constants ──────────────────────────────────────────────
 
@@ -75,24 +99,6 @@ EXCLUSION_TITLE_PATTERNS = [
 
 EXCLUSION_TITLE_KEYWORDS = ['인사', '부고', '속보', '발령']
 
-# ── Nova client ──────────────────────────────────────────────────────────────
-
-NOVA_CONFIG = Config(
-    read_timeout=60,
-    connect_timeout=30,
-    retries={'max_attempts': 2},
-)
-
-
-def _get_nova_client():
-    return boto3.client(
-        'bedrock-runtime',
-        region_name=BEDROCK_REGION,
-        config=NOVA_CONFIG,
-    )
-
-
-# ── Rule-based filter ────────────────────────────────────────────────────────
 
 def _quick_filter(title: str, content: str) -> Tuple[bool, str]:
     """Return (should_exclude, reason)."""
@@ -111,41 +117,87 @@ def _quick_filter(title: str, content: str) -> Tuple[bool, str]:
     return False, ''
 
 
-# ── AI-based filter (Nova) ───────────────────────────────────────────────────
+# ── Nova client ──────────────────────────────────────────────────────────────
 
-async def _ai_filter_nova(
-    articles: List[Dict[str, Any]],
-    nova_client,
-) -> Dict[str, str]:
-    """
-    Use Amazon Nova to identify articles unsuitable for MBTI rewriting.
-    Returns {news_id: exclusion_reason} for excluded articles.
-    """
-    summaries = []
-    for i, a in enumerate(articles):
-        preview = a.get('content_clean', '')[:200]
-        summaries.append(f"{i+1}. [{a['news_id']}] {a['title']}\n   {preview}...")
+NOVA_CONFIG = Config(
+    read_timeout=60,
+    connect_timeout=30,
+    retries={'max_attempts': 2},
+)
 
-    prompt = (
-        "다음 경제 뉴스 기사 목록을 검토하고, MBTI 스타일 리라이팅에 적합하지 않은 기사를 식별하세요.\n\n"
-        "제외 기준:\n"
-        "- 속보/단신: 단순 사실 전달만 있는 기사\n"
-        "- 사건/사고: 교통사고, 화재, 범죄 등\n"
-        "- 인사/발령: 임명, 승진, 사퇴 등\n"
-        "- 부고/동정: 사망, 조문 등\n"
-        "- 반복성: 매일 반복되는 시황 기사\n"
-        "- 홍보성: 광고성 기사, 기업 보도자료\n\n"
-        f"기사 목록:\n{chr(10).join(summaries)}\n\n"
-        'JSON 형식으로 제외할 기사만 출력하세요:\n'
-        '{"excluded": [{"id": "뉴스ID", "reason": "사유"}]}\n'
-        '제외할 기사가 없으면: {"excluded": []}'
+
+def _get_nova_client():
+    return boto3.client(
+        'bedrock-runtime',
+        region_name=BEDROCK_REGION,
+        config=NOVA_CONFIG,
     )
+
+
+# ── AI-based scoring (Nova) ──────────────────────────────────────────────────
+
+from services.prompt_loader import load_prompt
+
+SCORING_SYSTEM_PROMPT = load_prompt('selection', 'article_scorer')
+
+SCORING_BATCH_SIZE = 20
+SCORING_MAX_CONCURRENCY = 5
+CONTENT_PREVIEW_CHARS = 200
+
+DEFAULT_SCORES: Dict[str, float] = {
+    'nt_score': 5.0,
+    'nf_score': 5.0,
+    'st_score': 5.0,
+    'sf_score': 5.0,
+    'quality': 5.0,
+}
+SCORE_KEYS = list(DEFAULT_SCORES.keys())
+
+
+async def _score_one_batch(
+    nova_client,
+    batch: List[Any],
+    batch_index: int,
+) -> Tuple[Dict[str, Dict[str, float]], bool]:
+    """
+    Score one batch of up to SCORING_BATCH_SIZE articles on 4 MBTI
+    dimensions plus quality.
+
+    Returns (scores_map, success).
+      scores_map: {news_id: {nt_score, nf_score, st_score, sf_score, quality}}
+                  Articles Nova didn't return scores for keep DEFAULT_SCORES
+                  so they remain eligible.
+      success:    True iff Nova returned a parseable JSON array.
+    """
+    items = []
+    for i, a in enumerate(batch):
+        preview = (a.content_clean or '')[:CONTENT_PREVIEW_CHARS]
+        items.append(
+            f"{i+1}. [{a.nsid}] ({a.main_category or '기타'}) {a.title}\n"
+            f"   {preview}..."
+        )
+
+    user_content = (
+        f"{SCORING_SYSTEM_PROMPT}\n\n"
+        f"## 후보 기사 ({len(batch)}건)\n\n"
+        + "\n\n".join(items)
+        + "\n\nJSON 배열만 출력하세요. 다른 텍스트는 포함하지 마세요."
+    )
+
+    # Default: every article in this batch gets DEFAULT_SCORES.
+    # Successful Nova entries overwrite these defaults below.
+    scores: Dict[str, Dict[str, float]] = {
+        a.nsid: dict(DEFAULT_SCORES) for a in batch
+    }
 
     try:
         body = json.dumps({
-            "inputText": prompt,
-            "textGenerationConfig": {
-                "maxTokenCount": 1024,
+            "schemaVersion": "messages-v1",
+            "messages": [
+                {"role": "user", "content": [{"text": user_content}]}
+            ],
+            "inferenceConfig": {
+                "maxTokens": 3072,
                 "temperature": 0.1,
             },
         })
@@ -162,22 +214,241 @@ async def _ai_filter_nova(
         )
 
         resp = json.loads(response['body'].read())
-        text = ''
-        # Nova response format
-        if 'results' in resp:
-            text = resp['results'][0].get('outputText', '')
-        elif 'output' in resp:
-            text = resp['output'].get('message', {}).get('content', [{}])[0].get('text', '')
+        text = (
+            resp.get('output', {})
+                .get('message', {})
+                .get('content', [{}])[0]
+                .get('text', '')
+        )
 
-        match = re.search(r'\{[\s\S]*\}', text)
-        if match:
-            result = json.loads(match.group(0))
-            return {e['id']: e['reason'] for e in result.get('excluded', [])}
+        # Greedy match — captures the full array even if reasoning fields
+        # contain braces or Nova wraps the output in markdown fences.
+        match = re.search(r'\[\s*\{[\s\S]*\}\s*\]', text)
+        if not match:
+            logger.warning(
+                f"Batch {batch_index}: no JSON array in Nova response; "
+                f"using default scores"
+            )
+            return scores, False
+
+        parsed = json.loads(match.group(0))
+        if not isinstance(parsed, list):
+            logger.warning(
+                f"Batch {batch_index}: Nova returned non-list; "
+                f"using default scores"
+            )
+            return scores, False
+
+        parsed_count = 0
+        for entry in parsed:
+            if not isinstance(entry, dict):
+                continue
+            nid = entry.get('news_id') or ''
+            if nid not in scores:
+                continue
+            any_parsed = False
+            for key in SCORE_KEYS:
+                val = entry.get(key)
+                if val is not None:
+                    try:
+                        scores[nid][key] = float(val)
+                        any_parsed = True
+                    except (ValueError, TypeError):
+                        continue
+            if any_parsed:
+                parsed_count += 1
+
+        logger.info(
+            f"Batch {batch_index}: Nova scored {parsed_count}/{len(batch)} articles"
+        )
+        return scores, True
 
     except Exception as e:
-        logger.warning(f"Nova AI filter failed (non-fatal): {e}")
+        logger.warning(
+            f"Batch {batch_index}: Nova scoring failed (non-fatal): {e}"
+        )
+        return scores, False
 
-    return {}
+
+async def _ai_score_nova(
+    articles: List[Any],
+    nova_client,
+) -> Tuple[Dict[str, Dict[str, float]], bool]:
+    """
+    Score all candidates using Nova Lite in parallel batches of
+    SCORING_BATCH_SIZE, capped at SCORING_MAX_CONCURRENCY concurrent calls.
+
+    Returns (scores_map, any_success).
+      scores_map:  {news_id: {nt_score, nf_score, st_score, sf_score, quality}}
+      any_success: False iff EVERY batch failed — signals the caller to
+                   fall back to recency-based selection.
+    """
+    if not articles:
+        return {}, True
+
+    batches = [
+        articles[i:i + SCORING_BATCH_SIZE]
+        for i in range(0, len(articles), SCORING_BATCH_SIZE)
+    ]
+    semaphore = asyncio.Semaphore(SCORING_MAX_CONCURRENCY)
+
+    async def _run(batch, idx):
+        async with semaphore:
+            return await _score_one_batch(nova_client, batch, idx)
+
+    results = await asyncio.gather(
+        *(_run(batch, i) for i, batch in enumerate(batches))
+    )
+
+    all_scores: Dict[str, Dict[str, float]] = {}
+    any_success = False
+    for batch_scores, batch_ok in results:
+        all_scores.update(batch_scores)
+        if batch_ok:
+            any_success = True
+
+    return all_scores, any_success
+
+
+# ── Per-type top-30 selection ────────────────────────────────────────────────
+
+# Minimum per-category counts for each type's 30. The seven standard
+# categories sum to 25; the remaining 5 slots go to the highest-scored
+# unclaimed articles regardless of category. A category with fewer
+# candidates than its minimum contributes what it has; the gap is filled
+# by the remainder phase.
+CATEGORY_MINIMUMS: Dict[str, int] = {
+    '경제':    5,
+    'IT_과학': 4,
+    '정치':    3,
+    '사회':    4,
+    '문화':    3,
+    '스포츠':  3,
+    '국제':    3,
+}
+TOTAL_TARGET = 30
+MBTI_TYPES = ['NT', 'NF', 'ST', 'SF']
+
+
+def _select_per_type(
+    scored_articles: List[Dict[str, Any]],
+) -> Dict[str, List[str]]:
+    """Select top 30 articles for each MBTI type based on type-specific scores.
+
+    Each article dict must contain: news_id, category, nt_score, nf_score,
+    st_score, sf_score, quality.
+
+    For each type:
+      Phase 1 — fill per-category minimums (up to 25 slots) from articles
+                sorted by that type's composite score.
+      Phase 2 — fill remaining slots (up to 30) with highest composite
+                scores regardless of category.
+    """
+    type_assignments: Dict[str, List[str]] = {}
+
+    for mbti_type in MBTI_TYPES:
+        score_key = f"{mbti_type.lower()}_score"
+
+        # Sort by composite score: 0.7 × type_score + 0.3 × quality
+        candidates = sorted(
+            scored_articles,
+            key=lambda a, sk=score_key: (
+                a.get(sk, 0) * 0.7 + a.get('quality', 0) * 0.3
+            ),
+            reverse=True,
+        )
+
+        selected: List[str] = []
+        selected_set: set = set()
+        category_counts: Dict[str, int] = {}
+
+        # Phase 1: fill category minimums (up to 25 slots)
+        for article in candidates:
+            cat = article.get('category', '')
+            min_needed = CATEGORY_MINIMUMS.get(cat, 1)
+            if category_counts.get(cat, 0) < min_needed:
+                nid = article['news_id']
+                if nid not in selected_set:
+                    selected.append(nid)
+                    selected_set.add(nid)
+                    category_counts[cat] = category_counts.get(cat, 0) + 1
+            if len(selected) >= 25:
+                break
+
+        # Phase 2: fill remaining slots with highest composite scores
+        for article in candidates:
+            nid = article['news_id']
+            if nid not in selected_set:
+                selected.append(nid)
+                selected_set.add(nid)
+            if len(selected) >= TOTAL_TARGET:
+                break
+
+        type_assignments[mbti_type] = selected[:TOTAL_TARGET]
+
+    return type_assignments
+
+
+# ── Timezone ─────────────────────────────────────────────────────────────────
+
+KST = timezone(timedelta(hours=9))
+
+
+# ── S3 temp storage ──────────────────────────────────────────────────────────
+
+S3_PIPELINE_TEMP_PREFIX = 'pipeline-temp'
+
+
+def _upload_selected_to_s3(
+    s3_client,
+    date_str: str,
+    articles_data: List[Dict[str, Any]],
+) -> str:
+    """Upload full article data to S3 temp location. Returns the S3 URI."""
+    key = f"{S3_PIPELINE_TEMP_PREFIX}/{date_str}/selected_articles.json"
+    bucket = S3_ARTICLE_BODY_BUCKET_DEV
+
+    s3_client.put_object(
+        Bucket=bucket,
+        Key=key,
+        Body=json.dumps(articles_data, ensure_ascii=False, default=str),
+        ContentType='application/json',
+    )
+
+    uri = f"s3://{bucket}/{key}"
+    logger.info(f"Uploaded {len(articles_data)} articles to {uri}")
+    return uri
+
+
+# ── Type assignments storage ─────────────────────────────────────────────────
+
+
+def _store_type_assignments(
+    date_str: str,
+    type_assignments: Dict[str, List[str]],
+    metrics: Dict[str, Any],
+) -> None:
+    """Store MBTI type→article mapping in DynamoDB for API lookups."""
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table(DYNAMODB_TABLE_ARTICLES_DEV)
+
+    table.put_item(Item={
+        'news_id': f'__type_assignments__{date_str}',
+        'item_type': 'type_assignment',
+        'date': date_str,
+        'NT': type_assignments.get('NT', []),
+        'NF': type_assignments.get('NF', []),
+        'ST': type_assignments.get('ST', []),
+        'SF': type_assignments.get('SF', []),
+        'metrics': {
+            'total_unique': metrics.get('total_unique_selected', 0),
+            'overlap_count': metrics.get('overlap_count', 0),
+            'per_type': metrics.get('per_type', {}),
+        },
+        'created_at': datetime.now(KST).isoformat(),
+    })
+
+    logger.info(f"Stored type_assignments for {date_str}")
 
 
 # ── Main logic ───────────────────────────────────────────────────────────────
@@ -195,12 +466,12 @@ async def _select_articles(date_str: str) -> Dict[str, Any]:
     total_in_xml = len(all_articles)
     logger.info(f"Step 1: Loaded {total_in_xml} articles from XML for {date_str}")
 
-    # Remove deleted articles
+    # Phase A: remove deleted
     active = [a for a in all_articles if a.action != 'D']
     excluded_deleted = total_in_xml - len(active)
 
-    # Rule-based filtering
-    candidates = []
+    # Phase B: rule-based pre-filter
+    candidates: List[Any] = []
     excluded_rules = 0
     for article in active:
         should_exclude, reason = _quick_filter(article.title, article.content_clean or '')
@@ -210,83 +481,136 @@ async def _select_articles(date_str: str) -> Dict[str, Any]:
         else:
             candidates.append(article)
 
-    # AI-based filtering (only when enough candidates)
-    excluded_ai = 0
-    if len(candidates) > 5:
-        candidate_dicts = [
-            {'news_id': a.nsid, 'title': a.title, 'content_clean': a.content_clean or ''}
-            for a in candidates
-        ]
+    logger.info(
+        f"Pre-filter: {len(candidates)} candidates "
+        f"(deleted=-{excluded_deleted}, rules=-{excluded_rules})"
+    )
+
+    # Phase C: AI scoring (Nova Lite) — 4 MBTI dimensions + quality
+    fallback_used = False
+    scores_map: Dict[str, Dict[str, float]] = {}
+    scoring_start = time.time()
+
+    if candidates:
         nova = _get_nova_client()
-        ai_excluded = await _ai_filter_nova(candidate_dicts, nova)
+        scores_map, any_success = await _ai_score_nova(candidates, nova)
+        if not any_success:
+            logger.warning(
+                "All Nova scoring batches failed; "
+                "falling back to recency-based selection"
+            )
+            fallback_used = True
 
-        if ai_excluded:
-            excluded_ai = len(ai_excluded)
-            candidates = [a for a in candidates if a.nsid not in ai_excluded]
-            logger.info(f"AI filter excluded {excluded_ai} articles")
+    scoring_duration_ms = int((time.time() - scoring_start) * 1000)
 
-    # Build serialisable output
-    selected = []
-    for a in candidates:
-        image_url = None
+    # Phase D: per-type top-30 selection
+    def _recency_key(article) -> str:
+        return article.published_at or ''
+
+    if fallback_used:
+        # Pure recency — same 30 for all types
+        recency_sorted = sorted(
+            candidates, key=_recency_key, reverse=True
+        )[:TOTAL_TARGET]
+        ids = [a.nsid for a in recency_sorted]
+        type_assignments = {t: list(ids) for t in MBTI_TYPES}
+    else:
+        # Build scored article dicts for per-type selection
+        scored_articles = []
+        for a in candidates:
+            article_scores = scores_map.get(a.nsid, DEFAULT_SCORES)
+            scored_articles.append({
+                'news_id': a.nsid,
+                'category': a.main_category or '',
+                **article_scores,
+            })
+        type_assignments = _select_per_type(scored_articles)
+
+    # Collect all unique selected article IDs
+    unique_ids: set = set()
+    for ids in type_assignments.values():
+        unique_ids.update(ids)
+
+    # Build lookup for quick article access
+    candidate_map = {a.nsid: a for a in candidates}
+
+    # Phase E: upload full article data to S3
+    full_articles_data: List[Dict[str, Any]] = []
+    for nid in sorted(unique_ids):
+        a = candidate_map.get(nid)
+        if not a:
+            continue
+        images: List[Dict[str, str]] = []
         if a.images:
-            image_url = a.images[0].url
-        elif a.content_images:
-            image_url = a.content_images[0].url
-
-        selected.append({
+            images = [{'url': a.images[0].url}]
+        full_articles_data.append({
             'news_id': a.nsid,
             'title': a.title,
             'sub_title': a.sub_title or '',
-            'content_clean': a.content_clean,
-            'category': a.main_category,
-            'published_at': a.published_at,
-            'author_name': a.author_name,
-            'author_email': a.author_email,
-            'images': [
-                {'url': img.url, 'caption_content': img.caption_content}
-                for img in a.images
-            ],
-            'url': a.url,
-            'content_raw': a.content_raw,
-            'content_blocks': [
-                {
-                    'type': 'text',
-                    'text_ko': b.text_ko,
-                    'style': b.style,
-                } if b.block_type == 'text' else {
-                    'type': 'image',
-                    'url': b.image_url,
-                    'alt': b.image_alt,
-                    'width': b.image_width,
-                    'caption': b.image_caption,
-                }
-                for b in a.content_blocks
-            ],
-            'related_news': [
-                {'title': r.title, 'url': r.url, 'nsid': r.nsid}
-                for r in a.related_news
-            ],
-            'is_breaking_news': a.is_breaking_news,
+            'content_clean': a.content_clean or '',
+            'category': a.main_category or '',
+            'published_at': a.published_at or '',
+            'author_name': a.author_name or '',
+            'images': images,
+            'url': a.url or '',
         })
+
+    s3_boto = boto3.client('s3', region_name='us-east-1')
+    s3_uri = _upload_selected_to_s3(s3_boto, date_str, full_articles_data)
+
+    # Phase F: build lightweight output payload
+    selected_article_ids = sorted(unique_ids)
+    selected_articles_summary = []
+    for nid in selected_article_ids:
+        a = candidate_map.get(nid)
+        if a:
+            selected_articles_summary.append({
+                'news_id': a.nsid,
+                'title': a.title,
+                'category': a.main_category or '',
+                'published_at': a.published_at or '',
+            })
+
+    per_type_counts = {t: len(ids) for t, ids in type_assignments.items()}
+    total_unique = len(unique_ids)
+    total_assigned = sum(per_type_counts.values())
+    overlap_count = total_assigned - total_unique
+
+    # Phase G: store type_assignments in DynamoDB for API lookups
+    try:
+        _store_type_assignments(date_str, type_assignments, {
+            'total_unique_selected': total_unique,
+            'overlap_count': overlap_count,
+            'per_type': per_type_counts,
+        })
+    except Exception as e:
+        logger.error(f"Failed to store type_assignments (non-fatal): {e}")
 
     elapsed = int((time.time() - start) * 1000)
     logger.info(
-        f"Step 1 complete: {len(selected)} selected from {total_in_xml} "
-        f"(rules=-{excluded_rules}, AI=-{excluded_ai}, deleted=-{excluded_deleted}) "
-        f"in {elapsed}ms"
+        f"Step 1 complete: {total_unique} unique articles selected "
+        f"(per_type={per_type_counts}, overlap={overlap_count}) "
+        f"from {total_in_xml} in {elapsed}ms"
     )
 
     return {
         'step': 1,
         'date': date_str,
-        'selected_articles': selected,
+        'selected_articles_s3_uri': s3_uri,
+        'selected_article_ids': selected_article_ids,
+        'selected_articles_summary': selected_articles_summary,
+        'type_assignments': type_assignments,
         'metrics': {
             'total_in_xml': total_in_xml,
             'excluded_deleted': excluded_deleted,
             'excluded_rules': excluded_rules,
-            'excluded_ai': excluded_ai,
-            'selected': len(selected),
+            'scored': len(candidates),
+            'selected': total_unique,
+            'total_unique_selected': total_unique,
+            'per_type': per_type_counts,
+            'overlap_count': overlap_count,
+            'fallback_used': fallback_used,
+            'scoring_duration_ms': scoring_duration_ms,
             'duration_ms': elapsed,
         },
     }
@@ -296,7 +620,7 @@ async def _select_articles(date_str: str) -> Dict[str, Any]:
 
 @handler_decorator
 async def lambda_handler(event: dict, context) -> dict:
-    """Step 1 Lambda: Article Selection."""
+    """Step 1 Lambda: Article Selection (Per-MBTI-Type)."""
     date_str = event.get('date')
     if not date_str:
         kst = timezone(timedelta(hours=9))

@@ -340,5 +340,5 @@ def _response(status: int, body: dict) -> dict:
             "Content-Type": "application/json; charset=utf-8",
             "Access-Control-Allow-Origin": "*",
         },
-        "body": json.dumps(body, ensure_ascii=False),
+        "body": json.dumps(body, ensure_ascii=False, default=str),
     }

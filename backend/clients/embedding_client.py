@@ -85,19 +85,24 @@ class EmbeddingClient:
 
         text = text.strip()
 
-        if len(text) <= EMBEDDING_CHARS_PER_CHUNK:
-            return self._call_bedrock(text)
+        try:
+            if len(text) <= EMBEDDING_CHARS_PER_CHUNK:
+                return self._call_bedrock(text)
 
-        # Long text → chunk, embed each, average
-        chunks = _split_into_chunks(text, EMBEDDING_CHARS_PER_CHUNK)
-        logger.info(f"Long text ({len(text)} chars) split into {len(chunks)} chunks")
+            # Long text → chunk, embed each, average
+            chunks = _split_into_chunks(text, EMBEDDING_CHARS_PER_CHUNK)
+            logger.info(f"Long text ({len(text)} chars) split into {len(chunks)} chunks")
 
-        vectors = []
-        for chunk in chunks:
-            vec = self._call_bedrock(chunk)
-            vectors.append(vec)
+            vectors = []
+            for chunk in chunks:
+                vec = self._call_bedrock(chunk)
+                vectors.append(vec)
 
-        return _average_vectors(vectors)
+            return _average_vectors(vectors)
+
+        except Exception as e:
+            logger.warning(f"Embedding failed for text ({len(text)} chars), returning empty: {e}")
+            return []
 
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """
@@ -122,6 +127,16 @@ class EmbeddingClient:
                 logger.warning(f"Embedding failed for batch item {i}, using zero vector")
                 results.append([0.0] * self.dimension)
         return results
+
+    # ── Aliases (match spec naming) ─────────────────────────────────────────
+
+    def get_embedding(self, text: str) -> List[float]:
+        """Alias for embed_text."""
+        return self.embed_text(text)
+
+    def get_embeddings_batch(self, texts: List[str]) -> List[List[float]]:
+        """Alias for embed_batch."""
+        return self.embed_batch(texts)
 
     # ── Bedrock call ─────────────────────────────────────────────────────────
 

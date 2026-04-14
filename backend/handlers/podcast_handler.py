@@ -96,18 +96,13 @@ async def _generate_script(
     style = VOICE_STYLES.get(mbti_group, VOICE_STYLES['SF'])
     group_info = MBTI_GROUP_INFO.get(mbti_group, {})
 
-    prompt = (
-        f"다음 {group_info.get('label', mbti_group)} 스타일 뉴스 기사를 "
-        f"팟캐스트 대본으로 변환하세요.\n\n"
-        f"톤: {style['desc']}\n"
-        f"형식:\n"
-        f"1. 인트로 (2~3문장, 오늘의 주제 소개)\n"
-        f"2. 본문 요약 (핵심 내용 3~5개 포인트)\n"
-        f"3. 핵심 포인트 정리 (1~2문장씩)\n"
-        f"4. 아웃트로 (1~2문장, 마무리)\n\n"
-        f"자연스러운 구어체로 작성하세요. 총 길이 800~1500자.\n\n"
-        f"[기사 제목] {title}\n\n"
-        f"[기사 본문]\n{body_text[:3000]}"
+    from services.prompt_loader import load_prompt
+    prompt_template = load_prompt('podcast', 'podcast_script')
+    prompt = (prompt_template
+        .replace('{group_label}', group_info.get('label', mbti_group))
+        .replace('{tone}', style['desc'])
+        .replace('{title}', title)
+        .replace('{body_text}', body_text[:3000])
     )
 
     import asyncio

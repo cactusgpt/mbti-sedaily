@@ -111,16 +111,21 @@ API_FUNCTIONS=(
   "sedaily-mbti-podcast-dev"
   "sedaily-mbti-recommend-dev"
   "sedaily-mbti-post-dev"
+  "sedaily-mbti-question-dev"
+  "sedaily-mbti-metrics-dev"
+  "sedaily-mbti-abtest-dev"
+  "sedaily-mbti-translation-dev"
 )
 
 # --- Pipeline Functions (Step Functions) ---
+# Note: merge Lambda was removed when the state machine was rewritten to use a
+# chained Map (each iteration runs Step3 → Step4 → Supervisor for one article).
 PIPELINE_FUNCTIONS=(
   "sedaily-mbti-pipeline-step1-dev"
   "sedaily-mbti-pipeline-step2-dev"
   "sedaily-mbti-pipeline-step3-dev"
   "sedaily-mbti-pipeline-step4-dev"
   "sedaily-mbti-pipeline-supervisor-dev"
-  "sedaily-mbti-pipeline-merge-dev"
 )
 
 # Select which functions to deploy

@@ -1,165 +1,101 @@
 """
-Step 2: MBTI Classification
-============================
-For each selected article, determines which MBTI groups it's suitable for,
-then applies per-category allocation limits.
+Step 2: MBTI Classification (Pass-Through)
+============================================
+With Step 1 now performing per-MBTI-type scoring and selection via
+type_assignments, Step 2 no longer needs Nova-based classification.
 
-Uses Amazon Nova for classification (simple task, not rewriting).
+This step:
+  1. Derives target_groups for each article from Step 1's type_assignments.
+  2. Builds classified_articles for the ProcessArticlesMap to iterate over.
+  3. Validates that each MBTI type has a reasonable article count.
+  4. Forwards selected_articles_s3_uri for downstream steps to read full
+     article content (content_clean is NOT in classified_articles — it
+     lives in S3 to stay under the 256 KB Step Functions state limit).
 
 Input (from Step 1):
   {
     "step": 1,
-    "date": "20260408",
-    "selected_articles": [ { news_id, title, content_clean, category, ... } ],
-    "metrics": { ... }
+    "date": "20260413",
+    "selected_articles_s3_uri": "s3://...",
+    "selected_article_ids": ["id1", "id2", ...],
+    "selected_articles_summary": [
+      {"news_id": "...", "title": "...", "category": "경제", "published_at": "..."}
+    ],
+    "type_assignments": {
+      "NT": ["id1", "id5", ...],
+      "NF": ["id2", "id5", ...],
+      "ST": ["id3", "id6", ...],
+      "SF": ["id4", "id7", ...]
+    },
+    "metrics": {...}
   }
 
-Output (passed to Step 3):
+Output (passed to ProcessArticlesMap → Step 3):
   {
     "step": 2,
-    "date": "20260408",
+    "date": "20260413",
+    "selected_articles_s3_uri": "s3://...",
+    "type_assignments": {"NT": [...], "NF": [...], "ST": [...], "SF": [...]},
     "classified_articles": [
       {
-        ...article fields...,
-        "target_groups": ["NT", "NF", "ST", "SF"]
+        "news_id": "...",
+        "title": "...",
+        "category": "경제",
+        "published_at": "...",
+        "target_groups": ["NT", "ST"]
       }
     ],
-    "classification_map": {
-      "2K78XY958Z": ["NT", "NF", "ST", "SF"]
-    },
+    "classification_map": {"news_id": ["NT", "ST"], ...},
     "metrics": {
-      "input_count": 195,
-      "classified_count": 11,
-      "skipped_count": 184,
-      "per_category": { "경제": 3, "IT_과학": 2, ... },
-      "duration_ms": 2100
+      "input_count": 85,
+      "classified_count": 85,
+      "skipped_count": 0,
+      "per_type": {"NT": 30, "NF": 30, "ST": 30, "SF": 30},
+      "duration_ms": 12
     }
   }
 """
-import asyncio
-import json
 import logging
-import re
 import time
-from collections import defaultdict
-from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List
 
-import boto3
-from botocore.config import Config
-
-from config.constants import (
-    BEDROCK_MODEL_ID_NOVA,
-    BEDROCK_REGION,
-    MBTI_GROUPS,
-)
+from config.constants import MBTI_GROUPS
 from core.decorators import lambda_handler as handler_decorator
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# ── Per-category allocation (how many articles get MBTI treatment) ───────────
 
-ALLOCATION_PER_CATEGORY = {
-    '경제': 3,
-    'IT_과학': 2,
-    '정치': 1,
-    '사회': 2,
-    '문화': 1,
-    '스포츠': 1,
-    '국제': 1,
-}
-DEFAULT_ALLOCATION = 1
+# ── Derive classification from type_assignments ─────────────────────────────
 
-# ── Nova client ──────────────────────────────────────────────────────────────
-
-NOVA_CONFIG = Config(
-    read_timeout=60,
-    connect_timeout=30,
-    retries={'max_attempts': 2},
-)
-
-
-def _get_nova_client():
-    return boto3.client(
-        'bedrock-runtime',
-        region_name=BEDROCK_REGION,
-        config=NOVA_CONFIG,
-    )
-
-
-# ── AI classification ────────────────────────────────────────────────────────
-
-async def _classify_batch_nova(
-    articles: List[Dict[str, Any]],
-    nova_client,
+def _derive_classification_map(
+    type_assignments: Dict[str, List[str]],
 ) -> Dict[str, List[str]]:
-    """
-    Ask Nova which MBTI groups each article is suitable for.
-    Returns {news_id: [groups]}.  Falls back to all 4 groups on error.
-    """
-    summaries = []
-    for a in articles:
-        preview = a.get('content_clean', '')[:300]
-        summaries.append(
-            f"- [{a['news_id']}] ({a['category']}) {a['title']}\n  {preview}..."
-        )
+    """Invert type_assignments {type: [ids]} → {news_id: [types]}."""
+    classification_map: Dict[str, List[str]] = {}
+    for mbti_type in MBTI_GROUPS:
+        for nid in type_assignments.get(mbti_type, []):
+            if nid not in classification_map:
+                classification_map[nid] = []
+            classification_map[nid].append(mbti_type)
+    return classification_map
 
-    prompt = (
-        "다음 경제 뉴스 기사들을 4개 MBTI 그룹별 적합도로 분류하세요.\n\n"
-        "MBTI 그룹:\n"
-        "- NT (전략형): 구조적 분석, 데이터 기반, 시나리오 분석에 적합한 기사\n"
-        "- NF (가치형): 사회적 의미, 가치 충돌, 심층 해석에 적합한 기사\n"
-        "- ST (실용형): 팩트 정리, 표/수치 중심, 체크리스트에 적합한 기사\n"
-        "- SF (공감형): 실생활 연결, 쉬운 설명, 독자 공감에 적합한 기사\n\n"
-        "대부분의 기사는 4개 그룹 모두에 적합합니다.\n"
-        "특정 그룹에 부적합한 경우에만 해당 그룹을 제외하세요.\n\n"
-        f"기사 목록:\n{chr(10).join(summaries)}\n\n"
-        'JSON으로 출력하세요:\n'
-        '{"classifications": [{"id": "뉴스ID", "groups": ["NT","NF","ST","SF"]}]}'
-    )
 
-    try:
-        body = json.dumps({
-            "inputText": prompt,
-            "textGenerationConfig": {
-                "maxTokenCount": 2048,
-                "temperature": 0.1,
-            },
-        })
-
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
-            None,
-            lambda: nova_client.invoke_model(
-                modelId=BEDROCK_MODEL_ID_NOVA,
-                contentType='application/json',
-                accept='application/json',
-                body=body,
-            ),
-        )
-
-        resp = json.loads(response['body'].read())
-        text = ''
-        if 'results' in resp:
-            text = resp['results'][0].get('outputText', '')
-        elif 'output' in resp:
-            text = resp['output'].get('message', {}).get('content', [{}])[0].get('text', '')
-
-        match = re.search(r'\{[\s\S]*\}', text)
-        if match:
-            parsed = json.loads(match.group(0))
-            result = {}
-            for item in parsed.get('classifications', []):
-                groups = [g for g in item.get('groups', MBTI_GROUPS) if g in MBTI_GROUPS]
-                result[item['id']] = groups or list(MBTI_GROUPS)
-            return result
-
-    except Exception as e:
-        logger.warning(f"Nova classification failed (falling back to all groups): {e}")
-
-    # Fallback: all articles suitable for all groups
-    return {a['news_id']: list(MBTI_GROUPS) for a in articles}
+def _validate_type_assignments(
+    type_assignments: Dict[str, List[str]],
+) -> Dict[str, int]:
+    """Log warnings for types with unexpectedly few articles. Returns counts."""
+    per_type: Dict[str, int] = {}
+    for mbti_type in MBTI_GROUPS:
+        count = len(type_assignments.get(mbti_type, []))
+        per_type[mbti_type] = count
+        if count == 0:
+            logger.error(f"Type {mbti_type} has 0 articles assigned")
+        elif count < 20:
+            logger.warning(
+                f"Type {mbti_type} has only {count} articles (expected ~30)"
+            )
+    return per_type
 
 
 # ── Main logic ───────────────────────────────────────────────────────────────
@@ -168,59 +104,52 @@ async def _classify_articles(event_body: Dict[str, Any]) -> Dict[str, Any]:
     start = time.time()
 
     date_str = event_body['date']
-    articles = event_body['selected_articles']
-    logger.info(f"Step 2: Classifying {len(articles)} articles for {date_str}")
+    type_assignments = event_body.get('type_assignments', {})
+    s3_uri = event_body.get('selected_articles_s3_uri', '')
+    selected_article_ids = event_body.get('selected_article_ids', [])
+    articles_summary = event_body.get('selected_articles_summary', [])
 
-    # Group by category
-    by_category: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
-    for a in articles:
-        by_category[a.get('category', 'news')].append(a)
+    logger.info(
+        f"Step 2: Pass-through classification for "
+        f"{len(selected_article_ids)} articles, date={date_str}"
+    )
 
-    # Select top N per category (by recency — articles arrive sorted already)
-    to_classify = []
-    per_category_counts = {}
-    for cat, cat_articles in by_category.items():
-        limit = ALLOCATION_PER_CATEGORY.get(cat, DEFAULT_ALLOCATION)
-        selected = cat_articles[:limit]
-        to_classify.extend(selected)
-        per_category_counts[cat] = len(selected)
+    # Validate type_assignments
+    per_type = _validate_type_assignments(type_assignments)
 
-    logger.info(f"Category allocation: {per_category_counts} → {len(to_classify)} total")
+    # Derive classification_map: {news_id: [target_groups]}
+    classification_map = _derive_classification_map(type_assignments)
 
-    # Run Nova classification on selected articles
-    classification_map: Dict[str, List[str]] = {}
-    if to_classify:
-        nova = _get_nova_client()
-        classification_map = await _classify_batch_nova(to_classify, nova)
-
-    # Ensure every selected article has a classification
-    for a in to_classify:
-        if a['news_id'] not in classification_map:
-            classification_map[a['news_id']] = list(MBTI_GROUPS)
-
-    # Build output: articles enriched with target_groups
-    classified = []
-    for a in to_classify:
-        enriched = dict(a)
-        enriched['target_groups'] = classification_map.get(a['news_id'], list(MBTI_GROUPS))
-        classified.append(enriched)
+    # Build classified_articles from summary + target_groups.
+    # content_clean is NOT included here — it lives in S3 at
+    # selected_articles_s3_uri. Downstream steps (Step 3) must load
+    # full content from S3 using the URI.
+    classified: List[Dict[str, Any]] = []
+    for article in articles_summary:
+        nid = article['news_id']
+        classified.append({
+            **article,
+            'target_groups': classification_map.get(nid, list(MBTI_GROUPS)),
+        })
 
     elapsed = int((time.time() - start) * 1000)
     logger.info(
-        f"Step 2 complete: {len(classified)} classified from {len(articles)} input "
-        f"in {elapsed}ms"
+        f"Step 2 complete: {len(classified)} classified, "
+        f"per_type={per_type} in {elapsed}ms"
     )
 
     return {
         'step': 2,
         'date': date_str,
+        'selected_articles_s3_uri': s3_uri,
+        'type_assignments': type_assignments,
         'classified_articles': classified,
         'classification_map': classification_map,
         'metrics': {
-            'input_count': len(articles),
+            'input_count': len(selected_article_ids),
             'classified_count': len(classified),
-            'skipped_count': len(articles) - len(classified),
-            'per_category': per_category_counts,
+            'skipped_count': 0,
+            'per_type': per_type,
             'duration_ms': elapsed,
         },
     }
@@ -230,7 +159,7 @@ async def _classify_articles(event_body: Dict[str, Any]) -> Dict[str, Any]:
 
 @handler_decorator
 async def lambda_handler(event: dict, context) -> dict:
-    """Step 2 Lambda: MBTI Classification."""
+    """Step 2 Lambda: MBTI Classification (pass-through from Step 1 type_assignments)."""
     # Accept either direct body or Step Functions wrapper
     body = event.get('body', event)
 

@@ -52,31 +52,42 @@ class OpenSearchClient:
     ):
         """
         Args:
-            endpoint: OpenSearch domain endpoint (https://xxx.us-east-1.es.amazonaws.com)
+            endpoint: OpenSearch domain endpoint (https://xxx.us-east-1.es.amazonaws.com).
+                      If empty, all methods return empty results (no-op mode).
             index_name: Index name for articles
             region: AWS region
             dimension: Embedding vector dimension (must match EmbeddingClient)
         """
         self.index_name = index_name
         self.dimension = dimension
+        self._enabled = bool(endpoint and endpoint.strip())
+        self._client = None
 
-        credentials = boto3.Session().get_credentials()
-        auth = AWS4Auth(
-            credentials.access_key,
-            credentials.secret_key,
-            region,
-            'es',
-            session_token=credentials.token,
-        )
+        if not self._enabled:
+            logger.warning("OpenSearch endpoint is empty — running in no-op mode")
+            return
 
-        self._client = OpenSearch(
-            hosts=[endpoint],
-            http_auth=auth,
-            use_ssl=True,
-            verify_certs=True,
-            connection_class=RequestsHttpConnection,
-            timeout=30,
-        )
+        try:
+            credentials = boto3.Session().get_credentials()
+            auth = AWS4Auth(
+                credentials.access_key,
+                credentials.secret_key,
+                region,
+                'es',
+                session_token=credentials.token,
+            )
+
+            self._client = OpenSearch(
+                hosts=[endpoint],
+                http_auth=auth,
+                use_ssl=True,
+                verify_certs=True,
+                connection_class=RequestsHttpConnection,
+                timeout=30,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to initialize OpenSearch client: {e}")
+            self._enabled = False
 
     # =========================================================================
     # Index Management
@@ -92,6 +103,8 @@ class OpenSearchClient:
         Returns:
             True if created or already exists
         """
+        if not self._enabled:
+            return False
         if self._client.indices.exists(index=self.index_name):
             logger.info(f"Index '{self.index_name}' already exists")
             return True
@@ -157,6 +170,8 @@ class OpenSearchClient:
 
     def delete_article_index(self) -> bool:
         """Delete the article index. Use with caution."""
+        if not self._enabled:
+            return False
         try:
             self._client.indices.delete(index=self.index_name)
             logger.info(f"Deleted index '{self.index_name}'")
@@ -187,6 +202,9 @@ class OpenSearchClient:
         Returns:
             True if indexed successfully
         """
+        if not self._enabled:
+            return False
+
         news_id = article.get('news_id', '')
         doc_id = f"{news_id}_{mbti_group}" if mbti_group else news_id
 
@@ -230,7 +248,7 @@ class OpenSearchClient:
         Returns:
             Number of successfully indexed documents
         """
-        if not articles:
+        if not self._enabled or not articles:
             return 0
 
         if mbti_groups is None:
@@ -278,6 +296,8 @@ class OpenSearchClient:
 
     def delete_article(self, news_id: str, mbti_group: str = '') -> bool:
         """Delete a single article document."""
+        if not self._enabled:
+            return False
         doc_id = f"{news_id}_{mbti_group}" if mbti_group else news_id
         try:
             self._client.delete(index=self.index_name, id=doc_id, ignore=[404])
@@ -444,8 +464,19 @@ class OpenSearchClient:
     # Internal
     # =========================================================================
 
+    def search_similar(
+        self,
+        embedding: List[float],
+        k: int = 10,
+        filters: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Alias for search_by_vector."""
+        return self.search_by_vector(embedding, k=k, filters=filters)
+
     def _execute_search(self, body: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Execute a search query and return normalized hits."""
+        if not self._enabled:
+            return []
         try:
             response = self._client.search(index=self.index_name, body=body)
 

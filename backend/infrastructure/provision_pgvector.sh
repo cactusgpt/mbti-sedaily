@@ -10,7 +10,7 @@
 #   1. DB subnet group (uses default VPC subnets)
 #   2. Security group (allows Lambda + local dev access)
 #   3. RDS instance: sedaily-mbti-pgvector-dev
-#      - Engine: PostgreSQL 15.4
+#      - Engine: PostgreSQL 16.6
 #      - Instance: db.t3.micro (~$14/month)
 #      - Storage: 20 GB gp3
 #      - DB name: sedaily_mbti
@@ -34,12 +34,12 @@ REGION="us-east-1"
 DRY_RUN=false
 
 DB_INSTANCE_ID="sedaily-mbti-pgvector-dev"
-DB_NAME="sedaily_mbti"
-DB_USER="postgres"
+DB_NAME="ailens"
+DB_USER="ailens"
 DB_PORT="5432"
 DB_INSTANCE_CLASS="db.t3.micro"
 DB_STORAGE_GB=20
-DB_ENGINE_VERSION="15.4"
+DB_ENGINE_VERSION="16.6"
 SG_NAME="sedaily-mbti-pgvector-sg"
 
 # Password from env or prompt

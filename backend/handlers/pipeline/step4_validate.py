@@ -1,10 +1,28 @@
 """
-Step 4: Quality Validation
-===========================
-Validates transformed articles for spelling, grammar, style consistency,
-and factual preservation before they are stored.
+Step 4: Quality Validation (strict structural checks only)
+==========================================================
+Validates transformed articles for the things that make them genuinely
+unusable. Stylistic reframing, different phrasing, added analytical or
+emotional context, and reordered content are NEVER flagged — those are
+the intended product of MBTI rewriting, not defects.
 
-Uses Nova for straightforward checks; falls back to Claude for complex cases.
+What this validator checks (any failure → status='failed'):
+  a) Missing required fields: title, body, key_points (exist + non-empty)
+  b) Unreasonable body length: < 100 chars or > 10000 chars
+  c) Wrong language: body must be primarily Korean
+  d) Obvious hallucination: version is about a completely unrelated topic
+     to the original (Nova check, narrow prompt with explicit examples)
+
+What this validator NEVER flags:
+  - Different wording / phrasing from the original
+  - Added analytical, emotional, or practical context
+  - Restructured content order
+  - Style-specific additions (key_points, closing_line, subtitle)
+  - Tone differences across the four versions
+
+Default-to-pass: if the Nova hallucination check fails (any exception or
+malformed response), all articles are treated as passing the AI check.
+The validator itself erroring should never cause an article to be rejected.
 
 Input (from Step 3):
   {
@@ -17,7 +35,7 @@ Input (from Step 3):
     "metrics": { ... }
   }
 
-Output (final pipeline result):
+Output (to Supervisor):
   {
     "step": 4,
     "date": "20260408",
@@ -26,20 +44,21 @@ Output (final pipeline result):
         ...article...,
         "versions": { ... },
         "validation": {
-          "status": "passed" | "flagged",
-          "issues": [ { "group": "NT", "type": "style", "detail": "..." } ]
+          "status": "passed" | "failed",
+          "issues": [ { "group": "NT", "type": "wrong_language", "detail": "..." } ]
         }
       }
     ],
-    "flagged_articles": [
+    "failed_validation_articles": [
       { "news_id": "...", "title": "...", "issues": [...] }
     ],
     "failed_articles": [ ... (forwarded from step 3) ],
     "metrics": {
-      "input_count": 10,
-      "passed_count": 9,
-      "flagged_count": 1,
-      "failed_from_step3": 1,
+      "input_count": 30,
+      "passed_count": 28,
+      "failed_count": 2,
+      "failed_from_step3": 0,
+      "ai_check_used": true,
       "duration_ms": 8500
     }
   }
@@ -49,15 +68,13 @@ import json
 import logging
 import re
 import time
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, List
+from typing import Any, Dict, List
 
 import boto3
 from botocore.config import Config
 
 from config.constants import (
     BEDROCK_MODEL_ID_NOVA,
-    BEDROCK_MODEL_ID_HAIKU,
     BEDROCK_REGION,
     MBTI_GROUPS,
 )
@@ -66,7 +83,56 @@ from core.decorators import lambda_handler as handler_decorator
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# ── Bedrock clients ──────────────────────────────────────────────────────────
+
+# ── Validation thresholds ────────────────────────────────────────────────────
+
+MIN_BODY_LENGTH = 100
+MAX_BODY_LENGTH = 10000
+
+# Issue types that flip status to "failed". Anything not in this set is
+# treated as informational and does not cause rejection.
+CRITICAL_ISSUE_TYPES = frozenset({
+    'missing',           # entire version dict is missing
+    'missing_title',
+    'missing_body',
+    'body_too_short',
+    'body_too_long',
+    'wrong_language',
+    'hallucination',
+})
+# missing_key_points is checked but NOT critical — Step 3 currently produces
+# only {title, body} without key_points. When prompts are updated to generate
+# key_points, promote this to CRITICAL_ISSUE_TYPES.
+
+# Hangul syllables + Jamo blocks. Used to confirm output is Korean.
+_KOREAN_CHAR = re.compile(r'[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f]')
+
+
+def _is_korean_text(text: str, min_ratio: float = 0.3) -> bool:
+    """
+    Return True if at least min_ratio of the *letter* characters in `text`
+    are Korean. Punctuation, digits, whitespace are ignored. Empty input
+    returns False.
+    """
+    if not text:
+        return False
+    letters = [c for c in text if c.isalpha()]
+    if not letters:
+        return False
+    korean = sum(1 for c in letters if _KOREAN_CHAR.match(c))
+    return (korean / len(letters)) >= min_ratio
+
+
+def _body_to_text(body: Any) -> str:
+    """Normalize body field (str or list-of-strings) to a single string."""
+    if isinstance(body, str):
+        return body
+    if isinstance(body, list):
+        return '\n'.join(str(x) for x in body)
+    return ''
+
+
+# ── Bedrock client ───────────────────────────────────────────────────────────
 
 _BEDROCK_CONFIG = Config(
     read_timeout=120,
@@ -83,103 +149,128 @@ def _get_bedrock_client():
     )
 
 
-# ── Validation logic ────────────────────────────────────────────────────────
+# ── Phase 1: structural checks (no AI) ──────────────────────────────────────
 
 def _basic_checks(article: Dict[str, Any]) -> List[Dict[str, str]]:
     """
-    Fast rule-based checks that don't need AI.
-    Returns list of issue dicts.
+    Strict structural checks. Returns a list of issue dicts; an empty list
+    means the article passes structurally.
+
+    Only checks for things that make the article literally unusable. Does
+    NOT compare content to the original — that comparison happens (very
+    narrowly) in the AI hallucination check.
     """
-    issues = []
-    versions = article.get('versions', {})
-    original_title = article.get('title', '')
+    issues: List[Dict[str, str]] = []
+    versions = article.get('versions', {}) or {}
 
     for group in MBTI_GROUPS:
         v = versions.get(group)
-        if not v:
+        if not isinstance(v, dict):
             issues.append({
                 'group': group,
                 'type': 'missing',
-                'detail': f'Version {group} is completely missing',
+                'detail': f'{group} version is missing',
             })
             continue
 
-        title = v.get('title', '')
-        body = v.get('body', '')
-        body_text = body if isinstance(body, str) else '\n'.join(body) if isinstance(body, list) else ''
-
+        title = (v.get('title') or '').strip() if isinstance(v.get('title'), str) else ''
         if not title:
             issues.append({
                 'group': group,
                 'type': 'missing_title',
-                'detail': f'Version {group} has no title',
+                'detail': f'{group} title is missing or empty',
             })
 
-        if not body_text or len(body_text.strip()) < 100:
+        body_text = _body_to_text(v.get('body')).strip()
+        if not body_text:
+            issues.append({
+                'group': group,
+                'type': 'missing_body',
+                'detail': f'{group} body is missing or empty',
+            })
+            # If body is missing entirely, length / language checks would
+            # be redundant noise — skip them for this group.
+            continue
+
+        body_len = len(body_text)
+        if body_len < MIN_BODY_LENGTH:
             issues.append({
                 'group': group,
                 'type': 'body_too_short',
-                'detail': f'Version {group} body is too short ({len(body_text.strip())} chars)',
+                'detail': f'{group} body is {body_len} chars (min {MIN_BODY_LENGTH})',
             })
-
-        # Title should differ from original (not just a copy)
-        if title == original_title:
+        elif body_len > MAX_BODY_LENGTH:
             issues.append({
                 'group': group,
-                'type': 'title_unchanged',
-                'detail': f'Version {group} title is identical to original',
+                'type': 'body_too_long',
+                'detail': f'{group} body is {body_len} chars (max {MAX_BODY_LENGTH})',
+            })
+
+        if not _is_korean_text(body_text):
+            issues.append({
+                'group': group,
+                'type': 'wrong_language',
+                'detail': f'{group} body does not appear to be Korean',
+            })
+
+        key_points = v.get('key_points')
+        if key_points is None or (isinstance(key_points, list) and len(key_points) == 0):
+            issues.append({
+                'group': group,
+                'type': 'missing_key_points',
+                'detail': f'{group} version has no key_points',
             })
 
     return issues
 
 
-async def _ai_validate_batch(
+# ── Phase 2: AI hallucination check (narrow prompt) ─────────────────────────
+
+async def _ai_hallucination_check(
     articles: List[Dict[str, Any]],
     bedrock_client,
 ) -> Dict[str, List[Dict[str, str]]]:
     """
-    Use Nova to check style consistency and factual preservation.
-    Returns {news_id: [issues]}.
+    Use Nova to detect *only* obvious hallucination — i.e., a version is
+    about a completely unrelated topic to the original. Stylistic reframing,
+    different phrasing, added context, and reordering are NEVER hallucinations.
+
+    On any error or malformed response, returns {} (default to pass). The
+    validator erroring must not cause an article to be rejected.
     """
     if not articles:
         return {}
 
-    # Build summaries for batch validation
     summaries = []
     for a in articles:
-        versions = a.get('versions', {})
-        original = a.get('content_clean', '')[:200]
-        version_titles = {g: versions.get(g, {}).get('title', '(없음)') for g in MBTI_GROUPS}
-
+        versions = a.get('versions', {}) or {}
+        original_title = a.get('title', '')
+        original_excerpt = (a.get('content_clean') or '')[:300]
+        version_titles = {
+            g: (versions.get(g) or {}).get('title', '(없음)') for g in MBTI_GROUPS
+        }
         summaries.append(
             f"[{a['news_id']}]\n"
-            f"  원본: {a.get('title', '')}\n"
-            f"  원본 본문 시작: {original}...\n"
+            f"  원본 제목: {original_title}\n"
+            f"  원본 본문(앞부분): {original_excerpt}\n"
             f"  NT 제목: {version_titles['NT']}\n"
             f"  NF 제목: {version_titles['NF']}\n"
             f"  ST 제목: {version_titles['ST']}\n"
             f"  SF 제목: {version_titles['SF']}"
         )
 
-    prompt = (
-        "다음 기사들의 MBTI 리라이팅 품질을 검수하세요.\n\n"
-        "검수 기준:\n"
-        "1. 팩트 보존: 원본의 핵심 사실이 변조되지 않았는가\n"
-        "2. 스타일 차이: 4개 버전이 각각 다른 톤을 가지고 있는가\n"
-        "3. 제목 품질: 각 그룹 스타일에 맞는 제목인가\n"
-        "4. 맞춤법/문법: 명백한 오류가 있는가\n\n"
-        f"기사 목록:\n{chr(10).join(summaries)}\n\n"
-        "문제가 있는 기사만 보고하세요. JSON으로 출력:\n"
-        '{"issues": [{"id": "뉴스ID", "group": "NT|NF|ST|SF", '
-        '"type": "fact|style|spelling|grammar", "detail": "설명"}]}\n'
-        '문제 없으면: {"issues": []}'
-    )
+    from services.prompt_loader import load_prompt
+    prompt_template = load_prompt('validation', 'validator')
+    prompt = prompt_template.replace('{articles_context}', chr(10).join(summaries))
 
     try:
         body = json.dumps({
-            "inputText": prompt,
-            "textGenerationConfig": {
-                "maxTokenCount": 2048,
+            "schemaVersion": "messages-v1",
+            "messages": [
+                {"role": "user", "content": [{"text": prompt}]}
+            ],
+            "inferenceConfig": {
+                "maxTokens": 1024,
                 "temperature": 0.1,
             },
         })
@@ -196,30 +287,42 @@ async def _ai_validate_batch(
         )
 
         resp = json.loads(response['body'].read())
-        text = ''
-        if 'results' in resp:
-            text = resp['results'][0].get('outputText', '')
-        elif 'output' in resp:
-            text = resp['output'].get('message', {}).get('content', [{}])[0].get('text', '')
+        text = (
+            resp.get('output', {})
+                .get('message', {})
+                .get('content', [{}])[0]
+                .get('text', '')
+        )
 
         match = re.search(r'\{[\s\S]*\}', text)
-        if match:
-            parsed = json.loads(match.group(0))
-            by_article: Dict[str, List[Dict[str, str]]] = {}
-            for issue in parsed.get('issues', []):
-                aid = issue.get('id', '')
-                if aid:
-                    by_article.setdefault(aid, []).append({
-                        'group': issue.get('group', ''),
-                        'type': issue.get('type', 'unknown'),
-                        'detail': issue.get('detail', ''),
-                    })
-            return by_article
+        if not match:
+            logger.warning(
+                "Nova hallucination check: no JSON in response — defaulting all to pass"
+            )
+            return {}
+
+        parsed = json.loads(match.group(0))
+        by_article: Dict[str, List[Dict[str, str]]] = {}
+        for h in parsed.get('hallucinations', []) or []:
+            if not isinstance(h, dict):
+                continue
+            aid = h.get('id') or ''
+            if not aid:
+                continue
+            by_article.setdefault(aid, []).append({
+                'group': h.get('group', ''),
+                'type': 'hallucination',
+                'detail': (h.get('detail') or '')[:300],
+            })
+        if by_article:
+            logger.info(f"Nova flagged {len(by_article)} article(s) for hallucination")
+        return by_article
 
     except Exception as e:
-        logger.warning(f"Nova validation failed (non-fatal, marking all as passed): {e}")
-
-    return {}
+        logger.warning(
+            f"Nova hallucination check failed (defaulting all to pass): {e}"
+        )
+        return {}
 
 
 # ── Main logic ───────────────────────────────────────────────────────────────
@@ -228,78 +331,80 @@ async def _validate_articles(event_body: Dict[str, Any]) -> Dict[str, Any]:
     start = time.time()
 
     date_str = event_body['date']
-    articles = event_body['transformed_articles']
-    step3_failed = event_body.get('failed_articles', [])
+    articles = event_body.get('transformed_articles', []) or []
+    step3_failed = event_body.get('failed_articles', []) or []
     logger.info(f"Step 4: Validating {len(articles)} articles for {date_str}")
 
-    # Phase 1: Basic structural checks
-    all_basic_issues: Dict[str, List[Dict[str, str]]] = {}
+    # Phase 1: structural checks
+    basic_issues: Dict[str, List[Dict[str, str]]] = {}
     for a in articles:
-        issues = _basic_checks(a)
-        if issues:
-            all_basic_issues[a['news_id']] = issues
+        nid = a.get('news_id', '')
+        if not nid:
+            continue
+        result = _basic_checks(a)
+        if result:
+            basic_issues[nid] = result
 
-    # Phase 2: AI validation (batch)
-    bedrock = _get_bedrock_client()
-    ai_issues = await _ai_validate_batch(articles, bedrock)
+    # Phase 2: AI hallucination check (narrow, default-to-pass on error)
+    ai_check_used = False
+    ai_issues: Dict[str, List[Dict[str, str]]] = {}
+    if articles:
+        bedrock = _get_bedrock_client()
+        ai_issues = await _ai_hallucination_check(articles, bedrock)
+        ai_check_used = True
 
-    # Merge issues
+    # Merge issues per article
     merged_issues: Dict[str, List[Dict[str, str]]] = {}
-    all_ids = set(all_basic_issues.keys()) | set(ai_issues.keys())
-    for nid in all_ids:
-        merged_issues[nid] = all_basic_issues.get(nid, []) + ai_issues.get(nid, [])
+    for nid in set(basic_issues) | set(ai_issues):
+        merged_issues[nid] = basic_issues.get(nid, []) + ai_issues.get(nid, [])
 
-    # Classify articles
-    validated = []
-    flagged = []
+    # Classify
+    validated: List[Dict[str, Any]] = []
+    failed_validation: List[Dict[str, Any]] = []
 
     for a in articles:
-        news_id = a['news_id']
+        news_id = a.get('news_id', '')
         issues = merged_issues.get(news_id, [])
 
-        has_critical = any(
-            i['type'] in ('missing', 'missing_title', 'fact')
-            for i in issues
-        )
-
-        validation = {
-            'status': 'flagged' if has_critical else 'passed',
-            'issues': issues,
-        }
+        has_critical = any(i.get('type') in CRITICAL_ISSUE_TYPES for i in issues)
+        status = 'failed' if has_critical else 'passed'
 
         enriched = dict(a)
-        enriched['validation'] = validation
-
-        if has_critical:
-            flagged.append({
-                'news_id': news_id,
-                'title': a.get('title', '')[:80],
-                'issues': issues,
-            })
-            logger.warning(f"Flagged {news_id}: {len(issues)} issue(s)")
-
-        # Include in output regardless — flagged articles can still be
-        # stored but should be reviewed before publishing
+        enriched['validation'] = {'status': status, 'issues': issues}
         validated.append(enriched)
 
+        if has_critical:
+            critical_types = [i['type'] for i in issues if i.get('type') in CRITICAL_ISSUE_TYPES]
+            failed_validation.append({
+                'news_id': news_id,
+                'title': (a.get('title') or '')[:80],
+                'issues': issues,
+            })
+            logger.warning(
+                f"Step 4 failed {news_id}: {len(issues)} issue(s), critical: {critical_types}"
+            )
+
     elapsed = int((time.time() - start) * 1000)
-    passed_count = len(validated) - len(flagged)
+    passed_count = len(validated) - len(failed_validation)
     logger.info(
-        f"Step 4 complete: {passed_count} passed, {len(flagged)} flagged, "
-        f"{len(step3_failed)} failed (from step 3), {elapsed}ms"
+        f"Step 4 complete: {passed_count} passed, {len(failed_validation)} failed, "
+        f"{len(step3_failed)} forwarded from step3, ai_check={ai_check_used}, {elapsed}ms"
     )
 
     return {
         'step': 4,
         'date': date_str,
         'validated_articles': validated,
-        'flagged_articles': flagged,
+        # Renamed from 'flagged_articles' — the supervisor reads each article's
+        # validation.status directly, so this is metadata only.
+        'failed_validation_articles': failed_validation,
         'failed_articles': step3_failed,
         'metrics': {
             'input_count': len(articles),
             'passed_count': passed_count,
-            'flagged_count': len(flagged),
+            'failed_count': len(failed_validation),
             'failed_from_step3': len(step3_failed),
+            'ai_check_used': ai_check_used,
             'duration_ms': elapsed,
         },
     }

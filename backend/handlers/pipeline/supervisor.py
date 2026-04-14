@@ -1,10 +1,22 @@
 """
 MBTI Supervisor — Final quality gate, storage, and vector indexing
 ===================================================================
-Receives validated articles from Step 4, performs a final cross-version
-consistency check using Amazon Nova, then:
-  1. Stores approved articles via split storage (S3 body + DynamoDB pointer)
-  2. Generates embeddings and indexes in OpenSearch + pgvector
+Receives validated articles from Step 4 and stores everything that has a
+usable structure. The supervisor runs a Nova cross-version review as a
+SOFT check — concerns are logged at WARNING level but never affect the
+storage decision. The only hard rejections are:
+
+  1. Step 4 marked the article validation.status == "failed"
+  2. Sanity safety-net: any version body is literally empty after Step 4
+     somehow let it through
+
+Everything else is stored. The premise: if Claude successfully produced
+4 MBTI versions with non-empty bodies and Step 4 didn't flag them as
+structurally broken, the article should be in the Article DB.
+
+After storage, the supervisor:
+  - Indexes embeddings in OpenSearch + pgvector (non-fatal failures)
+  - Writes a collection log row to DynamoDB
 
 Vector indexing failures are non-fatal — articles are always stored in
 Article DB first, and vector failures are logged for later retry.
@@ -20,11 +32,11 @@ Input (from Step 4):
         "images", "url", "related_news", "is_breaking_news",
         "versions": { "NT": {...}, "NF": {...}, "ST": {...}, "SF": {...} },
         "transform_usage": {...},
-        "validation": { "status": "passed"|"flagged", "issues": [...] }
+        "validation": { "status": "passed"|"failed", "issues": [...] }
       }
     ],
-    "flagged_articles": [...],
-    "failed_articles": [...],
+    "failed_validation_articles": [...],   # metadata, not used for decisions
+    "failed_articles": [...],              # forwarded from Step 3
     "metrics": {...}
   }
 
@@ -70,6 +82,7 @@ from config.constants import (
     BEDROCK_MODEL_ID_NOVA,
     BEDROCK_REGION,
     MBTI_GROUPS,
+    S3_ARTICLE_BODY_BUCKET_DEV,
 )
 from utils.hash_utils import hash_content
 from core.decorators import lambda_handler as handler_decorator
@@ -102,55 +115,53 @@ def _get_nova_client():
     )
 
 
-# ── Cross-version consistency check (Nova) ───────────────────────────────────
+# ── Cross-version consistency check (Nova, SOFT — log only) ──────────────────
 
 async def _supervisor_review(
     articles: List[Dict[str, Any]],
     nova_client,
-) -> Dict[str, Dict[str, Any]]:
+) -> Dict[str, str]:
     """
-    Final Nova review: cross-version consistency, tone verification,
-    and factual preservation across all 4 MBTI versions.
+    Cross-version Nova review run as a SOFT quality monitor. The result is
+    logged at WARNING level but never affects whether an article is stored.
+    Storage decisions are made in `_supervise_and_store` based purely on
+    Step 4's validation.status and the empty-body sanity net.
 
-    Returns {news_id: {"approved": bool, "reason": str}}.
+    The prompt asks Nova to flag only genuinely broken outputs (e.g., a
+    version that is empty in practice or that mirrors another version
+    verbatim) — not stylistic differences, which are intentional.
+
+    Returns {news_id: "concern text"} for articles Nova has reservations
+    about. Empty dict on any error or when nothing is concerning.
     """
     if not articles:
         return {}
 
     summaries = []
     for a in articles:
-        versions = a.get('versions', {})
+        versions = a.get('versions', {}) or {}
         lines = [f"[{a['news_id']}] 원본: {a.get('title', '')}"]
         for g in MBTI_GROUPS:
-            v = versions.get(g, {})
+            v = versions.get(g, {}) or {}
             title = v.get('title', '(없음)')
             body = v.get('body', '')
             body_text = body if isinstance(body, str) else '\n'.join(body) if isinstance(body, list) else ''
             preview = body_text[:150].replace('\n', ' ')
-            lines.append(f"  {g}({EXPECTED_TONES[g]}): {title} | {preview}...")
+            lines.append(f"  {g}: {title} | {preview}...")
         summaries.append('\n'.join(lines))
 
-    prompt = (
-        "당신은 MBTI 뉴스 서비스의 최종 품질 관리자입니다.\n"
-        "다음 기사들의 4개 MBTI 버전을 검토하세요.\n\n"
-        "검토 기준:\n"
-        "1. 톤 일관성: NT=분석적/논리적, NF=성찰적/따뜻한, "
-        "ST=간결한/팩트중심, SF=친근한/공감적 톤이 각각 유지되는가\n"
-        "2. 버전 간 차이: 4개 버전이 실제로 서로 다른 관점/톤을 제공하는가 "
-        "(복사본이 아닌가)\n"
-        "3. 핵심 팩트 보존: 원본 제목의 핵심 사실이 4개 버전 모두에 보존되는가\n\n"
-        f"기사 목록:\n{chr(10).join(summaries)}\n\n"
-        "문제가 있는 기사만 보고하세요. JSON으로 출력:\n"
-        '{"reviews": [{"id": "뉴스ID", "approved": false, '
-        '"reason": "사유"}]}\n'
-        '모두 통과: {"reviews": []}'
-    )
+    from services.prompt_loader import load_prompt
+    prompt_template = load_prompt('supervisor', 'supervisor_review')
+    prompt = prompt_template.replace('{articles_context}', chr(10).join(summaries))
 
     try:
         body = json.dumps({
-            "inputText": prompt,
-            "textGenerationConfig": {
-                "maxTokenCount": 2048,
+            "schemaVersion": "messages-v1",
+            "messages": [
+                {"role": "user", "content": [{"text": prompt}]}
+            ],
+            "inferenceConfig": {
+                "maxTokens": 1024,
                 "temperature": 0.1,
             },
         })
@@ -167,27 +178,50 @@ async def _supervisor_review(
         )
 
         resp = json.loads(response['body'].read())
-        text = ''
-        if 'results' in resp:
-            text = resp['results'][0].get('outputText', '')
-        elif 'output' in resp:
-            text = resp['output'].get('message', {}).get('content', [{}])[0].get('text', '')
+        text = (
+            resp.get('output', {})
+                .get('message', {})
+                .get('content', [{}])[0]
+                .get('text', '')
+        )
 
         match = re.search(r'\{[\s\S]*\}', text)
-        if match:
-            parsed = json.loads(match.group(0))
-            result = {}
-            for r in parsed.get('reviews', []):
-                result[r['id']] = {
-                    'approved': r.get('approved', True),
-                    'reason': r.get('reason', ''),
-                }
-            return result
+        if not match:
+            return {}
+
+        parsed = json.loads(match.group(0))
+        concerns: Dict[str, str] = {}
+        for c in parsed.get('concerns', []) or []:
+            if not isinstance(c, dict):
+                continue
+            nid = c.get('id') or ''
+            if nid:
+                concerns[nid] = (c.get('reason') or '')[:300]
+        return concerns
 
     except Exception as e:
-        logger.warning(f"Nova supervisor review failed (approving all): {e}")
+        logger.warning(f"Nova supervisor soft review failed (ignoring): {e}")
+        return {}
 
-    return {}
+
+# ── Sanity net: catch articles that would crash storage ──────────────────────
+
+def _is_critically_broken(article: Dict[str, Any]) -> Optional[str]:
+    """
+    Last-resort safety check. Returns a rejection reason string if the
+    article is literally unstorable (any MBTI version body is empty), or
+    None if it can be stored. Step 4's structural checks should already
+    catch this; this is a defensive net in case Step 4's status enum
+    drifts or someone disables it.
+    """
+    versions = article.get('versions', {}) or {}
+    for group in MBTI_GROUPS:
+        v = versions.get(group, {}) or {}
+        body = v.get('body', '')
+        body_text = body if isinstance(body, str) else '\n'.join(body) if isinstance(body, list) else ''
+        if not body_text.strip():
+            return f'{group} version has empty body'
+    return None
 
 
 # ── Map pipeline article to DynamoDB save format ─────────────────────────────
@@ -467,63 +501,139 @@ async def _index_vectors(
     }
 
 
+# ── S3 article content loader ────────────────────────────────────────────────
+
+S3_PIPELINE_TEMP_PREFIX = 'pipeline-temp'
+
+
+def _load_articles_from_s3(s3_uri: str) -> Dict[str, Dict[str, Any]]:
+    """Load full article data from S3 temp file. Returns {news_id: article_data}."""
+    parts = s3_uri.replace('s3://', '').split('/', 1)
+    bucket, key = parts[0], parts[1]
+
+    s3 = boto3.client('s3', region_name='us-east-1')
+    response = s3.get_object(Bucket=bucket, Key=key)
+    articles = json.loads(response['Body'].read().decode('utf-8'))
+
+    return {a['news_id']: a for a in articles}
+
+
 # ── Main logic ───────────────────────────────────────────────────────────────
 
 async def _supervise_and_store(event_body: Dict[str, Any]) -> Dict[str, Any]:
     start = time.time()
 
     date_str = event_body['date']
-    articles = event_body.get('validated_articles', [])
-    step4_flagged = event_body.get('flagged_articles', [])
-    step_failed = event_body.get('failed_articles', [])
+    articles = event_body.get('validated_articles', []) or []
+    # New schema (Step 4): failed_validation_articles. Fall back to the old
+    # 'flagged_articles' name for transitional compatibility — used only for
+    # logging, not for decisions.
+    step4_failed_meta = (
+        event_body.get('failed_validation_articles')
+        or event_body.get('flagged_articles')
+        or []
+    )
+    step3_failed = event_body.get('failed_articles', []) or []
 
     logger.info(
-        f"Supervisor: {len(articles)} articles, "
-        f"{len(step4_flagged)} flagged, {len(step_failed)} failed from pipeline"
+        f"Supervisor: {len(articles)} articles in, "
+        f"{len(step4_failed_meta)} failed step4 validation, "
+        f"{len(step3_failed)} failed in step3"
     )
 
-    # ── Phase 1: Nova cross-version review ──────────────────────────────────
+    # ── Phase 0: Load full article data from S3 as fallback ───────────────
+    #
+    # Step 3 normally enriches articles from S3, so content_clean should
+    # already be present. This is a defensive fallback in case the S3
+    # enrichment in Step 3 was skipped (e.g., URI not passed through Map).
+    # Construct the predictable URI from the date if not in the event.
 
-    # Only review articles that passed step 4 validation
-    passed_articles = [a for a in articles if a.get('validation', {}).get('status') == 'passed']
-    flagged_ids = {f['news_id'] for f in step4_flagged}
+    s3_uri = event_body.get('selected_articles_s3_uri', '')
+    if not s3_uri and date_str:
+        s3_uri = (
+            f"s3://{S3_ARTICLE_BODY_BUCKET_DEV}/"
+            f"{S3_PIPELINE_TEMP_PREFIX}/{date_str}/selected_articles.json"
+        )
 
-    nova_rejections: Dict[str, Dict[str, Any]] = {}
-    if passed_articles:
-        nova = _get_nova_client()
-        nova_rejections = await _supervisor_review(passed_articles, nova)
+    s3_lookup: Dict[str, Dict[str, Any]] = {}
+    if s3_uri:
+        try:
+            s3_lookup = _load_articles_from_s3(s3_uri)
+            logger.info(f"Loaded {len(s3_lookup)} articles from S3 for enrichment")
+        except Exception as e:
+            logger.warning(
+                f"Failed to load articles from S3 ({s3_uri}), "
+                f"proceeding with payload data: {e}"
+            )
 
-    # ── Phase 2: Decide which articles to store ─────────────────────────────
+    # Enrich articles with S3 data for any fields missing from the payload
+    if s3_lookup:
+        for article in articles:
+            s3_data = s3_lookup.get(article.get('news_id', ''), {})
+            for key, val in s3_data.items():
+                if key not in article:
+                    article[key] = val
+
+    # ── Phase 1: Decide which articles to store ─────────────────────────────
+    #
+    # Hard rejections (only):
+    #   - Step 4 marked validation.status == "failed"
+    #   - Sanity net: any version body is literally empty
+    #
+    # Everything else is stored. Step 4's strict structural checks already
+    # cover the cases that genuinely make an article unstorable.
 
     to_store: List[Dict[str, Any]] = []
     rejected: List[Dict[str, Any]] = []
 
     for article in articles:
-        news_id = article['news_id']
-        validation = article.get('validation', {})
+        news_id = article.get('news_id', '')
+        if not news_id:
+            continue
 
-        # Already flagged by step 4 with critical issues → reject
-        if validation.get('status') == 'flagged':
+        validation = article.get('validation', {}) or {}
+        status = validation.get('status', 'passed')
+
+        if status == 'failed':
+            issues = validation.get('issues', []) or []
+            issue_types = [i.get('type', '?') for i in issues]
             rejected.append({
                 'news_id': news_id,
-                'title': article.get('title', '')[:80],
-                'reason': 'step4_flagged',
+                'title': (article.get('title') or '')[:80],
+                'reason': f"step4_failed: {','.join(issue_types[:5])}",
             })
             continue
 
-        # Rejected by supervisor Nova review → reject
-        nova_result = nova_rejections.get(news_id)
-        if nova_result and not nova_result.get('approved', True):
+        broken_reason = _is_critically_broken(article)
+        if broken_reason:
             rejected.append({
                 'news_id': news_id,
-                'title': article.get('title', '')[:80],
-                'reason': f"supervisor: {nova_result.get('reason', 'quality')}",
+                'title': (article.get('title') or '')[:80],
+                'reason': f'sanity_net: {broken_reason}',
             })
             continue
 
         to_store.append(article)
 
     logger.info(f"Supervisor approved {len(to_store)}, rejected {len(rejected)}")
+
+    # ── Phase 2: Nova soft review (log only, never blocks storage) ──────────
+    #
+    # Run AFTER the storage decision so it can never affect rejection. This
+    # is purely a quality monitor that surfaces concerns in CloudWatch logs.
+
+    if to_store:
+        try:
+            nova = _get_nova_client()
+            soft_concerns = await _supervisor_review(to_store, nova)
+            for nid, reason in soft_concerns.items():
+                logger.warning(
+                    f"Supervisor soft-flagged {nid}: {reason} "
+                    f"(storing anyway per policy)"
+                )
+        except Exception as e:
+            # The soft review itself erroring must never block storage.
+            logger.warning(f"Supervisor soft review skipped due to error: {e}")
 
     # ── Phase 3: Store approved articles in Article DB ────────────────────
 
@@ -571,7 +681,7 @@ async def _supervise_and_store(event_body: Dict[str, Any]) -> Dict[str, Any]:
 
     # ── Phase 5: Collection log ─────────────────────────────────────────────
 
-    total_pipeline = len(articles) + len(step_failed)
+    total_pipeline = len(articles) + len(step3_failed)
     metrics = {
         'input_count': len(articles),
         'approved_count': len(to_store),
@@ -586,7 +696,7 @@ async def _supervise_and_store(event_body: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     log_id = await _save_collection_log(
-        db, date_str, metrics, stored, rejected, step_failed,
+        db, date_str, metrics, stored, rejected, step3_failed,
     )
 
     elapsed = metrics['duration_ms']
@@ -603,7 +713,7 @@ async def _supervise_and_store(event_body: Dict[str, Any]) -> Dict[str, Any]:
         'date': date_str,
         'stored_articles': stored,
         'rejected_articles': rejected,
-        'failed_articles': step_failed,
+        'failed_articles': step3_failed,
         'vector_failures': vector_failures,
         'collection_log_id': log_id,
         'metrics': metrics,

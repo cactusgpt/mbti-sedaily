@@ -17,8 +17,10 @@ from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Key, Attr
+from botocore.exceptions import ClientError
 
 from config.constants import AWS_REGION_DEFAULT
+from models.podcast import Podcast
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,12 @@ class PodcastDBClient:
         try:
             response = self.table.get_item(Key={'podcast_id': podcast_id})
             return response.get('Item')
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                logger.warning(f"Podcast DB table {self.table_name} does not exist yet")
+                return None
+            logger.error(f"Failed to get podcast {podcast_id}: {e}")
+            return None
         except Exception as e:
             logger.error(f"Failed to get podcast {podcast_id}: {e}")
             return None
@@ -74,6 +82,12 @@ class PodcastDBClient:
             clean = _sanitize_for_dynamodb(clean)
             self.table.put_item(Item=clean)
             return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                logger.warning(f"Podcast DB table {self.table_name} does not exist yet")
+                return False
+            logger.error(f"Failed to put podcast: {e}", exc_info=True)
+            return False
         except Exception as e:
             logger.error(f"Failed to put podcast: {e}", exc_info=True)
             return False
@@ -83,6 +97,12 @@ class PodcastDBClient:
         try:
             self.table.delete_item(Key={'podcast_id': podcast_id})
             return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                logger.warning(f"Podcast DB table {self.table_name} does not exist yet")
+                return False
+            logger.error(f"Failed to delete podcast {podcast_id}: {e}")
+            return False
         except Exception as e:
             logger.error(f"Failed to delete podcast {podcast_id}: {e}")
             return False
@@ -133,6 +153,12 @@ class PodcastDBClient:
             )
             return response.get('Attributes')
 
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                logger.warning(f"Podcast DB table {self.table_name} does not exist yet")
+                return None
+            logger.error(f"Failed to update podcast {podcast_id}: {e}", exc_info=True)
+            return None
         except Exception as e:
             logger.error(f"Failed to update podcast {podcast_id}: {e}", exc_info=True)
             return None
@@ -178,6 +204,12 @@ class PodcastDBClient:
 
             return items
 
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                logger.warning(f"Podcast DB table {self.table_name} does not exist yet")
+                return []
+            logger.error(f"Failed to query podcasts for date {created_date}: {e}", exc_info=True)
+            return []
         except Exception as e:
             logger.error(f"Failed to query podcasts for date {created_date}: {e}", exc_info=True)
             return []
@@ -218,6 +250,44 @@ class PodcastDBClient:
             items.sort(key=lambda x: x.get('created_at', ''), reverse=True)
             return items[:limit]
 
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ResourceNotFoundException':
+                logger.warning(f"Podcast DB table {self.table_name} does not exist yet")
+                return []
+            logger.error(f"Failed to query podcasts for article {article_id}: {e}", exc_info=True)
+            return []
         except Exception as e:
             logger.error(f"Failed to query podcasts for article {article_id}: {e}", exc_info=True)
             return []
+
+    # ── Domain methods ───────────────────────────────────────────────────
+
+    async def put_podcast(self, podcast: Podcast) -> Dict[str, Any]:
+        """Save a podcast. Returns the item dict."""
+        item = podcast.to_item()
+        await self.put_item(item)
+        return item
+
+    async def get_podcast(self, podcast_id: str) -> Optional[Dict[str, Any]]:
+        """Get a single podcast by ID, or None if not found."""
+        return await self.get_item(podcast_id)
+
+    async def update_podcast_status(
+        self,
+        podcast_id: str,
+        status: str,
+        updates: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Update podcast status and optional extra fields."""
+        all_updates = {'status': status}
+        if updates:
+            all_updates.update(updates)
+        return await self.update_item(podcast_id, all_updates)
+
+    async def get_podcasts_by_date(self, date: str) -> List[Dict[str, Any]]:
+        """Get all podcasts for a date (YYYY-MM-DD) via GSI."""
+        return await self.query_by_date(date)
+
+    async def get_podcasts_by_article(self, article_id: str) -> List[Dict[str, Any]]:
+        """Get all podcasts generated from a specific article."""
+        return await self.query_by_article(article_id)

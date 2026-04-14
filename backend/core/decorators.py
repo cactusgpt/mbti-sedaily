@@ -48,16 +48,11 @@ def lambda_handler(func: Callable) -> Callable:
         logger.debug(f"Event: {_safe_log_event(event)}")
 
         try:
-            # Handle async functions
+            # Handle async functions. Lambda containers always start fresh,
+            # so there's never an existing event loop on the first invocation.
+            # asyncio.run() creates a new loop and tears it down cleanly.
             if asyncio.iscoroutinefunction(func):
-                # Check if we're already in an event loop
-                try:
-                    loop = asyncio.get_running_loop()
-                    # We're in an async context, use nest_asyncio or run directly
-                    result = asyncio.run(func(event, context))
-                except RuntimeError:
-                    # No running event loop, safe to use asyncio.run()
-                    result = asyncio.run(func(event, context))
+                result = asyncio.run(func(event, context))
             else:
                 result = func(event, context)
 

@@ -70,10 +70,10 @@ class Settings:
 
     # ── PostgreSQL (pgvector) ────────────────────────────────────────────────
 
-    pg_host: str = 'localhost'
+    pg_host: str = ''
     pg_port: int = 5432
-    pg_database: str = 'sedaily_mbti'
-    pg_user: str = 'postgres'
+    pg_database: str = 'ailens'
+    pg_user: str = 'ailens'
     pg_password: str = ''
 
     # ── Redis Cache ──────────────────────────────────────────────────────────
@@ -140,10 +140,10 @@ class Settings:
             opensearch_index=os.getenv('OPENSEARCH_INDEX', OPENSEARCH_INDEX_DEFAULT),
 
             # PostgreSQL (pgvector)
-            pg_host=os.getenv('PG_HOST', 'localhost'),
+            pg_host=os.getenv('PG_HOST', ''),
             pg_port=int(os.getenv('PG_PORT', '5432')),
-            pg_database=os.getenv('PG_DATABASE', 'sedaily_mbti'),
-            pg_user=os.getenv('PG_USER', 'postgres'),
+            pg_database=os.getenv('PG_DATABASE', 'ailens'),
+            pg_user=os.getenv('PG_USER', 'ailens'),
             pg_password=os.getenv('PG_PASSWORD', ''),
 
             # Redis

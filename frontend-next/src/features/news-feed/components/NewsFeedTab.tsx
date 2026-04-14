@@ -50,7 +50,7 @@ const typeInfo = {
   ST: {
     name: "실용주의자",
     color: "bg-emerald-500",
-    textColor: "text-emerald-600",
+    textColor: "text-emerald-700",
     ringColor: "ring-emerald-200",
     shadowColor: "shadow-emerald-200/50",
     avatar: "/editors/istj.png",
@@ -59,7 +59,7 @@ const typeInfo = {
   SF: {
     name: "공감러",
     color: "bg-amber-500",
-    textColor: "text-amber-600",
+    textColor: "text-amber-700",
     ringColor: "ring-amber-200",
     shadowColor: "shadow-amber-200/50",
     avatar: "/editors/esfp.png",

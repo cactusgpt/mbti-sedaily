@@ -220,7 +220,7 @@ def estimate_lambda_cost(cw, start: datetime, end: datetime, days: int) -> Dict:
         'sedaily-mbti-recommend-dev',
         'sedaily-mbti-pipeline-step1-dev', 'sedaily-mbti-pipeline-step2-dev',
         'sedaily-mbti-pipeline-step3-dev', 'sedaily-mbti-pipeline-step4-dev',
-        'sedaily-mbti-pipeline-supervisor-dev', 'sedaily-mbti-pipeline-merge-dev',
+        'sedaily-mbti-pipeline-supervisor-dev',
     ]
 
     total_invocations = 0

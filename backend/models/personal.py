@@ -39,13 +39,13 @@ class ArchivedSentence:
       PK: user_id
       SK: ARCHIVE#{article_id}#{timestamp}
     """
-    id: str                         # "{user_id}-{article_id}-{timestamp}"
     user_id: str
     text: str                       # The saved sentence text
     article_id: str
     article_title: str
     article_published_at: str = ''  # ISO 8601
     created_at: str = ''
+    id: str = ''                    # "{user_id}-{article_id}-{timestamp}" (auto-generated)
 
     def __post_init__(self):
         if not self.created_at:

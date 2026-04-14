@@ -7,21 +7,29 @@ the combined prompt built from /prompts/nt.md, nf.md, st.md, sf.md.
 
 Uses Claude (NOT Nova) — Korean rewriting is a complex task.
 
-Input (from Step 2):
+Article content is loaded from the S3 temp file uploaded by Step 1
+(selected_articles_s3_uri) rather than from the Step Functions payload,
+which carries only lightweight metadata to stay under the 256 KB limit.
+Falls back to reading content_clean from the payload for backward
+compatibility with older pipeline runs.
+
+Input (from Step 2 via ProcessArticlesMap):
   {
     "step": 2,
-    "date": "20260408",
+    "date": "20260413",
+    "selected_articles_s3_uri": "s3://...",         # optional, preferred
     "classified_articles": [
-      { ...article..., "target_groups": ["NT","NF","ST","SF"] }
+      { "news_id": "...", "title": "...", "category": "...",
+        "published_at": "...", "target_groups": ["NT","ST"] }
     ],
-    "classification_map": { ... },
-    "metrics": { ... }
+    "classification_map": {},
+    "metrics": {}
   }
 
 Output (passed to Step 4):
   {
     "step": 3,
-    "date": "20260408",
+    "date": "20260413",
     "transformed_articles": [
       {
         ...article metadata...,
@@ -38,12 +46,12 @@ Output (passed to Step 4):
       { "news_id": "...", "title": "...", "error": "..." }
     ],
     "metrics": {
-      "input_count": 11,
-      "transformed_count": 10,
-      "failed_count": 1,
+      "input_count": 1,
+      "transformed_count": 1,
+      "failed_count": 0,
       "total_input_tokens": ...,
       "total_output_tokens": ...,
-      "duration_ms": 45000
+      "duration_ms": 28000
     }
   }
 """
@@ -70,6 +78,20 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+# ── S3 article content loader ────────────────────────────────────────────────
+
+def _load_articles_from_s3(s3_uri: str) -> Dict[str, Dict[str, Any]]:
+    """Load full article data from S3 temp file. Returns {news_id: article_data}."""
+    parts = s3_uri.replace('s3://', '').split('/', 1)
+    bucket, key = parts[0], parts[1]
+
+    s3 = boto3.client('s3', region_name='us-east-1')
+    response = s3.get_object(Bucket=bucket, Key=key)
+    articles = json.loads(response['Body'].read().decode('utf-8'))
+
+    return {a['news_id']: a for a in articles}
+
+
 # ── Main logic ───────────────────────────────────────────────────────────────
 
 async def _transform_articles(event_body: Dict[str, Any]) -> Dict[str, Any]:
@@ -78,6 +100,22 @@ async def _transform_articles(event_body: Dict[str, Any]) -> Dict[str, Any]:
     date_str = event_body['date']
     articles = event_body['classified_articles']
     logger.info(f"Step 3: Transforming {len(articles)} articles for {date_str}")
+
+    # Load full article content from S3 if URI is available.
+    # Step 1 uploads full content to S3 to stay under the 256 KB Step Functions
+    # payload limit. Falls back to reading content_clean from the payload for
+    # backward compatibility with older pipeline runs.
+    s3_uri = event_body.get('selected_articles_s3_uri', '')
+    s3_lookup: Dict[str, Dict[str, Any]] = {}
+    if s3_uri:
+        try:
+            s3_lookup = _load_articles_from_s3(s3_uri)
+            logger.info(f"Loaded {len(s3_lookup)} articles from S3: {s3_uri}")
+        except Exception as e:
+            logger.warning(
+                f"Failed to load articles from S3 ({s3_uri}), "
+                f"falling back to payload: {e}"
+            )
 
     transform_service = MbtiTransformService(region=BEDROCK_REGION)
 
@@ -88,6 +126,15 @@ async def _transform_articles(event_body: Dict[str, Any]) -> Dict[str, Any]:
 
     for idx, article in enumerate(articles):
         news_id = article['news_id']
+
+        # Enrich article with full content from S3 lookup.
+        # Payload has lightweight metadata + target_groups from Step 2;
+        # S3 has content_clean, sub_title, author_name, images, url, etc.
+        s3_data = s3_lookup.get(news_id, {})
+        for key, val in s3_data.items():
+            if key not in article:
+                article[key] = val
+
         title = article.get('title', '')
         content = article.get('content_clean', '')
 

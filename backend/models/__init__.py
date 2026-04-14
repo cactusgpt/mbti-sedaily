@@ -20,6 +20,14 @@ from .personal import (
 
 from .podcast import Podcast
 
+from .ab_test import (
+    Experiment,
+    Assignment,
+    ABEvent,
+    ABExperiment,
+    ABAssignment,
+)
+
 __all__ = [
     'Article',
     'ArticleVersion',
@@ -32,4 +40,9 @@ __all__ = [
     'UserProfile',
     'ReadingRecord',
     'Podcast',
+    'Experiment',
+    'Assignment',
+    'ABEvent',
+    'ABExperiment',
+    'ABAssignment',
 ]

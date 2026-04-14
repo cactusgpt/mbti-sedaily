@@ -164,3 +164,8 @@ class ABEvent:
             timestamp=item.get('timestamp', ''),
             metadata=item.get('metadata', {}),
         )
+
+
+# Aliases for convenience
+ABExperiment = Experiment
+ABAssignment = Assignment

@@ -39,12 +39,12 @@ MAX_RETRY_DELAY = 300
 # Cost: $0.25/$1.25 per 1M tokens (input/output)
 BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
 
-# Prompt file names for each MBTI group
+# Prompt file names for each MBTI group (under prompts/transform/)
 PROMPT_FILES = {
-    'NT': 'nt.md',
-    'NF': 'nf.md',
-    'ST': 'st.md',
-    'SF': 'sf.md'
+    'NT': os.path.join('transform', 'nt.md'),
+    'NF': os.path.join('transform', 'nf.md'),
+    'ST': os.path.join('transform', 'st.md'),
+    'SF': os.path.join('transform', 'sf.md'),
 }
 
 
@@ -184,28 +184,47 @@ class MbtiTransformService:
 [중요] 출력 형식 - 반드시 JSON으로 출력하세요
 ===========================================
 
-다음 JSON 형식으로 출력해주세요. 각 그룹별로 title과 body를 포함해야 합니다:
+다음 JSON 형식으로 출력해주세요. 각 그룹별로 5개 필드를 모두 포함해야 합니다:
 
 ```json
 {
   "NT": {
     "title": "NT 스타일 제목",
-    "body": "NT 스타일 본문 (마크다운 형식)"
+    "subtitle": "1~2문장 부제목 (핵심 메시지 요약)",
+    "body": "NT 스타일 본문 (마크다운 형식)",
+    "key_points": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"],
+    "closing_line": "NT 성격에 맞는 마무리 한 줄"
   },
   "NF": {
     "title": "NF 스타일 제목",
-    "body": "NF 스타일 본문 (마크다운 형식)"
+    "subtitle": "1~2문장 부제목 (핵심 메시지 요약)",
+    "body": "NF 스타일 본문 (마크다운 형식)",
+    "key_points": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"],
+    "closing_line": "NF 성격에 맞는 마무리 한 줄"
   },
   "ST": {
     "title": "ST 스타일 제목",
-    "body": "ST 스타일 본문 (마크다운 형식)"
+    "subtitle": "1~2문장 부제목 (핵심 메시지 요약)",
+    "body": "ST 스타일 본문 (마크다운 형식)",
+    "key_points": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"],
+    "closing_line": "ST 성격에 맞는 마무리 한 줄"
   },
   "SF": {
     "title": "SF 스타일 제목",
-    "body": "SF 스타일 본문 (마크다운 형식)"
+    "subtitle": "1~2문장 부제목 (핵심 메시지 요약)",
+    "body": "SF 스타일 본문 (마크다운 형식)",
+    "key_points": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"],
+    "closing_line": "SF 성격에 맞는 마무리 한 줄"
   }
 }
 ```
+
+필드 설명:
+- title: 그룹 스타일에 맞는 제목 (50자 내외)
+- subtitle: 기사의 핵심을 요약하는 부제목 (1~2문장)
+- body: 본문 전체 (마크다운 형식, ** 볼드, 소제목 마커 등)
+- key_points: 핵심 요약 포인트 3~5개 (배열, 각 항목은 1~2문장)
+- closing_line: 해당 MBTI 그룹 성격에 맞는 마무리 한 줄
 
 ===========================================
 [NT 전략형 분석가] 가이드라인
@@ -251,7 +270,10 @@ class MbtiTransformService:
 2. 각 그룹별 스타일 차이가 명확해야 합니다
 3. 모든 4개 그룹(NT, NF, ST, SF)을 반드시 포함하세요
 4. 반드시 유효한 JSON 형식으로 출력하세요
-5. body는 마크다운 형식으로 작성하세요 (** 볼드, ■ 소제목 등)
+5. body는 마크다운 형식으로 작성하세요 (** 볼드, 소제목 마커 등)
+6. 각 그룹별 5개 필드(title, subtitle, body, key_points, closing_line) 모두 포함하세요
+7. key_points는 반드시 3~5개 문자열 배열이어야 합니다
+8. closing_line은 해당 MBTI 그룹 특성에 맞는 한 줄로 작성하세요
 """
 
         return combined
@@ -341,13 +363,17 @@ class MbtiTransformService:
 
                 versions = json.loads(json_match.group(0))
 
-                # Validate all 4 groups exist
+                # Validate all 4 groups exist with required fields
                 for group in MBTI_GROUPS:
                     if group not in versions:
                         raise TransformError(f"Missing MBTI group '{group}' in response")
                     v = versions[group]
                     if not v.get('title') or not v.get('body'):
                         raise TransformError(f"MBTI group '{group}' missing title or body")
+                    # Ensure optional fields have defaults
+                    v.setdefault('subtitle', '')
+                    v.setdefault('key_points', [])
+                    v.setdefault('closing_line', '')
 
                 # Extract usage
                 usage = response_body.get("usage", {})

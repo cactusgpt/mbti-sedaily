@@ -4,11 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-AI LENS — 서울경제신문의 MBTI 맞춤형 경제 뉴스 서비스. 원본 기사를 4개 MBTI 그룹(NT/NF/ST/SF) 스타일로 AI가 리라이팅하여 제공한다.
+AI LENS — 서울경제신문의 MBTI 맞춤형 경제 뉴스 서비스. 원본 기사를 4개 MBTI 그룹(NT/NF/ST/SF) 스타일로 AI가 리라이팅하여 제공한다. MBTI 서비스는 영문사이트(en.sedaily.com)와 완전히 분리된 인프라를 사용한다.
 
 - **Production**: https://mbti.sedaily.ai
 - **API**: https://chzwwtjtgk.execute-api.us-east-1.amazonaws.com/dev
-- **Branch**: `feature/backend-redesign`
+
+### MBTI Editor Personas
+
+| Group | Editor | Style |
+|-------|--------|-------|
+| NT | 시현 | 전략형 분석가 — 애널리스트 리포트 |
+| NF | 지원 | 가치형 해석자 — 칼럼/에세이 |
+| ST | 정훈 | 실용형 실무자 — 팩트시트 |
+| SF | 하은 | 공감형 소통가 — 친구 톡 |
 
 ## Commands
 
@@ -18,10 +26,12 @@ AI LENS — 서울경제신문의 MBTI 맞춤형 경제 뉴스 서비스. 원본
 cd frontend-next
 npm install
 npm run dev          # http://localhost:3000
-npm run build        # production build
+npm run build        # production build (static export → out/)
 npx next lint        # lint
 npx tsc --noEmit     # type check
 ```
+
+The frontend uses `output: "export"` (static HTML, no SSR). There are no API routes or server components — all data fetching is client-side via `useEffect` + `fetch()`.
 
 ### Backend (Python 3.11 + FastAPI)
 
@@ -33,24 +43,33 @@ python3 -m pytest                  # run tests (no test suite yet)
 python3 -c "import ast; ast.parse(open('file.py').read())"  # syntax check
 ```
 
+`main.py` is a local-only FastAPI server with limited endpoints (health, saju, time-machine, raw S3 articles). It does **not** serve MBTI-transformed versions or the full API surface. The authoritative API runs as 22 Lambda functions behind API Gateway.
+
 ### Deploy
 
 ```bash
+# Backend (Lambda)
 cd backend
 ./deploy.sh              # all Lambda functions (API + Pipeline)
-./deploy.sh api          # API functions only (13)
-./deploy.sh pipeline     # Pipeline functions only (6)
+./deploy.sh api          # API functions only (17)
+./deploy.sh pipeline     # Pipeline functions only (5)
+
+# Frontend (S3 + CloudFront)
+cd frontend-next
+npm run build
+aws s3 sync out/ s3://sedaily-mbti-frontend-dev --delete
+aws cloudfront create-invalidation --distribution-id E1QS7PY350VHF6 --paths "/*"
 ```
 
-The deploy script builds a Lambda zip (excluding fastapi/pytest/infrastructure/), uploads to S3, and updates 19 Lambda functions. Functions that don't exist yet in AWS are skipped gracefully.
+The backend deploy script builds a Lambda zip (excluding fastapi/pytest/infrastructure/), uploads to S3, and updates 22 Lambda functions (17 API + 5 Pipeline). Functions that don't exist yet in AWS are skipped gracefully. The authoritative function list is `API_FUNCTIONS` / `PIPELINE_FUNCTIONS` in `deploy.sh`.
 
 ## Architecture
 
-This is a monorepo with two independent applications:
+Monorepo with two independent applications:
 
 ```
 /
-├── frontend-next/     # Next.js 16 App Router (Feature-Sliced Design)
+├── frontend-next/     # Next.js 16 App Router (partial Feature-Sliced Design)
 ├── backend/           # Python Lambda functions (FastAPI for local dev only)
 └── infrastructure/    # Step Functions definition (not deployed to Lambda)
 ```
@@ -59,13 +78,19 @@ This is a monorepo with two independent applications:
 
 ```
 서울경제 XML (S3, ap-northeast-2)
-  → Step Functions pipeline (5 stages)
-    Step 1: Select (Nova) → Step 2: Classify (Nova) → Step 3: Transform (Claude, parallel Map)
-    → Step 4: Validate (Nova) → Supervisor: approve + store + index vectors
+  → Step Functions pipeline (chained-Map pattern)
+    Step 1: Select (Nova, per-category allocation)
+    Step 2: Classify (Nova, assign MBTI bucket)
+    ProcessArticlesMap (inline Map, MaxConcurrency=3) — per-article:
+      Step 3: TransformOne (Claude Haiku → 4 MBTI versions)
+      Step 4: ValidateOne (Nova validates spelling/style/facts)
+      StoreOne (Supervisor: cross-version review + write + vector index)
   → Article DB: DynamoDB (metadata + pointer) + S3 (body JSON)
   → Vector DBs: OpenSearch (RAG) + pgvector (similarity)
   → API Gateway → Frontend
 ```
+
+The pipeline chains Step3→Step4→Supervisor inside each Map iteration so one article's failure cannot block the others. Per-iteration output is projected to a small metrics object (via `OutputPath` on `StoreOne`) to keep the Map's aggregated state under the 256 KB Step Functions limit. `MaxConcurrency=3` respects Bedrock throttling. The old separate `merge_transform_results` Lambda was removed in this redesign — don't re-add it. Definition: `backend/infrastructure/step_functions_definition.json`.
 
 ### Split Storage Pattern
 
@@ -82,6 +107,8 @@ db = DynamoDBClient(table_name=settings.dynamodb_table_articles, region=settings
 article = await db.get_article(news_id)  # unified retrieval
 ```
 
+`DynamoDBClient` is the articles client only — user profiles use `PersonalDBClient` and podcasts use `PodcastDBClient`, which are separate classes over their own tables.
+
 ### Four DynamoDB Tables
 
 | Table | PK | SK | Purpose |
@@ -91,30 +118,70 @@ article = await db.get_article(news_id)  # unified retrieval
 | `sedaily-mbti-podcast-dev` | `podcast_id` | — | Podcast metadata. GSI: `date-index` |
 | `sedaily-mbti-engagement-dev` | `pk` | `sk` | Reactions, ratings, comments (keyed by `ARTICLE#{id}`) |
 
+First three tables have constants in `config/constants.py` and are exposed through `config.settings`. The engagement table is hardcoded as `ENGAGEMENT_TABLE` in `handlers/engagement_handler.py:33` — if you need to add an engagement constant, put it in `config/constants.py` and thread it through settings rather than duplicating the string.
+
 ### Backend Module Layers
 
 ```
-handlers/           → Lambda entry points (19 functions). Parse event, route, call services.
-  pipeline/         → Step Functions stages (6 functions). Each stage is a standalone Lambda.
-clients/            → AWS service clients (DynamoDB, S3, OpenSearch, pgvector, Bedrock, Polly)
+handlers/           → Lambda entry points. Each handler does its own HTTP method + path
+                     routing internally (not relying on API Gateway routing). Supports
+                     both REST API v1 and HTTP API v2 event formats.
+                     Deployed (17): article_collector, search, article, chatbot, engagement,
+                     tts, time_machine, s3_articles, user, archive, podcast, recommendation,
+                     post, question, metrics, abtest, translation.
+                     Not in deploy.sh (local-only): saju.
+  pipeline/         → Step Functions stages (5 deployed Lambdas):
+                     step1_select, step2_classify, step3_transform, step4_validate, supervisor.
+                     translation_pipeline.py also lives here but is not in deploy.sh.
+clients/            → Service clients: dynamodb, personal_db, podcast_db, s3_article, s3_xml,
+                     opensearch, pgvector, embedding (Titan), translate, personalize.
+                     Bedrock Claude is wrapped by clients/mbti_transform_service.py (unusual
+                     placement — it's a service file inside clients/). Polly has no client file;
+                     tts_handler and podcast_handler call boto3 polly directly.
+                     OpenSearch and pgvector clients are lazy-imported (not in __init__.py)
+                     to avoid pulling in opensearch-py/pg8000 at module load time.
 repositories/       → Business-level data access on top of clients (Personal, Podcast, Settings, Log)
-services/           → Business logic (article filtering, prompt management)
-models/             → Dataclasses (Article, Podcast, UserProfile, ArchivedSentence, ReadingRecord)
-core/               → Framework: @lambda_handler decorator, exception hierarchy, response builders
-config/             → Settings (38 env vars) and constants (model IDs, table names, categories)
-prompts/            → MBTI transformation prompts (nt.md, nf.md, st.md, sf.md — ~250 lines each)
+services/           → Business logic: article_filter, prompt_service, prompt_loader,
+                     collaborative_filter, metrics
+models/             → Dataclasses: Article, Podcast, UserProfile/ArchivedSentence/ReadingRecord
+                     (in personal.py), ABTest
+core/               → Framework: decorators.py (@lambda_handler, @require_params, etc.),
+                     exceptions.py (BackendError hierarchy), response.py (success/error builders),
+                     revalidation.py (CacheRevalidator — triggers frontend cache invalidation)
+config/             → settings.py (39 env vars via @lru_cache Settings dataclass) +
+                     constants.py (model IDs, DynamoDB table names, CORS_HEADERS,
+                     category normalization map)
+prompts/            → AI prompt templates organized by purpose:
+                     transform/ (nt/nf/st/sf.md — MBTI rewriting),
+                     chatbot/ (nt/nf/st/sf.md — chatbot persona),
+                     selection/ (article_scorer.md),
+                     validation/ (validator.md),
+                     supervisor/ (supervisor_review.md),
+                     podcast/ (podcast_script.md),
+                     question/ (daily_question.md)
 ```
 
-### Frontend Structure (Feature-Sliced Design)
+### Frontend Structure
+
+The frontend is migrating toward Feature-Sliced Design but is not fully there yet. The `frontend-next/CLAUDE.md` describes the **target** architecture — read it before touching frontend code, but be aware of the actual state:
 
 ```
-src/app/            → Next.js routes (7 pages: /, /login, /auth/callback, /saju, /subscription, /timeline, /timemachine)
-src/components/     → Large page components (FeedPage ~1800 lines, ArticleView, MbtiChatBot, OnboardingPage, BriefingPage)
-src/features/       → FSD modules (auth, news-feed, question, community, archive, news-dna)
-src/shared/         → Config (api.ts, auth.ts), types, data (mbtiGroups.ts), utils, lib (userApi, readingTracker, elevenlabs)
+src/app/            → Next.js App Router routes (flat, no route groups yet):
+                     /, /login, /auth/callback, /saju, /subscription, /timeline, /timemachine
+src/components/     → Most UI still lives here: mbti/ (FeedPage ~1940 lines,
+                     ArticleView, MbtiChatBot, OnboardingPage, BriefingPage), story/,
+                     timeline/, character/
+src/features/       → 6 FSD modules migrated so far: auth, news-feed, question,
+                     community, archive, news-dna. Import only via index.ts barrel exports.
+src/shared/         → Config (api.ts, auth.ts), types, data (mbtiGroups.ts — 24+ imports),
+                     lib (userApi, readingTracker, elevenlabs, communityApi, etc.),
+                     constants (categories.ts, reporterNames.ts)
+src/legacy/         → Old code excluded from tsconfig (do not import from here)
 ```
 
-The main page (`/`) has 4 view modes: `feed` (default), `editor-select`, `briefing`, `story`. FeedPage contains 5 tabs: question, feed, community, archive, dna. Tab state syncs to URL via `?tab=feed`.
+The main page (`/`) has 4 view modes: `feed` (default), `editor-select`, `briefing`, `story`. `src/components/mbti/FeedPage.tsx` contains 5 tabs: question, feed, community, archive, dna. Tab state syncs to URL via `?tab=feed`.
+
+Planned FSD layers not yet implemented: `entities/`, `pages/`, `widgets/` (empty).
 
 ## Key Conventions
 
@@ -135,23 +202,47 @@ async def lambda_handler(event: dict, context) -> dict:
     return _success(data)  # or _error(status_code, message)
 ```
 
-The `@lambda_handler` decorator provides: unified error handling (catches BackendError subclasses → appropriate HTTP status), request logging, and async support.
+The `@lambda_handler` decorator provides: unified error handling (catches BackendError subclasses → appropriate HTTP status), request logging, and async support (wraps with `asyncio.run()`). Additional validation decorators:
+
+```python
+from core.decorators import require_params, require_body_fields, require_path_param
+
+@require_params('category', 'page')       # validates queryStringParameters
+@require_body_fields('title', 'content')   # validates JSON body fields
+@require_path_param('id')                  # validates pathParameters
+```
+
+These raise `ValidationError` (400) automatically when required fields are missing.
 
 ### Response Format
 
 ```python
-# Always use these — never build raw dicts
-from core.response import success_response, error_response
-success_response({'articles': [...]})           # 200
-error_response('Not found', status_code=404, code='NOT_FOUND')
+from core.response import success_response, error_response, paginated_response
+success_response({'articles': [...]})                              # 200
+created_response({'id': '...'})                                    # 201
+error_response('Not found', status_code=404, code='NOT_FOUND')     # custom status
+paginated_response(items, total, page, page_size)                  # 200 with pagination
+not_found_response('article', article_id)                          # 404
 ```
+
+All response helpers use `CORS_HEADERS` from `config/constants.py`. Custom JSON serializer handles datetime, Decimal, set, and `.to_dict()` objects.
 
 ### Error Hierarchy
 
 ```
-BackendError → ValidationError (400), NotFoundError (404), RepositoryError (500),
-               TranslationError (500), ExternalServiceError (502), RateLimitError (429)
+BackendError
+  ├─ ValidationError (400)
+  ├─ AuthenticationError (401)
+  ├─ AuthorizationError (403)
+  ├─ NotFoundError (404)
+  ├─ RateLimitError (429)
+  ├─ RepositoryError (500)
+  ├─ TranslationError (500)
+  ├─ ConfigurationError (500)
+  └─ ExternalServiceError (502)
 ```
+
+Status code mapping is in `core/exceptions.py:EXCEPTION_STATUS_CODES`.
 
 ### Graceful Degradation
 
@@ -159,13 +250,18 @@ OpenSearch and pgvector are optional. If `OPENSEARCH_ENDPOINT` is empty, RAG sea
 
 ### AI Model Selection
 
-- **Claude** (Haiku 3.5): MBTI rewriting (Step 3), chatbot RAG response, podcast script generation
-- **Nova** (Lite): Article filtering (Step 1), MBTI classification (Step 2), validation (Step 4), Supervisor review
-- **Titan Embeddings V2**: 1024-dim vectors for OpenSearch and pgvector
+| Model | ID | Use |
+|-------|----|-----|
+| Claude Haiku 3.5 | `us.anthropic.claude-3-5-haiku-20241022-v1:0` | MBTI rewriting (Step 3), chatbot RAG, podcast scripts |
+| Claude Sonnet 4 | `us.anthropic.claude-sonnet-4-20250514-v1:0` | Optional upgrade for higher-quality rewriting |
+| Nova Lite | `amazon.nova-lite-v1:0` | Article filtering (Step 1), MBTI classification (Step 2), validation (Step 4), Supervisor review |
+| Titan Embeddings V2 | `amazon.titan-embed-text-v2:0` | 1024-dim vectors for OpenSearch and pgvector |
+
+Constants are in `config/constants.py` (`BEDROCK_MODEL_ID_HAIKU`, `BEDROCK_MODEL_ID_NOVA_LITE`, etc.).
 
 ### Category System
 
-7 standard categories: `경제`, `IT_과학`, `정치`, `사회`, `문화`, `스포츠`, `국제`. Raw XML categories (60+ variants like `산업,IT일반`, `문화·라이프`) are normalized via `CATEGORY_NORMALIZATION_MAP` in `s3_xml_client.py`. Search queries expand via `CATEGORY_SEARCH_ALIASES` to cover legacy names.
+7 standard categories: `경제`, `IT_과학`, `정치`, `사회`, `문화`, `스포츠`, `국제`. Raw XML categories (60+ variants like `산업,IT일반`, `문화·라이프`) are normalized via `CATEGORY_NORMALIZATION_MAP` in `s3_xml_client.py`. Search queries expand via `CATEGORY_SEARCH_ALIASES` in `config/constants.py` to cover legacy names.
 
 ### MBTI Versions
 
@@ -179,14 +275,38 @@ Each transformed article contains 4 versions stored as:
 }
 ```
 
-Prompts are loaded from `backend/prompts/*.md` files. The loading chain falls back to DynamoDB `settings_config`, then to `MBTI_TRANSFORM_PROMPT.md`.
+### Prompt Loading
 
-## AWS Regions
+Prompts are loaded via `services/prompt_loader.py` from `prompts/{category}/{name}.md` with `@lru_cache(maxsize=32)`:
+- `load_prompt('transform', 'nt')` — MBTI rewriting prompts
+- `load_chatbot_prompt('NF')` — chatbot persona prompts
+- `load_prompt_by_path('selection/article_scorer')` — arbitrary subpath
+
+The legacy `PromptService` (DynamoDB `settings_config` fallback) is a separate system used only for admin prompt management.
+
+## AWS Resources
+
+### Regions
 
 | Region | Services |
 |--------|----------|
-| us-east-1 | Bedrock, DynamoDB, Lambda, API Gateway, Cognito, Polly, OpenSearch, RDS, S3 (article body + audio) |
-| ap-northeast-2 | S3 (original XML), CloudFront |
+| us-east-1 | Bedrock, DynamoDB, Lambda, API Gateway, Cognito, Polly, OpenSearch, RDS, S3 (article body + audio + Lambda packages) |
+| ap-northeast-2 | S3 (original XML + frontend), CloudFront |
+
+### S3 Buckets
+
+| Bucket | Region | Purpose |
+|--------|--------|---------|
+| `sedaily-mbti-article-body-dev` | us-east-1 | Split-storage body JSON (MBTI versions, content_ko, content_blocks) |
+| `sedaily-mbti-audio-dev` | us-east-1 | Polly TTS audio files for podcasts |
+| `sedaily-news-source` | ap-northeast-2 | Source XML feed from 서울경제 (read-only) |
+| `sedaily-mbti-frontend-dev` | ap-northeast-2 | Frontend static files (Next.js export) |
+
+### Frontend Infrastructure
+
+- **S3**: `sedaily-mbti-frontend-dev` (ap-northeast-2)
+- **CloudFront**: Distribution `E1QS7PY350VHF6` → `mbti.sedaily.ai`
+- **Cognito**: User Pool `us-east-1_ZS8PgF3iX`, config in `frontend-next/src/shared/config/auth.ts`
 
 ## Frontend API Contract
 
@@ -209,8 +329,10 @@ The frontend calls these endpoints (do not change paths or response shapes):
 
 | File | Content |
 |------|---------|
-| `FULL_PROJECT_SPEC.md` | Complete codebase spec (967 lines — all files, APIs, schemas, code examples) |
+| `FULL_PROJECT_SPEC.md` | Complete codebase spec (all files, APIs, schemas, code examples) |
 | `ai-lens-backend-architecture.md` | To-Be architecture design document |
-| `FRONTEND_SPEC.md` | Frontend feature spec (all pages, API calls, Mock vs real data) |
-| `frontend-next/CLAUDE.md` | Next.js-specific rules (FSD architecture, dependency direction, naming) |
-| `infrastructure/README.md` | Step Functions deployment guide |
+| `ARTICLE_PIPELINE.md` | Step Functions pipeline walkthrough (current chained-Map design) |
+| `frontend-next/CLAUDE.md` | Target FSD architecture rules, naming conventions, dependency direction |
+| `backend/infrastructure/README.md` | Step Functions + CloudFormation provisioning guide |
+
+Note: `README.md` at project root is outdated (still references React+Vite and the old `frontend/` directory). Use this CLAUDE.md as the authoritative reference.
