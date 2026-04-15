@@ -52,7 +52,7 @@ def search_stock(query: str) -> Optional[Dict[str, str]]:
 def get_stock_price(code: str) -> Optional[Dict[str, Any]]:
     """
     Get real-time stock price by code.
-    Returns structured price data.
+    장중에는 현재가, 장 마감 후에는 종가를 반환합니다.
     """
     url = NAVER_STOCK_API.format(code=code)
     data = _fetch_json(url)
@@ -63,9 +63,10 @@ def get_stock_price(code: str) -> Optional[Dict[str, Any]]:
     compare_info = data.get("compareToPreviousPrice", {})
     direction = compare_info.get("text", "")  # 상승/하락/보합
 
-    # 전일 종가 계산: 현재가 - 전일대비
     current_price_str = data.get("closePrice", "0")
     change_str = data.get("compareToPreviousClosePrice", "0")
+
+    # 전일 종가 역산
     try:
         current_price = int(current_price_str.replace(",", ""))
         change_val = int(change_str.replace(",", ""))
@@ -75,16 +76,25 @@ def get_stock_price(code: str) -> Optional[Dict[str, Any]]:
             prev_close = current_price - change_val
         prev_close_str = f"{prev_close:,}"
     except (ValueError, TypeError):
-        prev_close_str = current_price_str
+        prev_close_str = "N/A"
+
+    # 장 상태 판단
+    market_status = data.get("marketStatus", "")
+    is_open = market_status == "TRADING"
 
     return {
         "name": data.get("stockName", ""),
         "code": data.get("itemCode", ""),
         "market": data.get("stockExchangeName", ""),
+        "current_price": current_price_str,
         "prev_close": prev_close_str,
-        "change": data.get("compareToPreviousClosePrice", ""),
+        "change": change_str,
         "change_percent": data.get("fluctuationsRatio", ""),
         "direction": direction,
+        "market_status": "장중" if is_open else "장마감",
+        "high": data.get("highPrice", ""),
+        "low": data.get("lowPrice", ""),
+        "volume": data.get("accumulatedTradingVolume", ""),
     }
 
 
@@ -133,11 +143,15 @@ def get_market_index(query: str) -> Optional[Dict[str, Any]]:
     compare_info = data.get("compareToPreviousPrice", {})
     direction = compare_info.get("text", "")
 
+    market_status = data.get("marketStatus", "")
+    is_open = market_status == "TRADING"
+
     return {
         "name": data.get("indexName", code),
         "code": code,
-        "close_price": data.get("closePrice", ""),
+        "current_price": data.get("closePrice", ""),
         "change": data.get("compareToPreviousClosePrice", ""),
         "change_percent": data.get("fluctuationsRatio", ""),
         "direction": direction,
+        "market_status": "장중" if is_open else "장마감",
     }

@@ -322,7 +322,7 @@ GENERAL_INSTRUCTIONS = """
 [중요 지침]
 1. 서울경제신문의 AI 어시스턴트로서 경제/금융 뉴스에 대해 도움을 드려요
 2. 정확한 정보만 제공하고, 모르는 것은 모른다고 솔직히 말해요
-3. 주가 관련 질문은 반드시 get_stock_price 도구를 사용하세요. 도구가 반환하는 값은 전일 종가 기준입니다. 도구 없이 수치를 만들어내지 마세요
+3. 주가 관련 질문은 반드시 get_stock_price 도구를 사용하세요. 장중에는 실시간 현재가, 장 마감 후에는 종가가 반환됩니다. 도구 없이 수치를 만들어내지 마세요
 4. 시장 분석 요청 시, 먼저 get_market_index로 코스피/코스닥 지수를 조회하고, 뉴스에서 언급된 종목의 주가를 get_stock_price로 조회하여 실제 데이터 기반으로 분석해주세요
 5. 구체적인 수치, 종목명, 이슈를 포함하여 답변하세요. "변동성 확인 필요", "주목" 같은 모호한 표현은 피하세요
 6. 응답은 충분히 상세하게 (300~500자), 핵심 데이터와 근거를 포함해주세요
@@ -360,7 +360,7 @@ def _get_tools() -> list:
     return [
         {
             "name": "get_stock_price",
-            "description": "한국 주식의 전일 종가를 조회합니다. 종목명(예: 삼성전자) 또는 종목코드(예: 005930)로 검색할 수 있습니다.",
+            "description": "한국 주식의 실시간 시세를 조회합니다. 장중에는 현재가, 장 마감 후에는 종가를 반환합니다. 종목명(예: 삼성전자) 또는 종목코드(예: 005930)로 검색할 수 있습니다.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -401,10 +401,15 @@ def _execute_tool(tool_name: str, tool_input: dict) -> str:
                 "종목명": stock_data["name"],
                 "종목코드": stock_data["code"],
                 "시장": stock_data["market"],
+                "현재가": stock_data["current_price"],
                 "전일종가": stock_data["prev_close"],
                 "전일대비등락": stock_data["change"],
                 "등락률": f"{stock_data['change_percent']}%",
                 "방향": stock_data["direction"],
+                "장상태": stock_data["market_status"],
+                "고가": stock_data.get("high", ""),
+                "저가": stock_data.get("low", ""),
+                "거래량": stock_data.get("volume", ""),
             }, ensure_ascii=False)
         return json.dumps({"error": f"'{query}' 종목을 찾을 수 없습니다."}, ensure_ascii=False)
 
@@ -414,10 +419,11 @@ def _execute_tool(tool_name: str, tool_input: dict) -> str:
         if index_data:
             return json.dumps({
                 "지수명": index_data["name"],
-                "종가": index_data["close_price"],
+                "현재지수": index_data["current_price"],
                 "전일대비등락": index_data["change"],
                 "등락률": f"{index_data['change_percent']}%",
                 "방향": index_data["direction"],
+                "장상태": index_data["market_status"],
             }, ensure_ascii=False)
         return json.dumps({"error": f"'{query}' 지수를 찾을 수 없습니다."}, ensure_ascii=False)
 
