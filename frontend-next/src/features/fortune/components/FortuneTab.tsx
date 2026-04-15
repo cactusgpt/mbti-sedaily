@@ -147,22 +147,20 @@ export function FortuneTab() {
       <h2 className="text-[22px] font-bold text-gray-900 mb-6">오늘의 운세</h2>
 
       {/* MBTI 그룹 */}
-      <div className="mb-6">
-        <div className="flex gap-2">
-          {([
-            { id: 'NT' as const, name: '분석가', color: 'bg-blue-500', light: 'bg-blue-50', text: 'text-blue-600' },
-            { id: 'NF' as const, name: '이야기꾼', color: 'bg-purple-500', light: 'bg-purple-50', text: 'text-purple-600' },
-            { id: 'ST' as const, name: '실용주의자', color: 'bg-green-500', light: 'bg-green-50', text: 'text-green-600' },
-            { id: 'SF' as const, name: '공감러', color: 'bg-orange-500', light: 'bg-orange-50', text: 'text-orange-600' },
-          ]).map(g => (
-            <button key={g.id} onClick={() => setMbtiGroup(g.id)}
-              className={`flex-1 py-2.5 text-[13px] font-medium rounded-xl transition-all ${
-                mbtiGroup === g.id ? `${g.color} text-white` : `${g.light} ${g.text}`
-              }`}>
-              {g.name}
-            </button>
-          ))}
-        </div>
+      <div className="flex gap-1.5 mb-5">
+        {([
+          { id: 'NT' as const, name: '분석가' },
+          { id: 'NF' as const, name: '이야기꾼' },
+          { id: 'ST' as const, name: '실용주의자' },
+          { id: 'SF' as const, name: '공감러' },
+        ]).map(g => (
+          <button key={g.id} onClick={() => setMbtiGroup(g.id)}
+            className={`px-3 py-1.5 text-[12px] rounded-full transition-all ${
+              mbtiGroup === g.id ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:text-gray-700'
+            }`}>
+            {g.name}
+          </button>
+        ))}
       </div>
 
       {/* 성별 */}
