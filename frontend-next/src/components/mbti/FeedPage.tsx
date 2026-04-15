@@ -721,7 +721,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
             <h1 className="text-[20px] font-bold text-gray-900 tracking-tight flex-shrink-0">AI LENS</h1>
 
             {/* 탭 */}
-            <nav className="flex items-center gap-1 flex-1">
+            <nav className="flex items-center gap-0.5 flex-1 overflow-x-auto scrollbar-hide">
               <button
                 onClick={() => {
                   setShowQuestions(true);
@@ -729,7 +729,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                   setSelectedAnswers({});
                   setActiveTab("question");
                 }}
-                className={`px-4 py-2 text-[14px] font-medium rounded-lg transition-colors duration-200 ${
+                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
                   activeTab === "question"
                     ? "bg-gray-100 text-gray-900"
                     : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
@@ -743,7 +743,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                   setShowQuestions(false);
                   setActiveTab("feed");
                 }}
-                className={`px-4 py-2 text-[14px] font-medium rounded-lg transition-colors duration-200 ${
+                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
                   activeTab === "feed"
                     ? "bg-gray-100 text-gray-900"
                     : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
@@ -754,7 +754,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
 
               <button
                 onClick={() => setActiveTab("community")}
-                className={`px-4 py-2 text-[14px] font-medium rounded-lg transition-colors duration-200 ${
+                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
                   activeTab === "community"
                     ? "bg-gray-100 text-gray-900"
                     : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
@@ -765,13 +765,13 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
 
               <button
                 onClick={() => setActiveTab("archive")}
-                className={`px-4 py-2 text-[14px] font-medium rounded-lg transition-colors duration-200 ${
+                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
                   activeTab === "archive"
                     ? "bg-gray-100 text-gray-900"
                     : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
                 }`}
               >
-                <span className="flex items-center gap-1.5">
+                <span className="flex items-center gap-1">
                   내 서랍
                   {archivedSentences.length > 0 && (
                     <span className="px-1.5 py-0.5 bg-blue-500 text-white text-[10px] rounded-full min-w-[18px] text-center">
@@ -783,7 +783,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
 
               <button
                 onClick={() => setActiveTab("dna")}
-                className={`px-4 py-2 text-[14px] font-medium rounded-lg transition-colors duration-200 ${
+                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
                   activeTab === "dna"
                     ? "bg-gray-100 text-gray-900"
                     : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
@@ -794,7 +794,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
 
               <button
                 onClick={() => setActiveTab("fortune")}
-                className={`px-4 py-2 text-[14px] font-medium rounded-lg transition-colors duration-200 ${
+                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
                   activeTab === "fortune"
                     ? "bg-gray-100 text-gray-900"
                     : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
