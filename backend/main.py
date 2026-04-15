@@ -16,7 +16,7 @@ from clients.s3_xml_client import S3XMLClient
 from fastapi.responses import StreamingResponse
 from handlers.chatbot_handler import (
     generate_chat_response, generate_chat_response_stream,
-    get_cached_briefing, get_recent_articles,
+    get_cached_briefing, get_recent_articles, search_related_articles,
 )
 
 app = FastAPI(
@@ -87,9 +87,12 @@ async def chat(request: Request):
         cached_briefing=cached_briefing,
     )
 
+    related = search_related_articles(user_message, limit=3)
+
     return {
         "response": response_text,
         "mbti_group": mbti_group,
+        "recommended_articles": related,
     }
 
 
@@ -116,6 +119,15 @@ async def chat_stream(request: Request):
             cached_briefing=cached_briefing,
         ):
             yield f"data: {json.dumps({'type': 'text', 'content': chunk}, ensure_ascii=False)}\n\n"
+
+        # Search related articles after response completes
+        try:
+            related = search_related_articles(user_message, limit=3)
+            if related:
+                yield f"data: {json.dumps({'type': 'articles', 'articles': related}, ensure_ascii=False)}\n\n"
+        except Exception:
+            pass
+
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")

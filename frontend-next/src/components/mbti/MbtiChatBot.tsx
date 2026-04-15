@@ -8,11 +8,21 @@ import { API_URL } from '../../shared/config/api';
 const CHAT_API_URL = `${API_URL}/api/chat`;
 const CHAT_STREAM_API_URL = `${API_URL}/api/chat/stream`;
 
+interface RecommendedArticle {
+  news_id: string;
+  title_ko: string;
+  category: string;
+  published_at: string;
+  original_link: string;
+  image_url?: string;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
+  articles?: RecommendedArticle[];
 }
 
 interface MbtiChatBotProps {
@@ -272,6 +282,21 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
                 }
                 return prev;
               });
+            } else if (data.type === 'articles' && data.articles?.length > 0) {
+              setMessagesByGroup(prev => {
+                const groupMsgs = prev[currentGroup];
+                const last = groupMsgs[groupMsgs.length - 1];
+                if (last?.id === assistantId) {
+                  return {
+                    ...prev,
+                    [currentGroup]: [
+                      ...groupMsgs.slice(0, -1),
+                      { ...last, articles: data.articles },
+                    ],
+                  };
+                }
+                return prev;
+              });
             }
           } catch { /* skip malformed SSE */ }
         }
@@ -295,6 +320,7 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
             id: assistantId, role: 'assistant',
             content: data.response || '응답을 받지 못했어요.',
             timestamp: new Date(),
+            articles: data.recommended_articles,
           }];
         });
       } catch (fallbackError) {
@@ -391,7 +417,7 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
             {messages.map((message) => (
               <div
                 key={message.id}
-                className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
               >
                 <div
                   className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm whitespace-pre-wrap ${
@@ -402,6 +428,23 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
                 >
                   {message.content}
                 </div>
+                {message.articles && message.articles.length > 0 && (
+                  <div className="mt-2 space-y-1.5 max-w-[85%]">
+                    <p className="text-[11px] text-gray-400 px-1">관련 기사</p>
+                    {message.articles.map((article) => (
+                      <a
+                        key={article.news_id}
+                        href={article.original_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block px-3 py-2 bg-white rounded-lg border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all text-left"
+                      >
+                        <p className="text-xs font-medium text-gray-800 line-clamp-2">{article.title_ko}</p>
+                        <p className="text-[10px] text-gray-400 mt-1">{article.category} · {article.published_at.slice(0, 10)}</p>
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
 

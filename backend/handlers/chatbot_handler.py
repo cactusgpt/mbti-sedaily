@@ -224,6 +224,75 @@ def build_context_prompt(articles: List[Dict[str, Any]], mbti_group: str) -> str
     return context
 
 
+KOREAN_STOPWORDS = {
+    '은', '는', '이', '가', '을', '를', '에', '의', '로', '으로',
+    '와', '과', '도', '만', '부터', '까지', '에서', '한', '된', '하는',
+    '있는', '없는', '대한', '위한', '통한', '그', '저', '것', '해줘',
+    '수', '등', '및', '또', '더', '좀', '뭐', '어떤', '오늘', '최근',
+    '알려줘', '설명해줘', '분석해줘', '추천해줘', '어때', '뭐야',
+}
+
+
+def search_related_articles(user_message: str, limit: int = 3) -> List[Dict[str, Any]]:
+    """Search DynamoDB for articles related to the user's message keywords."""
+    try:
+        keywords = [w for w in user_message.split() if len(w) >= 2 and w not in KOREAN_STOPWORDS][:5]
+        if not keywords:
+            return []
+
+        dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+        table = dynamodb.Table(DYNAMODB_TABLE_ARTICLES_DEV)
+        from boto3.dynamodb.conditions import Key, Attr
+        from datetime import timedelta, timezone
+
+        kst = timezone(timedelta(hours=9))
+        now = datetime.now(kst)
+        week_ago = (now - timedelta(days=7)).isoformat()
+
+        all_matches = []
+        for cat in ['경제', '정치', '사회', 'IT_과학', '문화']:
+            try:
+                filter_expr = None
+                for kw in keywords:
+                    cond = Attr('title_ko').contains(kw)
+                    filter_expr = cond if filter_expr is None else (filter_expr | cond)
+
+                response = table.query(
+                    IndexName='category-published_at-index',
+                    KeyConditionExpression=Key('category').eq(cat) & Key('published_at').gte(week_ago),
+                    FilterExpression=filter_expr,
+                    ScanIndexForward=False,
+                    Limit=20,
+                )
+                all_matches.extend(response.get('Items', []))
+            except Exception:
+                continue
+
+        all_matches.sort(key=lambda x: x.get('published_at', ''), reverse=True)
+
+        results = []
+        for item in all_matches[:limit]:
+            image_url = None
+            images = item.get('images', [])
+            if images and isinstance(images, list) and len(images) > 0:
+                img = images[0]
+                image_url = img.get('url', '') if isinstance(img, dict) else str(img)
+
+            results.append({
+                'news_id': item.get('news_id', ''),
+                'title_ko': item.get('title_ko', ''),
+                'category': item.get('category', ''),
+                'published_at': item.get('published_at', ''),
+                'original_link': item.get('original_link', item.get('url', '')),
+                'image_url': image_url,
+            })
+
+        return results
+    except Exception as e:
+        logger.warning(f"Failed to search related articles: {e}")
+        return []
+
+
 def build_context_from_briefing(briefing_text: str) -> str:
     """Build context from pre-generated daily briefing."""
     return f"\n\n[오늘의 뉴스 브리핑 - 대화 시 참조]\n{briefing_text}\n"
