@@ -130,6 +130,29 @@ export function FortuneResult({ data }: Props) {
               ))}
             </div>
           )}
+
+          {/* 카테고리별 운세 */}
+          {todayFortune.categories && todayFortune.categories.length > 0 && (
+            <div className="border-t border-gray-100 pt-4 mt-4 space-y-4">
+              {todayFortune.categories.map((cat) => (
+                <div key={cat.label}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[13px] font-semibold text-gray-800">{cat.label}</span>
+                    <span className={`text-[12px] font-bold ${cat.score >= 70 ? 'text-blue-600' : cat.score >= 50 ? 'text-gray-600' : 'text-red-400'}`}>
+                      {cat.score}점
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2 mb-2">
+                    <div
+                      className={`h-2 rounded-full transition-all ${cat.score >= 70 ? 'bg-blue-500' : cat.score >= 50 ? 'bg-gray-400' : 'bg-red-400'}`}
+                      style={{ width: `${cat.score}%` }}
+                    />
+                  </div>
+                  <p className="text-[12px] text-gray-500 leading-relaxed">{cat.desc}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </Section>
       )}
 

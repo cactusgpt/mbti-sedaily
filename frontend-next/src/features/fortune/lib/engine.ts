@@ -213,10 +213,114 @@ const US_READING: Record<string, string> = {
   '양':'성장을 준비하는 기운입니다. 아직 드러나지 않지만 좋은 흐름이 만들어지고 있습니다.',
 };
 
+export interface CategoryFortune { label: string; score: number; desc: string; }
+
+// 십성 + 12운성 기반 카테고리별 운세 산출
+const CATEGORY_DATA: Record<string, Record<string, { score: number; desc: string }>> = {
+  '재물운': {
+    '비견': { score: 50, desc: '동료와 경쟁이 생기면서 지출이 늘 수 있습니다. 공동 투자보다는 단독 판단이 유리한 날입니다.' },
+    '겁재': { score: 35, desc: '예상치 못한 지출이 발생할 수 있습니다. 충동 구매를 자제하고 지갑을 단단히 여미세요.' },
+    '식신': { score: 70, desc: '자연스러운 수입이 기대됩니다. 먹고 마시는 데 쓰는 돈이 늘지만 그만큼 만족도가 높습니다.' },
+    '상관': { score: 55, desc: '아이디어로 수익을 만들 수 있지만, 말실수로 기회를 놓칠 수도 있습니다. 계약 시 꼼꼼히 확인하세요.' },
+    '편재': { score: 85, desc: '투자나 사업에서 기회가 찾아옵니다. 적극적으로 움직이되 리스크 관리도 철저히 하세요.' },
+    '정재': { score: 80, desc: '안정적인 수입이 보장됩니다. 꾸준히 모은 돈이 빛을 발하는 날, 저축과 재테크에 좋습니다.' },
+    '편관': { score: 45, desc: '갑작스러운 비용이 발생할 수 있습니다. 세금, 벌금 등 의무적 지출에 대비하세요.' },
+    '정관': { score: 60, desc: '규칙적인 재정 관리가 빛을 발합니다. 공식적인 경로의 수입이 기대됩니다.' },
+    '편인': { score: 55, desc: '직관적인 투자 판단이 좋을 수 있으나, 검증 없이 큰돈을 움직이는 것은 위험합니다.' },
+    '정인': { score: 65, desc: '윗사람이나 부모로부터 재정적 도움을 받을 수 있습니다. 학습에 투자하면 장기적으로 이익입니다.' },
+  },
+  '건강운': {
+    '비견': { score: 65, desc: '체력은 괜찮지만 과로하기 쉽습니다. 경쟁심으로 무리하지 말고 적당한 운동이 좋습니다.' },
+    '겁재': { score: 45, desc: '스트레스로 인한 두통이나 소화 불량에 주의하세요. 과음을 삼가고 충분히 쉬세요.' },
+    '식신': { score: 85, desc: '식욕이 좋고 전반적으로 컨디션이 좋은 날입니다. 맛있는 음식으로 기분 전환하세요.' },
+    '상관': { score: 50, desc: '신경이 예민해져 불면이나 두통이 올 수 있습니다. 마음을 편히 갖고 가벼운 산책을 추천합니다.' },
+    '편재': { score: 70, desc: '활동적인 하루를 보내기 좋습니다. 야외 활동이나 운동으로 에너지를 발산하세요.' },
+    '정재': { score: 75, desc: '규칙적인 생활 리듬을 유지하면 건강이 좋아집니다. 가벼운 스트레칭이 효과적입니다.' },
+    '편관': { score: 40, desc: '긴장과 압박으로 몸이 경직될 수 있습니다. 명상이나 호흡법으로 긴장을 풀어주세요.' },
+    '정관': { score: 60, desc: '절제된 생활이 건강의 비결입니다. 정해진 시간에 식사하고 일찍 잠자리에 드세요.' },
+    '편인': { score: 55, desc: '정신적 피로가 쌓일 수 있습니다. 독서나 명상으로 마음의 안정을 찾으세요.' },
+    '정인': { score: 70, desc: '심신이 안정되는 날입니다. 충분한 수면과 균형 잡힌 식사로 에너지를 충전하세요.' },
+  },
+  '연애운': {
+    '비견': { score: 45, desc: '상대방과 주도권 다툼이 생길 수 있습니다. 양보하는 마음이 관계를 부드럽게 합니다.' },
+    '겁재': { score: 35, desc: '연인 사이에 갈등이 생기기 쉽습니다. 질투심을 자제하고 신뢰를 보여주세요.' },
+    '식신': { score: 80, desc: '편안하고 즐거운 데이트가 기대됩니다. 함께 맛집을 방문하거나 취미를 즐기면 좋습니다.' },
+    '상관': { score: 50, desc: '솔직한 감정 표현이 좋지만, 너무 직설적이면 상처를 줄 수 있습니다. 부드럽게 전하세요.' },
+    '편재': { score: 75, desc: '새로운 만남의 기회가 있습니다. 사교적인 자리에서 매력적인 인연을 만날 수 있어요.' },
+    '정재': { score: 70, desc: '진실한 감정이 통하는 날입니다. 정성어린 선물이나 편지가 마음을 전하기 좋습니다.' },
+    '편관': { score: 40, desc: '관계에서 부담을 느낄 수 있습니다. 서로의 공간을 존중하면 오히려 관계가 깊어집니다.' },
+    '정관': { score: 60, desc: '격식을 갖춘 만남이 좋은 인상을 줍니다. 진지한 대화로 관계를 발전시켜 보세요.' },
+    '편인': { score: 55, desc: '상대방의 내면을 깊이 이해하게 됩니다. 조용한 카페에서의 대화가 관계에 도움이 됩니다.' },
+    '정인': { score: 65, desc: '따뜻한 감정이 흐르는 날입니다. 가족 같은 편안함이 연인 사이를 더욱 돈독하게 합니다.' },
+  },
+  '직장운': {
+    '비견': { score: 55, desc: '동료와의 협업이 중요한 날입니다. 팀워크를 발휘하면 좋은 성과를 낼 수 있습니다.' },
+    '겁재': { score: 40, desc: '직장 내 경쟁이 심해질 수 있습니다. 자기 일에 집중하고 불필요한 갈등은 피하세요.' },
+    '식신': { score: 75, desc: '창의적인 아이디어가 인정받는 날입니다. 여유를 갖고 일하면 효율이 올라갑니다.' },
+    '상관': { score: 45, desc: '상사나 동료에게 날카로운 말을 할 수 있습니다. 의견은 건설적으로 표현하세요.' },
+    '편재': { score: 70, desc: '영업, 마케팅 등 대외 활동에서 성과가 기대됩니다. 적극적으로 네트워킹하세요.' },
+    '정재': { score: 75, desc: '꼼꼼한 실무 처리가 빛나는 날입니다. 보고서나 기획안이 좋은 평가를 받습니다.' },
+    '편관': { score: 50, desc: '갑작스러운 업무 변동이나 추가 지시가 있을 수 있습니다. 유연하게 대처하세요.' },
+    '정관': { score: 80, desc: '조직 내에서 인정받기 좋은 날입니다. 규칙과 절차를 지키면 승진이나 보상이 따라옵니다.' },
+    '편인': { score: 60, desc: '새로운 기술이나 지식을 업무에 적용하기 좋습니다. 자기계발이 커리어에 도움이 됩니다.' },
+    '정인': { score: 70, desc: '멘토나 선배의 조언이 큰 도움이 됩니다. 배움의 자세로 임하면 성장의 기회가 옵니다.' },
+  },
+  '학업운': {
+    '비견': { score: 55, desc: '스터디 그룹이나 토론에서 좋은 자극을 받습니다. 혼자보다 함께 공부하면 효율적입니다.' },
+    '겁재': { score: 40, desc: '집중력이 흐트러지기 쉽습니다. 스마트폰을 멀리하고 공부 환경을 정리하세요.' },
+    '식신': { score: 70, desc: '이해력이 좋아지는 날입니다. 어려운 개념도 쉽게 소화되니 새로운 과목에 도전해 보세요.' },
+    '상관': { score: 65, desc: '비판적 사고력이 높아집니다. 에세이나 논술 준비에 좋은 날이지만, 과도한 분석은 금물입니다.' },
+    '편재': { score: 50, desc: '실용적인 공부가 잘 되는 날입니다. 자격증이나 실무 관련 학습에 집중하세요.' },
+    '정재': { score: 60, desc: '꼼꼼한 복습이 효과적입니다. 암기 과목이나 정리 노트 만들기에 좋은 날입니다.' },
+    '편관': { score: 45, desc: '시험 압박감이 클 수 있습니다. 완벽을 추구하기보다 핵심을 잡는 전략이 필요합니다.' },
+    '정관': { score: 65, desc: '체계적인 학습 계획이 효과를 발휘합니다. 시간표를 지키며 꾸준히 공부하세요.' },
+    '편인': { score: 80, desc: '직관과 영감이 뛰어난 날입니다. 창의적 문제 해결이나 연구에 몰입하기 좋습니다.' },
+    '정인': { score: 85, desc: '학습 능력이 최고조에 달하는 날입니다. 새로운 지식을 흡수하기 좋으니 집중 공부하세요.' },
+  },
+};
+
+// 12운성에 의한 점수 보정
+const US_SCORE_MOD: Record<string, number> = {
+  '장생': 5, '목욕': -5, '관대': 10, '건록': 15, '제왕': 10,
+  '쇠': -5, '병': -10, '사': -15, '묘': -10, '절': -5, '태': 0, '양': 5,
+};
+
+function buildCategoryFortunes(ss: string, us: string, sinsal: SinsalInfo[]): CategoryFortune[] {
+  const labels = ['재물운', '건강운', '연애운', '직장운', '학업운'];
+  const usMod = US_SCORE_MOD[us] || 0;
+
+  // 신살 보정
+  const sinsalNames = sinsal.map(s => s.name);
+  const sinsalMods: Record<string, Record<string, number>> = {
+    '천을귀인': { '직장운': 10, '학업운': 5, '재물운': 5 },
+    '문창귀인': { '학업운': 15, '직장운': 5 },
+    '역마살': { '직장운': 5, '재물운': 5 },
+    '도화살': { '연애운': 15 },
+    '화개살': { '학업운': 10 },
+    '겁살': { '재물운': -10, '건강운': -5 },
+    '재살': { '건강운': -10, '재물운': -5 },
+  };
+
+  return labels.map(label => {
+    const base = CATEGORY_DATA[label]?.[ss] || { score: 50, desc: '' };
+    let score = base.score + usMod;
+
+    // 신살 보정 적용
+    for (const sn of sinsalNames) {
+      const mods = sinsalMods[sn];
+      if (mods?.[label]) score += mods[label];
+    }
+
+    score = Math.max(10, Math.min(95, score));
+    return { label, score, desc: base.desc };
+  });
+}
+
 export interface TodayFortuneResult {
   dayPillar: string; dayPillarHanja: string; dayOh: string;
   ss: string; us: string; ssReading: string; usReading: string;
   sinsal: SinsalInfo[];
+  categories: CategoryFortune[];
 }
 
 export function buildTodayFortune(ps: Pillar[]): TodayFortuneResult | null {
@@ -237,10 +341,13 @@ export function buildTodayFortune(ps: Pillar[]): TodayFortuneResult | null {
   if (ilji && GEOBSAL[ilji]===tJj) sinsal.push({ name: '겁살', ...SINSAL_DESC['겁살'] });
   if (ilji && JAESAL[ilji]===tJj) sinsal.push({ name: '재살', ...SINSAL_DESC['재살'] });
 
+  // ── 카테고리별 운세 (재물운, 건강운, 연애운, 직장운, 학업운) ──
+  const categories = buildCategoryFortunes(tSS, tUS, sinsal);
+
   return {
     dayPillar: tg.dayPillar, dayPillarHanja: tg.dayPillarHanja, dayOh: tOh,
     ss: tSS, us: tUS, ssReading: SS_READING[tSS] || '', usReading: US_READING[tUS] || '',
-    sinsal,
+    sinsal, categories,
   };
 }
 
