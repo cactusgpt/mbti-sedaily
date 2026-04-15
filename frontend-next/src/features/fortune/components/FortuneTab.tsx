@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   calculateSaju, parsePillar, sipsung, unsung, elClass,
   CG_OH, JJ_OH, OH_HJ, JJG,
@@ -24,6 +24,15 @@ interface SajuData {
   correctedTime?: { hour: number; minute: number };
 }
 
+interface SavedEntry {
+  id: number; name: string; date: string; gender: string;
+  time: string; region: string; ilgan: string; createdAt: string;
+}
+
+const STORAGE_KEY = 'saju_saved';
+function getSaved(): SavedEntry[] { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; } }
+function setSaved(list: SavedEntry[]) { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); }
+
 export function FortuneTab() {
   const [birthdate, setBirthdate] = useState('');
   const [timeInput, setTimeInput] = useState('');
@@ -32,6 +41,11 @@ export function FortuneTab() {
   const [region, setRegion] = useState('');
   const [result, setResult] = useState<SajuData | null>(null);
   const [error, setError] = useState('');
+  const [savedList, setSavedList] = useState<SavedEntry[]>([]);
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveName, setSaveName] = useState('');
+
+  useEffect(() => { setSavedList(getSaved()); }, []);
 
   const parseDateStr = useCallback((val: string) => {
     const raw = val.replace(/[^0-9]/g, '');
@@ -176,8 +190,97 @@ export function FortuneTab() {
 
       {/* 결과 */}
       {result && (
-        <FortuneResult data={result} />
+        <>
+          <FortuneResult data={result} />
+          <button
+            onClick={() => {
+              const parsed = parseDateStr(birthdate);
+              setSaveName(parsed ? `${parsed.y}.${parsed.m}.${parsed.d}` : '');
+              setShowSaveModal(true);
+            }}
+            className="w-full mt-4 mb-8 py-3 text-[14px] font-semibold bg-white border border-gray-200 rounded-xl text-gray-700 hover:bg-gray-50 transition-all"
+          >
+            저장하기
+          </button>
+        </>
+      )}
+
+      {/* 저장 모달 */}
+      {showSaveModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={() => setShowSaveModal(false)}>
+          <div className="bg-white rounded-2xl p-6 w-[320px] shadow-xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-[15px] font-bold text-gray-900 mb-1">만세력 저장</h3>
+            <p className="text-[12px] text-gray-400 mb-4">저장할 이름을 입력해주세요</p>
+            <input type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
+              placeholder="예) 홍길동" maxLength={20} autoFocus
+              onKeyDown={e => { if (e.key === 'Enter') { handleSave(); } if (e.key === 'Escape') setShowSaveModal(false); }}
+              className="w-full px-3 py-2.5 text-[14px] border border-gray-200 rounded-lg outline-none focus:border-gray-400 mb-4" />
+            <div className="flex gap-2">
+              <button onClick={() => setShowSaveModal(false)} className="flex-1 py-2.5 text-[13px] font-medium bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-all">취소</button>
+              <button onClick={handleSave} className="flex-1 py-2.5 text-[13px] font-medium bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-all">저장</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 저장 목록 */}
+      {savedList.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-[13px] font-semibold text-gray-800 mb-3">저장된 만세력</h3>
+          <div className="space-y-2">
+            {savedList.map(item => (
+              <div key={item.id} onClick={() => handleLoad(item)}
+                className="flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-xl cursor-pointer hover:border-gray-300 hover:bg-gray-50 transition-all">
+                <div className="flex-1 min-w-0">
+                  <span className="text-[13px] font-semibold text-gray-900 mr-2">{item.name}</span>
+                  <span className="text-[11px] text-gray-400">
+                    {item.date.replace(/-/g, '.')} {item.time && `${item.time}`} · {item.gender}
+                  </span>
+                </div>
+                {item.ilgan && <span className="text-[13px] font-bold text-gray-600 ml-2">{item.ilgan}</span>}
+                <button onClick={e => { e.stopPropagation(); handleDelete(item.id); }}
+                  className="ml-2 w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-400 transition-colors text-[16px]">&times;</button>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
+
+  function handleSave() {
+    if (!result) return;
+    const parsed = parseDateStr(birthdate);
+    if (!parsed) return;
+    const name = saveName.trim() || `${parsed.y}.${parsed.m}.${parsed.d}`;
+    const entry: SavedEntry = {
+      id: Date.now(), name,
+      date: `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`,
+      gender, time: timeInput, region,
+      ilgan: result.pillars[1].ck && result.ilgan ? result.pillars[1].ck + result.ilgan : '',
+      createdAt: new Date().toISOString(),
+    };
+    const list = [entry, ...getSaved()];
+    setSaved(list); setSavedList(list);
+    setShowSaveModal(false);
+  }
+
+  function handleLoad(entry: SavedEntry) {
+    const dp = entry.date.replace(/-/g, '');
+    setBirthdate(dp.slice(0, 4) + ' / ' + dp.slice(4, 6) + ' / ' + dp.slice(6, 8));
+    setGender(entry.gender as '남' | '여');
+    if (entry.time) { setTimeInput(entry.time); setNoTime(false); }
+    else { setTimeInput(''); setNoTime(true); }
+    setRegion(entry.region || '');
+    // Auto-calculate after state update
+    setTimeout(() => {
+      const btn = document.querySelector<HTMLButtonElement>('button:not(:disabled)');
+      if (btn?.textContent?.includes('운세')) btn.click();
+    }, 100);
+  }
+
+  function handleDelete(id: number) {
+    const list = getSaved().filter(x => x.id !== id);
+    setSaved(list); setSavedList(list);
+  }
 }

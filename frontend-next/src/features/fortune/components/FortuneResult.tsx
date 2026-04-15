@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { CG_OH, JJ_OH, OH_HJ, JJG, sipsung, unsung, type Pillar, type ChongunResult, type TodayFortuneResult, type DaeunEntry, type YeonunEntry, type WolunEntry } from '../lib/engine';
 import { SajuTable } from './SajuTable';
 import { DailyCalendar } from './DailyCalendar';
@@ -26,12 +27,42 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+const SS_DETAIL: Record<string, string> = {
+  '비견': '나와 같은 기운이 작용합니다. 동료, 형제와의 관계가 부각되고 자립심이 강해집니다. 경쟁 속에서 성장하되 독선을 경계하세요.',
+  '겁재': '경쟁과 도전의 기운입니다. 재물 지출에 주의하고 승부욕을 긍정적으로 활용하세요. 공동 사업보다 단독 판단이 유리합니다.',
+  '식신': '여유와 창의력의 시기입니다. 먹을 복이 있고 취미가 잘 풀리며 표현력이 좋아집니다. 안정적인 수입과 건강이 따릅니다.',
+  '상관': '표현욕과 재능이 폭발하는 시기입니다. 예술, 글쓰기에 좋으나 날카로운 말로 갈등이 생길 수 있으니 언행에 주의하세요.',
+  '편재': '활동적 재물운과 사교의 시기입니다. 사업 기회가 오고 인맥이 넓어지지만 과욕을 부리면 손실이 생깁니다.',
+  '정재': '안정적인 재물 축적의 시기입니다. 성실한 노력이 결실을 맺고, 가정 경제가 안정됩니다. 저축과 재테크에 유리합니다.',
+  '편관': '변화와 도전의 시기입니다. 갑작스러운 업무나 책임이 주어지지만, 잘 넘기면 큰 성장으로 이어집니다. 건강 관리 필요.',
+  '정관': '질서와 인정의 시기입니다. 사회적 지위가 올라가고 공식적인 성과가 나타납니다. 규칙을 지키면 좋은 결과가 옵니다.',
+  '편인': '직관과 영감의 시기입니다. 학문이나 연구에 몰입하기 좋고 새로운 시각이 열립니다. 다만 고독감이나 건강 이상에 주의.',
+  '정인': '학습과 성장의 시기입니다. 자격증, 학위 등 배움의 결실이 맺어지고 윗사람의 도움이 있습니다. 내적 성숙의 시간.',
+};
+
+const US_DETAIL: Record<string, string> = {
+  '장생': '새로운 출발의 에너지입니다. 시작한 일이 순조롭게 성장하며 희망적인 기운이 감돕니다.',
+  '목욕': '변화와 불안정의 시기입니다. 감정 기복이 심하고 유혹이 많으니 신중하게 행동하세요.',
+  '관대': '자신감과 사회 활동이 최고조입니다. 적극적으로 나서면 인정받고 기회를 잡을 수 있습니다.',
+  '건록': '실력이 완전히 발휘되는 시기입니다. 독립적으로 일을 추진하면 큰 성과를 거둡니다.',
+  '제왕': '모든 기운이 정점에 달합니다. 리더십을 발휘하기 좋으나 정점 이후 하락에 대비하세요.',
+  '쇠': '기운이 서서히 빠지는 시기입니다. 새로운 일보다 기존 일을 정리하고 체력을 관리하세요.',
+  '병': '쇠약함의 시기입니다. 건강 관리에 집중하고 무리한 계획은 피하세요. 휴식이 최선입니다.',
+  '사': '정체와 막힘의 시기입니다. 억지로 밀어붙이면 손해가 커지니 때를 기다리세요.',
+  '묘': '내면을 돌아보는 시기입니다. 과거를 정리하고 다음을 준비하는 잠복기로 활용하세요.',
+  '절': '단절과 전환의 시기입니다. 낡은 것을 과감히 버리고 새 방향을 모색하세요.',
+  '태': '새로운 가능성이 잉태되는 시기입니다. 눈에 보이지 않지만 씨앗이 뿌려지고 있습니다.',
+  '양': '성장을 준비하는 시기입니다. 조용하지만 확실한 발전이 이루어지고 있습니다.',
+};
+
 function UnGrid({ title, cols, ilgan, activeCheck }: {
   title: string;
   cols: { c: string; j: string; ck: string; jk: string; label: string }[];
   ilgan: string;
   activeCheck?: (col: { c: string; j: string; ck: string; jk: string; label: string } & Record<string, unknown>) => boolean;
 }) {
+  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+
   return (
     <div className="mb-4">
       <div className="text-[12px] font-semibold text-gray-500 mb-2">{title}</div>
@@ -45,7 +76,9 @@ function UnGrid({ title, cols, ilgan, activeCheck }: {
             const jjSS = jjMain ? sipsung(ilgan, jjMain) : '';
             const us = unsung(ilgan, col.j);
             return (
-              <div key={i} className={`flex flex-col items-center w-[72px] py-2 px-1 rounded-lg border text-center flex-shrink-0 ${isActive ? 'border-gray-900 bg-gray-50' : 'border-gray-200 bg-white'}`}>
+              <div key={i}
+                onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
+                className={`flex flex-col items-center w-[72px] py-2 px-1 rounded-lg border text-center flex-shrink-0 cursor-pointer transition-all ${isActive ? 'border-gray-900 bg-gray-50' : expandedIdx === i ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                 <div className="text-[11px] text-gray-500 font-medium mb-1">{col.label}</div>
                 <div className="text-[10px] text-gray-400">{cgSS}</div>
                 <div className={`text-[16px] font-bold my-0.5 ${EL_COLORS[cgOh] || ''}`}>{col.ck}{col.c}</div>
@@ -57,6 +90,18 @@ function UnGrid({ title, cols, ilgan, activeCheck }: {
           })}
         </div>
       </div>
+      {expandedIdx !== null && (() => {
+        const col = cols[expandedIdx];
+        const cgSS = sipsung(ilgan, col.c);
+        const us = unsung(ilgan, col.j);
+        return (
+          <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200 text-[12px] text-gray-600 leading-relaxed animate-in fade-in">
+            <div className="font-semibold text-gray-800 mb-2">{col.label} — {col.ck}{col.c} {col.jk}{col.j}</div>
+            {cgSS && <p className="mb-2"><span className="font-medium text-gray-700">십성 [{cgSS}]</span> {SS_DETAIL[cgSS] || ''}</p>}
+            {us && <p><span className="font-medium text-gray-700">12운성 [{us}]</span> {US_DETAIL[us] || ''}</p>}
+          </div>
+        );
+      })()}
     </div>
   );
 }
