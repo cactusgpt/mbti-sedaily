@@ -381,7 +381,7 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
                     : `${GROUP_COLORS[group].light} ${GROUP_COLORS[group].text} hover:opacity-80`
                 }`}
               >
-                {MBTI_PERSONAS[group].emoji} {MBTI_PERSONAS[group].name}
+                {MBTI_PERSONAS[group].name}
               </button>
             ))}
           </div>
