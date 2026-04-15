@@ -270,6 +270,21 @@ def search_related_articles(user_message: str, limit: int = 3) -> List[Dict[str,
 
         all_matches.sort(key=lambda x: x.get('published_at', ''), reverse=True)
 
+        # Fallback: 키워드 매칭 결과가 없으면 최신 기사 반환
+        if not all_matches:
+            for cat in ['경제', '정치', '사회']:
+                try:
+                    response = table.query(
+                        IndexName='category-published_at-index',
+                        KeyConditionExpression=Key('category').eq(cat) & Key('published_at').gte(week_ago),
+                        ScanIndexForward=False,
+                        Limit=2,
+                    )
+                    all_matches.extend(response.get('Items', []))
+                except Exception:
+                    continue
+            all_matches.sort(key=lambda x: x.get('published_at', ''), reverse=True)
+
         results = []
         for item in all_matches[:limit]:
             image_url = None
