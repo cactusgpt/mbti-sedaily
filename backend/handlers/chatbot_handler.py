@@ -149,28 +149,57 @@ def get_cached_briefing(mbti_group: str) -> Optional[str]:
         return None
 
 
+def _fetch_article_body(s3_body_uri: str, max_chars: int = 500) -> str:
+    """Fetch article body from S3 and return truncated content_ko."""
+    try:
+        if not s3_body_uri or not s3_body_uri.startswith('s3://'):
+            return ''
+        parts = s3_body_uri.replace('s3://', '').split('/', 1)
+        bucket, key = parts[0], parts[1]
+        s3 = boto3.client('s3', region_name='ap-northeast-2')
+        resp = s3.get_object(Bucket=bucket, Key=key)
+        body = json.loads(resp['Body'].read().decode('utf-8'))
+        content = body.get('content_ko', '')
+        return content[:max_chars] if content else ''
+    except Exception as e:
+        logger.warning(f"Failed to fetch article body from S3: {e}")
+        return ''
+
+
 def get_recent_articles(limit: int = 5) -> List[Dict[str, Any]]:
-    """Fetch recent articles for context"""
+    """Fetch recent articles with body content for context"""
     try:
         dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
         table = dynamodb.Table(DYNAMODB_TABLE_ARTICLES_DEV)
 
-        # Query recent articles using GSI
+        # Query recent articles from multiple categories
         from boto3.dynamodb.conditions import Key
-        response = table.query(
-            IndexName='category-published_at-index',
-            KeyConditionExpression=Key('category').eq('경제'),
-            ScanIndexForward=False,  # Descending order
-            Limit=limit
-        )
+        all_items = []
+        for cat in ['경제', '정치', '사회', 'IT_과학']:
+            try:
+                response = table.query(
+                    IndexName='category-published_at-index',
+                    KeyConditionExpression=Key('category').eq(cat),
+                    ScanIndexForward=False,
+                    Limit=3
+                )
+                all_items.extend(response.get('Items', []))
+            except Exception:
+                continue
+
+        # Sort by published_at descending, take top N
+        all_items.sort(key=lambda x: x.get('published_at', ''), reverse=True)
+        all_items = all_items[:limit]
 
         articles = []
-        for item in response.get('Items', []):
+        for item in all_items:
+            content = _fetch_article_body(item.get('s3_body_uri', ''))
             articles.append({
                 'news_id': item.get('news_id'),
                 'title': item.get('title_ko', ''),
                 'category': item.get('category', ''),
                 'published_at': item.get('published_at', ''),
+                'content': content,
             })
 
         return articles
@@ -186,7 +215,11 @@ def build_context_prompt(articles: List[Dict[str, Any]], mbti_group: str) -> str
 
     context = "\n\n[최근 뉴스 컨텍스트 - 필요시 참조]\n"
     for i, article in enumerate(articles[:5], 1):
-        context += f"{i}. {article['title']} ({article['category']}, {article['published_at'][:10]})\n"
+        content_preview = article.get('content', '')
+        if content_preview:
+            context += f"{i}. [{article['category']}] {article['title']} ({article['published_at'][:10]})\n   {content_preview[:200]}\n\n"
+        else:
+            context += f"{i}. [{article['category']}] {article['title']} ({article['category']}, {article['published_at'][:10]})\n"
 
     return context
 
