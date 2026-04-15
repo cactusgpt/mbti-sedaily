@@ -237,7 +237,12 @@ export function FortuneTab() {
                     {item.date.replace(/-/g, '.')} {item.time && `${item.time}`} · {item.gender}
                   </span>
                 </div>
-                {item.ilgan && <span className="text-[13px] font-bold text-gray-600 ml-2">{item.ilgan}</span>}
+                {item.ilgan && (() => {
+                  const hanja = item.ilgan.length >= 2 ? item.ilgan[1] : '';
+                  const oh = CG_OH[hanja] || '';
+                  const colorMap: Record<string, string> = { '목': 'text-green-600', '화': 'text-red-500', '토': 'text-yellow-600', '금': 'text-gray-500', '수': 'text-blue-600' };
+                  return <span className={`text-[13px] font-bold ml-2 ${colorMap[oh] || 'text-gray-600'}`}>{item.ilgan}</span>;
+                })()}
                 <button onClick={e => { e.stopPropagation(); handleDelete(item.id); }}
                   className="ml-2 w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-400 transition-colors text-[16px]">&times;</button>
               </div>
