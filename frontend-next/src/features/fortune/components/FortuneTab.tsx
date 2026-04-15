@@ -38,6 +38,7 @@ export function FortuneTab() {
   const [timeInput, setTimeInput] = useState('');
   const [noTime, setNoTime] = useState(false);
   const [gender, setGender] = useState<'남' | '여'>('남');
+  const [mbtiGroup, setMbtiGroup] = useState<'NT' | 'NF' | 'ST' | 'SF'>('NF');
   const [region, setRegion] = useState('');
   const [result, setResult] = useState<SajuData | null>(null);
   const [error, setError] = useState('');
@@ -144,6 +145,27 @@ export function FortuneTab() {
   return (
     <div className="max-w-[480px] mx-auto">
       <h2 className="text-[22px] font-bold text-gray-900 mb-6">오늘의 운세</h2>
+
+      {/* MBTI 그룹 */}
+      <div className="mb-6">
+        <label className="block text-[13px] font-semibold text-gray-800 mb-2">유형</label>
+        <div className="flex gap-2">
+          {([
+            { id: 'NT' as const, name: '분석가', color: 'bg-blue-500', light: 'bg-blue-50', text: 'text-blue-600' },
+            { id: 'NF' as const, name: '이야기꾼', color: 'bg-purple-500', light: 'bg-purple-50', text: 'text-purple-600' },
+            { id: 'ST' as const, name: '실용주의자', color: 'bg-green-500', light: 'bg-green-50', text: 'text-green-600' },
+            { id: 'SF' as const, name: '공감러', color: 'bg-orange-500', light: 'bg-orange-50', text: 'text-orange-600' },
+          ]).map(g => (
+            <button key={g.id} onClick={() => setMbtiGroup(g.id)}
+              className={`flex-1 py-2.5 text-[13px] font-medium rounded-xl transition-all ${
+                mbtiGroup === g.id ? `${g.color} text-white` : `${g.light} ${g.text}`
+              }`}>
+              {g.name}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* 성별 */}
       <div className="mb-6">
         <label className="block text-[13px] font-semibold text-gray-800 mb-2">성별</label>
