@@ -148,7 +148,6 @@ export function FortuneTab() {
 
       {/* MBTI 그룹 */}
       <div className="mb-6">
-        <label className="block text-[13px] font-semibold text-gray-800 mb-2">유형</label>
         <div className="flex gap-2">
           {([
             { id: 'NT' as const, name: '분석가', color: 'bg-blue-500', light: 'bg-blue-50', text: 'text-blue-600' },
