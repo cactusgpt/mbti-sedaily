@@ -270,8 +270,10 @@ def search_related_articles(user_message: str, limit: int = 3) -> List[Dict[str,
 
         all_matches.sort(key=lambda x: x.get('published_at', ''), reverse=True)
 
-        # Fallback: 키워드 매칭 결과가 없으면 최신 기사 반환
-        if not all_matches:
+        # Fallback: 키워드 매칭 없고, 광범위한 뉴스 질문일 때만 최신 기사 반환
+        BROAD_KEYWORDS = {'뉴스', '기사', '소식', '이슈', '헤드라인', '브리핑', '시장', '경제', '오늘'}
+        is_broad = any(bk in user_message for bk in BROAD_KEYWORDS)
+        if not all_matches and is_broad:
             for cat in ['경제', '정치', '사회']:
                 try:
                     response = table.query(
