@@ -92,17 +92,22 @@ export function FortuneTab() {
 
   const isDateValid = parseDateStr(birthdate) !== null;
 
-  const handleCalculate = useCallback(() => {
-    const parsed = parseDateStr(birthdate);
-    if (!parsed) { setError('생년월일을 정확히 입력해주세요.'); return; }
-    const { y, m, d } = parsed;
-    if (y < 1900 || y > 2050) { setError('1900~2050년 범위만 지원합니다.'); return; }
-    setError('');
-
+  const doCalculate = useCallback((y: number, m: number, d: number, g: string, timeStr: string, isNoTime: boolean, reg: string) => {
     try {
       const opts: { longitude?: number; applyTimeCorrection?: boolean } = {};
-      if (region) { opts.longitude = parseFloat(region); opts.applyTimeCorrection = true; }
-      const hr = noTime ? undefined : timeSijin;
+      if (reg) { opts.longitude = parseFloat(reg); opts.applyTimeCorrection = true; }
+      let hr: number | undefined;
+      if (!isNoTime) {
+        const raw = timeStr.replace(/[^0-9]/g, '');
+        if (raw.length === 4) {
+          const hh = parseInt(raw.slice(0, 2));
+          const mm = parseInt(raw.slice(2, 4));
+          if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+            const matched = matchSijin(hh, mm);
+            hr = matched ? matched.value : undefined;
+          }
+        }
+      }
       const s = calculateSaju(y, m, d, hr, 0, opts);
       const ps = [
         parsePillar(s.hourPillar ?? '', s.hourPillarHanja ?? ''),
@@ -113,20 +118,28 @@ export function FortuneTab() {
       const il = ps[1].c;
       const chongun = buildChongun(ps);
       const todayFortune = buildTodayFortune(ps);
-      const now = new Date();
-      const { daeuns } = il ? calcDaeun(s, gender, y, m, d) : { daeuns: [] };
+      const { daeuns } = il ? calcDaeun(s, g, y, m, d) : { daeuns: [] };
       const yeonuns = il ? calcYeonun() : [];
       const woluns = il ? calcWolun() : [];
 
       setResult({
-        pillars: ps, ilgan: il, year: y, month: m, day: d, gender,
+        pillars: ps, ilgan: il, year: y, month: m, day: d, gender: g,
         chongun, todayFortune, daeuns, yeonuns, woluns,
         correctedTime: s.isTimeCorrected && s.correctedTime ? s.correctedTime : undefined,
       });
+      setError('');
     } catch (err) {
       setError('계산 오류: ' + (err instanceof Error ? err.message : String(err)));
     }
-  }, [birthdate, timeInput, noTime, gender, region, timeSijin, parseDateStr]);
+  }, []);
+
+  const handleCalculate = useCallback(() => {
+    const parsed = parseDateStr(birthdate);
+    if (!parsed) { setError('생년월일을 정확히 입력해주세요.'); return; }
+    const { y, m, d } = parsed;
+    if (y < 1900 || y > 2050) { setError('1900~2050년 범위만 지원합니다.'); return; }
+    doCalculate(y, m, d, gender, timeInput, noTime, region);
+  }, [birthdate, timeInput, noTime, gender, region, parseDateStr, doCalculate]);
 
   return (
     <div className="max-w-[480px] mx-auto">
@@ -277,11 +290,11 @@ export function FortuneTab() {
     if (entry.time) { setTimeInput(entry.time); setNoTime(false); }
     else { setTimeInput(''); setNoTime(true); }
     setRegion(entry.region || '');
-    // Auto-calculate after state update
-    setTimeout(() => {
-      const btn = document.querySelector<HTMLButtonElement>('button:not(:disabled)');
-      if (btn?.textContent?.includes('운세')) btn.click();
-    }, 100);
+
+    const y = parseInt(dp.slice(0, 4));
+    const m = parseInt(dp.slice(4, 6));
+    const d = parseInt(dp.slice(6, 8));
+    doCalculate(y, m, d, entry.gender, entry.time || '', !entry.time, entry.region || '');
   }
 
   function handleDelete(id: number) {
