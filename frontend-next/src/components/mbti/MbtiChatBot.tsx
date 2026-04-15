@@ -27,7 +27,7 @@ const MBTI_PERSONAS = {
     role: '논리와 전략으로 세상을 읽는 사람',
     greeting: '궁금한 거 있으면 핵심만 빠르게 정리해드릴게요.',
     style: '논리적이고 분석적',
-    color: 'purple',
+    color: 'blue',
     emoji: '📊',
   },
   NF: {
@@ -35,7 +35,7 @@ const MBTI_PERSONAS = {
     role: '의미와 가능성을 발견하는 사람',
     greeting: '오늘 어떤 이야기가 궁금하세요? 함께 생각해봐요.',
     style: '성찰적이고 따뜻한',
-    color: 'pink',
+    color: 'purple',
     emoji: '💡',
   },
   ST: {
@@ -59,18 +59,18 @@ const MBTI_PERSONAS = {
 // MBTI 그룹별 색상
 const GROUP_COLORS = {
   NT: {
+    primary: 'bg-blue-500',
+    light: 'bg-blue-50',
+    text: 'text-blue-600',
+    border: 'border-blue-200',
+    hover: 'hover:bg-blue-600',
+  },
+  NF: {
     primary: 'bg-purple-500',
     light: 'bg-purple-50',
     text: 'text-purple-600',
     border: 'border-purple-200',
     hover: 'hover:bg-purple-600',
-  },
-  NF: {
-    primary: 'bg-pink-500',
-    light: 'bg-pink-50',
-    text: 'text-pink-600',
-    border: 'border-pink-200',
-    hover: 'hover:bg-pink-600',
   },
   ST: {
     primary: 'bg-green-500',
