@@ -750,6 +750,9 @@ def lambda_handler(event: dict, context) -> dict:
             'SF': {'name': '하은', 'role': 'MZ 독자 담당 에디터', 'emoji': '💬'},
         }
 
+        # Search related articles based on user message
+        related_articles = search_related_articles(user_message, limit=3)
+
         return {
             'statusCode': 200,
             'headers': CORS_HEADERS,
@@ -757,6 +760,7 @@ def lambda_handler(event: dict, context) -> dict:
                 'response': response_text,
                 'mbti_group': mbti_group,
                 'persona': persona_map.get(mbti_group, persona_map['SF']),
+                'recommended_articles': related_articles,
                 'timestamp': datetime.now().isoformat()
             }, ensure_ascii=False)
         }
