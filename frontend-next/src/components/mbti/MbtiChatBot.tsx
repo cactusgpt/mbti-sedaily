@@ -347,7 +347,7 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
       {/* Chat Window */}
       {isOpen && (
         <div
-          className="fixed bottom-24 right-6 z-[60] w-[360px] h-[500px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 max-md:w-full max-md:h-[100dvh] max-md:rounded-none max-md:top-0 max-md:left-0 max-md:right-0 max-md:bottom-0 max-md:fixed"
+          className="fixed bottom-24 right-6 z-[60] w-[360px] h-[500px] bg-white rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 max-md:w-full max-md:h-[100dvh] max-md:rounded-none max-md:top-0 max-md:left-0 max-md:right-0 max-md:bottom-0 max-md:fixed max-md:z-[100]"
         >
           {/* Header */}
           <div className={`flex items-center justify-between px-4 py-3 ${colors.primary} text-white`}>
