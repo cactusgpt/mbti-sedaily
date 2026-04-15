@@ -78,9 +78,12 @@ class BriefingGenerator:
                         key_points = version['key_points']
                         break
                 kp_str = ' / '.join(key_points[:3]) if key_points else ''
+                content_preview = a.get('content_ko', '')[:200] if not kp_str else ''
                 lines.append(f"{i}. {title}")
                 if kp_str:
                     lines.append(f"   핵심: {kp_str}")
+                elif content_preview:
+                    lines.append(f"   내용: {content_preview}")
 
         return '\n'.join(lines)
 

@@ -33,10 +33,24 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+def _fetch_s3_body(s3_body_uri: str) -> dict:
+    """Fetch article body JSON from S3."""
+    try:
+        if not s3_body_uri or not s3_body_uri.startswith('s3://'):
+            return {}
+        parts = s3_body_uri.replace('s3://', '').split('/', 1)
+        s3 = boto3.client('s3', region_name='ap-northeast-2')
+        resp = s3.get_object(Bucket=parts[0], Key=parts[1])
+        return json.loads(resp['Body'].read().decode('utf-8'))
+    except Exception as e:
+        logger.warning(f"Failed to fetch S3 body: {e}")
+        return {}
+
+
 def fetch_recent_transformed_articles(limit_per_category: int = 3) -> list:
     """
-    Fetch recent articles with MBTI versions from DynamoDB across all categories.
-    Only includes articles that have at least one MBTI version (version_NT etc.).
+    Fetch recent articles from DynamoDB, enriched with S3 body content.
+    Includes articles that have content_ko or MBTI versions in S3.
     """
     dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
     table = dynamodb.Table(DYNAMODB_TABLE_ARTICLES_DEV)
@@ -45,7 +59,6 @@ def fetch_recent_transformed_articles(limit_per_category: int = 3) -> list:
     seen_ids = set()
 
     for category in ALL_CATEGORIES:
-        # Query all aliases for this category (e.g., 경제 → [경제, 금융, 증권, 부동산])
         aliases = CATEGORY_SEARCH_ALIASES.get(category, [category])
 
         for alias in aliases:
@@ -54,7 +67,7 @@ def fetch_recent_transformed_articles(limit_per_category: int = 3) -> list:
                     IndexName=GSI_CATEGORY_DATE,
                     KeyConditionExpression=Key('category').eq(alias),
                     ScanIndexForward=False,
-                    Limit=limit_per_category * 2,  # Fetch extra in case some lack MBTI versions
+                    Limit=limit_per_category,
                 )
 
                 for item in response.get('Items', []):
@@ -62,24 +75,29 @@ def fetch_recent_transformed_articles(limit_per_category: int = 3) -> list:
                     if news_id in seen_ids:
                         continue
 
-                    # Only include articles with at least one MBTI version
-                    has_version = any(
-                        isinstance(item.get(f'version_{g}'), dict) and item.get(f'version_{g}', {}).get('body')
-                        for g in ['NT', 'NF', 'ST', 'SF']
-                    )
-                    if not has_version:
+                    # Fetch body from S3
+                    s3_uri = item.get('s3_body_uri', '')
+                    if s3_uri:
+                        body = _fetch_s3_body(s3_uri)
+                        item['content_ko'] = body.get('content_ko', '')[:500]
+                        for g in ['NT', 'NF', 'ST', 'SF']:
+                            ver = body.get(f'version_{g}')
+                            if isinstance(ver, dict):
+                                item[f'version_{g}'] = ver
+
+                    if not item.get('content_ko') and not item.get('title_ko'):
                         continue
 
                     seen_ids.add(news_id)
                     all_articles.append(item)
 
-                    if len([a for a in all_articles if a.get('category') == category]) >= limit_per_category:
+                    if len([a for a in all_articles if a.get('category') == alias]) >= limit_per_category:
                         break
 
             except Exception as e:
                 logger.warning(f"Failed to query category '{alias}': {e}")
 
-    logger.info(f"Fetched {len(all_articles)} transformed articles across {len(ALL_CATEGORIES)} categories")
+    logger.info(f"Fetched {len(all_articles)} articles across {len(ALL_CATEGORIES)} categories")
     return all_articles
 
 
