@@ -56,10 +56,11 @@ NAVER_TV_URL_DEFAULT = NAVER_TV_DEFAULT_URL  # Alias for consistency
 # =============================================================================
 
 # AWS Bedrock Claude Models
-# Haiku 3.5 - Cost-effective model for all transformations
-# Cost: $0.25/$1.25 per 1M tokens (input/output)
+# Haiku 3.5 - Cost-effective model for chatbot
 BEDROCK_MODEL_ID_DEFAULT = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
 BEDROCK_MODEL_ID_HAIKU = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
+# Sonnet 4 - High quality model for briefing generation
+BEDROCK_MODEL_ID_SONNET = 'us.anthropic.claude-sonnet-4-20250514-v1:0'
 
 BEDROCK_REGION = 'us-east-1'
 

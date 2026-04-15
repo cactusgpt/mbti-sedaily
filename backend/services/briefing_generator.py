@@ -12,7 +12,7 @@ import boto3
 from botocore.config import Config
 
 from config.constants import (
-    BEDROCK_MODEL_ID_HAIKU,
+    BEDROCK_MODEL_ID_SONNET,
     MBTI_GROUPS,
     ALL_CATEGORIES,
 )
@@ -123,7 +123,7 @@ class BriefingGenerator:
         logger.info(f"Generating news briefing from {len(articles)} articles")
 
         response = self.client.invoke_model(
-            modelId=BEDROCK_MODEL_ID_HAIKU,
+            modelId=BEDROCK_MODEL_ID_SONNET,
             contentType="application/json",
             accept="application/json",
             body=request_body,
