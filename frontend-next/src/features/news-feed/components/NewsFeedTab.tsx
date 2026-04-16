@@ -1,13 +1,10 @@
 'use client';
 
+import Link from "next/link";
 import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
 import type { MbtiArticle } from "@/shared/types/mbti";
 import { getWeekDays, isSameDay, getMonthDays } from "@/shared/utils/dateUtils";
-import { cleanMarkdown } from "@/shared/utils/textUtils";
-import { ScrollReveal } from "@/shared/ui/ScrollReveal";
-
-// 하위 호환성을 위한 타입 별칭
-type Article = MbtiArticle;
+import { ArticleGrid } from "./ArticleGrid";
 
 interface Props {
   selectedDate: Date;
@@ -16,54 +13,64 @@ interface Props {
   setCalendarMonth: (date: Date) => void;
   showCalendar: boolean;
   setShowCalendar: (show: boolean) => void;
-  articles: Article[];
+  articles: MbtiArticle[];
   loading: boolean;
   selectedGroup: MbtiGroupId;
   onMbtiChange?: (group: MbtiGroupId) => void;
-  expandedArticles: Set<string>;
-  setExpandedArticles: React.Dispatch<React.SetStateAction<Set<string>>>;
   showAudioPlayer: boolean;
   startAudioBriefing: () => void;
-  handleTextSelect: (articleId: string, articleTitle: string, articlePublishedAt?: string) => void;
+  onArticleClick: (article: MbtiArticle) => void;
 }
 
 // MBTI 유형별 스타일 정보
 const typeInfo = {
   NT: {
-    name: "분석가",
+    name: "민철",
+    names: ["민철", "지훈", "서연"],
+    nickname: "분석가",
     color: "bg-purple-500",
     textColor: "text-purple-600",
     ringColor: "ring-purple-200",
     shadowColor: "shadow-purple-200/50",
     avatar: "/editors/intj.png",
-    tagline: "논리와 전략으로 세상을 읽는 사람"
+    tagline: "논리와 전략으로 세상을 읽는 사람",
+    pickMessage: "오늘 가장 흥미로운 데이터와 인사이트를 담은 기사를 골랐어요."
   },
   NF: {
-    name: "이야기꾼",
+    name: "하은",
+    names: ["하은", "수빈", "예린"],
+    nickname: "이야기꾼",
     color: "bg-rose-500",
     textColor: "text-rose-600",
     ringColor: "ring-rose-200",
     shadowColor: "shadow-rose-200/50",
     avatar: "/editors/infp.png",
-    tagline: "의미와 가능성을 발견하는 사람"
+    tagline: "의미와 가능성을 발견하는 사람",
+    pickMessage: "읽으면서 마음이 움직였던 기사, 당신도 느껴보세요."
   },
   ST: {
-    name: "실용주의자",
+    name: "준서",
+    names: ["준서", "도윤", "시우"],
+    nickname: "실용주의자",
     color: "bg-emerald-500",
     textColor: "text-emerald-700",
     ringColor: "ring-emerald-200",
     shadowColor: "shadow-emerald-200/50",
     avatar: "/editors/istj.png",
-    tagline: "사실과 경험을 중시하는 사람"
+    tagline: "사실과 경험을 중시하는 사람",
+    pickMessage: "핵심만 딱, 바로 써먹을 수 있는 기사를 챙겨왔어요."
   },
   SF: {
-    name: "공감러",
+    name: "소율",
+    names: ["소율", "유나", "다은"],
+    nickname: "공감러",
     color: "bg-amber-500",
     textColor: "text-amber-700",
     ringColor: "ring-amber-200",
     shadowColor: "shadow-amber-200/50",
     avatar: "/editors/esfp.png",
-    tagline: "사람과 순간을 소중히 여기는 사람"
+    tagline: "사람과 순간을 소중히 여기는 사람",
+    pickMessage: "오늘 하루, 이 기사 하나면 친구랑 대화가 통해요."
   },
 };
 
@@ -78,11 +85,9 @@ export function NewsFeedTab({
   loading,
   selectedGroup,
   onMbtiChange,
-  expandedArticles,
-  setExpandedArticles,
   showAudioPlayer,
   startAudioBriefing,
-  handleTextSelect,
+  onArticleClick,
 }: Props) {
   return (
     <div className="min-h-screen bg-white">
@@ -90,50 +95,8 @@ export function NewsFeedTab({
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;500;600;700;900&display=swap');
 
-        @keyframes fadeInUp {
-          from {
-            opacity: 0;
-            transform: translateY(40px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        @keyframes scaleIn {
-          from {
-            opacity: 0;
-            transform: scale(0.9);
-          }
-          to {
-            opacity: 1;
-            transform: scale(1);
-          }
-        }
-
-        .editorial-fade-in {
-          animation: fadeInUp 0.8s ease-out forwards;
-          opacity: 0;
-        }
-
-        .editorial-scale-in {
-          animation: scaleIn 0.6s ease-out forwards;
-          opacity: 0;
-        }
-
         .editorial-title {
           font-family: 'Noto Serif KR', serif;
-        }
-
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-
-        @keyframes slideUp {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
 
@@ -297,10 +260,10 @@ export function NewsFeedTab({
       )}
 
       {/* MBTI 스위처 + 기사 개수 */}
-      <div className="pt-8 pb-6 px-6">
-        <div className="max-w-[800px] mx-auto">
+      <div className="pt-4 pb-3 px-6">
+        <div className="max-w-[1100px] mx-auto">
           {/* MBTI 유형 스위처 */}
-          <div className="flex items-center justify-center gap-10 mb-5">
+          <div className="flex items-center justify-center gap-8 mb-3">
             {(["NT", "NF", "ST", "SF"] as const).map((type) => {
               const isSelected = selectedGroup === type;
               return (
@@ -315,7 +278,7 @@ export function NewsFeedTab({
                     {isSelected && (
                       <div className={`absolute inset-0 rounded-full blur-2xl opacity-20 ${typeInfo[type].color}`} />
                     )}
-                    <div className={`relative w-[76px] h-[76px] rounded-full overflow-hidden transition-all duration-500 ease-out bg-white ${
+                    <div className={`relative w-[56px] h-[56px] rounded-full overflow-hidden transition-all duration-500 ease-out bg-white ${
                       isSelected
                         ? `ring-[2.5px] ${typeInfo[type].ringColor} shadow-lg`
                         : "ring-1 ring-gray-100 opacity-35 grayscale group-hover:grayscale-0 group-hover:opacity-100 group-hover:ring-gray-200 group-hover:shadow-md"
@@ -343,9 +306,19 @@ export function NewsFeedTab({
           <div className="text-center mb-2">
             <p className="text-[13px] text-gray-500 transition-all duration-300">
               <span className={`font-semibold ${typeInfo[selectedGroup].textColor}`}>{typeInfo[selectedGroup].name}</span>
+              <span className="text-gray-400 ml-1">({typeInfo[selectedGroup].nickname})</span>
               <span className="mx-2 text-gray-200">|</span>
               <span className="font-light">{typeInfo[selectedGroup].tagline}</span>
             </p>
+            <Link
+              href="/editors"
+              className="inline-flex items-center gap-1 mt-2 text-[12px] text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <span>에디터 소개 보기</span>
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
           </div>
         </div>
       </div>
@@ -389,143 +362,51 @@ export function NewsFeedTab({
         )}
       </div>
 
-      {/* 기사 목록 - 에디토리얼 스타일 */}
-      {loading ? (
-        <div className="max-w-[800px] mx-auto px-8 py-10 space-y-16">
-          {[1,2,3].map(i => (
-            <div key={i} className="animate-pulse">
-              <div className="h-8 bg-gray-200 rounded w-16 mb-6" />
-              <div className="h-10 bg-gray-200 rounded w-full mb-4" />
-              <div className="h-6 bg-gray-100 rounded w-4/5" />
+      {/* 기사 목록 */}
+      <div className="max-w-[1100px] mx-auto px-5 md:px-8">
+        {loading ? (
+          <div className="flex flex-col">
+            {/* Pick 스켈레톤 */}
+            <div className="pb-3 pt-5 flex items-center gap-2 md:pt-0 md:pb-6">
+              <div className="w-7 h-7 rounded-full bg-gray-200 animate-pulse" />
+              <div className="h-6 w-36 bg-gray-200 rounded animate-pulse" />
             </div>
-          ))}
-        </div>
-      ) : (
-        <div className="max-w-[800px] mx-auto px-8 py-10">
-          {articles.slice(0, 12).map((article, idx) => {
-            const v = article.versions?.[selectedGroup];
-            const title = v?.title || article.title;
-            const bodyText = v?.body
-              ? (Array.isArray(v.body) ? v.body.join('\n\n') : v.body)
-              : article.content || "";
-            const cleanBody = cleanMarkdown(bodyText);
-            const contentText = cleanBody.replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
-
-            const isExpanded = expandedArticles.has(article.news_id);
-
-            const toggleExpand = (e: React.MouseEvent) => {
-              e.stopPropagation();
-              setExpandedArticles(prev => {
-                const newSet = new Set(prev);
-                if (newSet.has(article.news_id)) {
-                  newSet.delete(article.news_id);
-                } else {
-                  newSet.add(article.news_id);
-                }
-                return newSet;
-              });
-            };
-
-            return (
-              <ScrollReveal key={article.news_id} delay={idx * 50}>
-                <article
-                  id={`article-${idx}`}
-                  className="mb-20 last:mb-0"
-                >
-                  {/* 번호 - 크고 굵게 */}
-                  <div className="mb-4">
-                    <span className="text-[32px] font-black text-gray-900">
-                      {String(idx + 1).padStart(2, '0')}
-                    </span>
+            <div className="grid grid-cols-1 md:grid-cols-2 md:gap-8 animate-pulse">
+              <div className="aspect-[16/9] w-full rounded-lg bg-gray-200" />
+              <div className="flex flex-col justify-center mt-3 md:mt-0">
+                <div className="h-6 bg-gray-200 rounded w-full mb-3" />
+                <div className="h-4 bg-gray-100 rounded w-full mb-2" />
+                <div className="h-4 bg-gray-100 rounded w-3/4 mb-4" />
+                <div className="h-3 bg-gray-100 rounded w-24" />
+              </div>
+            </div>
+            {/* 리스트 스켈레톤 */}
+            <div className="mt-5 border-t border-gray-200 pt-5 md:mt-8 md:pt-8">
+              <div className="h-6 w-28 bg-gray-200 rounded animate-pulse mb-6" />
+              <div className="grid grid-cols-1 md:grid-cols-2 md:gap-8 gap-6">
+                {[1, 2, 3, 4].map(i => (
+                  <div key={i} className="grid grid-cols-[103px_auto] md:grid-cols-[4fr_6fr] items-center gap-4 animate-pulse">
+                    <div className="aspect-[16/9] w-full rounded-lg bg-gray-200" />
+                    <div className="flex flex-col">
+                      <div className="h-5 bg-gray-200 rounded w-full mb-2" />
+                      <div className="h-3 bg-gray-100 rounded w-20" />
+                    </div>
                   </div>
-
-                  {/* 카테고리 */}
-                  <div className="mb-4">
-                    <span className="inline-block px-3 py-1 bg-gray-50 text-[12px] font-medium text-gray-600 rounded-full shadow-[0_1px_2px_rgba(0,0,0,0.04)] border border-gray-100/60">
-                      {article.category}
-                    </span>
-                  </div>
-
-                  {/* 제목 - 큰 세리프 폰트 */}
-                  <h2 className="editorial-title text-[24px] md:text-[32px] font-bold text-gray-900 leading-[1.3] mb-5">
-                    {title}
-                  </h2>
-
-                  {/* 본문 */}
-                  <div className={`text-[17px] text-gray-600 leading-[1.9] mb-5 overflow-hidden transition-all duration-700 ease-out ${
-                    isExpanded ? 'max-h-[4000px] opacity-100' : 'max-h-[150px]'
-                  }`}>
-                    {isExpanded ? (
-                      // 펼쳐진 상태: 드래그로 텍스트 선택 가능
-                      <div
-                        className="select-text cursor-text"
-                        onMouseUp={() => handleTextSelect(article.news_id, title, article.published_at)}
-                        onTouchEnd={() => handleTextSelect(article.news_id, title, article.published_at)}
-                      >
-                        <p className="whitespace-pre-wrap leading-[2]">
-                          {contentText}
-                        </p>
-                      </div>
-                    ) : (
-                      // 접힌 상태: 그라데이션 페이드
-                      <div className="relative">
-                        <p className="whitespace-pre-wrap">
-                          {contentText.slice(0, 250)}
-                        </p>
-                        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-white to-transparent" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 더보기/접기 버튼 - 중앙 정렬 */}
-                  <div className="flex justify-center mt-6">
-                    <button
-                      onClick={toggleExpand}
-                      className={`group flex items-center gap-2 px-6 py-2.5 rounded-full text-[14px] font-medium transition-all duration-300 ${
-                        isExpanded
-                          ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                          : 'bg-blue-500 text-white hover:bg-blue-600 shadow-sm hover:shadow-md'
-                      }`}
-                    >
-                      <span>{isExpanded ? '접기' : '더보기'}</span>
-                      <svg
-                        className={`w-4 h-4 transition-transform duration-500 ease-out ${isExpanded ? 'rotate-180' : 'group-hover:translate-y-0.5'}`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                  </div>
-
-                  {/* 펼쳐진 상태일 때 힌트 */}
-                  {isExpanded && (
-                    <p className="text-center text-[12px] text-gray-400 mt-3" style={{ animation: 'fadeIn 0.5s ease-out 0.3s both' }}>
-                      드래그하여 문장을 저장하세요
-                    </p>
-                  )}
-
-                  {/* 구분선 */}
-                  {idx < articles.slice(0, 12).length - 1 && (
-                    <div className="mt-12 border-b border-gray-100" />
-                  )}
-                </article>
-              </ScrollReveal>
-            );
-          })}
-
-          {/* 마무리 섹션 */}
-          <ScrollReveal className="mt-32 text-center" id="feed-footer">
-            <p className="editorial-title text-[24px] text-gray-400 mb-4">
-              오늘의 브리핑이 끝났습니다
-            </p>
-            <p className="text-[16px] text-gray-300">
-              내일 또 만나요
-            </p>
-          </ScrollReveal>
-        </div>
-      )}
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <ArticleGrid
+            articles={articles}
+            selectedGroup={selectedGroup}
+            onArticleClick={onArticleClick}
+            personaName={typeInfo[selectedGroup].name}
+            personaNames={typeInfo[selectedGroup].names}
+            personaAvatar={typeInfo[selectedGroup].avatar}
+          />
+        )}
+      </div>
 
       {/* 하단 여백 */}
       <div className="h-32" />
