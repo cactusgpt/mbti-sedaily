@@ -115,6 +115,7 @@ API_FUNCTIONS=(
   "sedaily-mbti-metrics-dev"
   "sedaily-mbti-abtest-dev"
   "sedaily-mbti-translation-dev"
+  "sedaily-mbti-briefing-dev"
 )
 
 # --- Pipeline Functions (Step Functions) ---
@@ -180,4 +181,6 @@ echo "  -> Chatbot:"
 echo "     aws logs tail /aws/lambda/sedaily-mbti-chatbot-dev --follow"
 echo "  -> Archive:"
 echo "     aws logs tail /aws/lambda/sedaily-mbti-archive-dev --follow"
+echo "  -> Briefing Generator logs:"
+echo "     aws logs tail /aws/lambda/sedaily-mbti-briefing-dev --follow"
 echo ""

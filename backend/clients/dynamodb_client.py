@@ -803,6 +803,51 @@ class DynamoDBClient:
         except Exception:
             return None
 
+    # ==================== News Briefing (Chatbot Context Cache) ====================
+
+    async def save_news_briefing(self, briefing_data: Dict[str, Any]) -> bool:
+        """
+        Save the generated news briefing to DynamoDB.
+        Overwrites the previous briefing (fixed key: news_briefing_latest).
+        """
+        import logging
+        from config.constants import NEWS_BRIEFING_ID, ITEM_TYPE_NEWS_BRIEFING
+        logger = logging.getLogger(__name__)
+
+        try:
+            item = {
+                'news_id': NEWS_BRIEFING_ID,
+                'item_type': ITEM_TYPE_NEWS_BRIEFING,
+                **briefing_data,
+            }
+
+            item = {k: v for k, v in item.items() if v is not None}
+            item = _sanitize_for_dynamodb(item)
+
+            self.table.put_item(Item=item)
+            logger.info(f"News briefing saved: {item.get('generated_at', 'unknown')}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save news briefing: {e}", exc_info=True)
+            return False
+
+    async def get_news_briefing(self) -> Optional[Dict[str, Any]]:
+        """
+        Get the cached news briefing (single get_item, very fast).
+        Returns None if not found.
+        """
+        import logging
+        from config.constants import NEWS_BRIEFING_ID
+        logger = logging.getLogger(__name__)
+
+        try:
+            response = self.table.get_item(Key={'news_id': NEWS_BRIEFING_ID})
+            return response.get('Item')
+        except Exception as e:
+            logger.warning(f"Failed to fetch news briefing: {e}")
+            return None
+
     # ==================== Failed Articles Queue ====================
 
     async def save_failed_article(self, article_data: Dict[str, Any], error_reason: str) -> bool:

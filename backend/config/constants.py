@@ -261,6 +261,14 @@ ITEM_TYPE_USER_PROFILE = 'user_profile'
 ITEM_TYPE_ARCHIVED_SENTENCE = 'archived_sentence'
 ITEM_TYPE_READING_RECORD = 'reading_record'
 ITEM_TYPE_PODCAST = 'podcast'
+ITEM_TYPE_NEWS_BRIEFING = 'news_briefing'
+
+# =============================================================================
+# News Briefing (Chatbot Context Cache)
+# =============================================================================
+
+NEWS_BRIEFING_ID = 'news_briefing_latest'
+NEWS_BRIEFING_MAX_AGE_HOURS = 36  # 하루 1회 갱신 기준, 여유 12시간 포함
 
 # =============================================================================
 # Settings Keys

@@ -108,12 +108,14 @@ export function ArticleDiscussion({ articleTitle, articleContent, mbtiGroup }: P
     }
   };
 
-  // 추천 질문
-  const suggestions = [
-    '이 뉴스 핵심이 뭐야?',
-    '나한테 어떤 영향이 있어?',
-    '다른 관점에서 보면?',
-  ];
+  // MBTI 그룹별 추천 질문
+  const suggestionsMap: Record<MbtiGroupId, string[]> = {
+    NT: ['핵심 데이터 정리해줘', '논리적 허점이 있어?', '장기 전망은?'],
+    NF: ['사회적 의미가 뭐야?', '사람들에게 어떤 영향?', '다른 관점에서 보면?'],
+    ST: ['팩트만 정리해줘', '수치랑 출처 알려줘', '실제로 뭘 해야 해?'],
+    SF: ['쉽게 설명해줘', '내 생활에 영향 있어?', '주변에 어떻게 설명하지?'],
+  };
+  const suggestions = suggestionsMap[mbtiGroup];
 
   if (!isOpen) {
     return (
