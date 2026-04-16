@@ -618,6 +618,15 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
     return () => window.removeEventListener("popstate", handlePopState);
   }, [viewArticle]);
 
+  // /editors 등 다른 라우트에서 ?tab=... 로 진입했을 때 초기 반영
+  // (useState 초기값이 prerender 시점의 빈 searchParams를 캡처할 수 있어 별도 동기화 필요)
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam && ['question', 'feed', 'community', 'archive', 'dna', 'fortune'].includes(tabParam)) {
+      setActiveTabState(tabParam as typeof activeTab);
+    }
+  }, [searchParams]);
+
   const handleCloseArticle = useCallback(() => {
     if (viewArticle) window.history.back();
   }, [viewArticle]);
@@ -845,11 +854,9 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
             loading={loading}
             selectedGroup={selectedGroup}
             onMbtiChange={onMbtiChange}
-            expandedArticles={expandedArticles}
-            setExpandedArticles={setExpandedArticles}
             showAudioPlayer={showAudioPlayer}
             startAudioBriefing={startAudioBriefing}
-            handleTextSelect={handleTextSelect}
+            onArticleClick={openArticle}
           />
         )}
 
