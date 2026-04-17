@@ -912,7 +912,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
         {/* 오늘의 운세 */}
         {activeTab === "fortune" && (
           <div className="flex-1 py-6">
-            <FortuneTab />
+            <FortuneTab selectedGroup={selectedGroup} onMbtiChange={onMbtiChange} />
           </div>
         )}
       </main>

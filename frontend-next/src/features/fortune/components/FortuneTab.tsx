@@ -33,12 +33,20 @@ const STORAGE_KEY = 'saju_saved';
 function getSaved(): SavedEntry[] { try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; } }
 function setSaved(list: SavedEntry[]) { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); }
 
-export function FortuneTab() {
+interface FortuneTabProps {
+  selectedGroup?: 'NT' | 'NF' | 'ST' | 'SF';
+  onMbtiChange?: (group: 'NT' | 'NF' | 'ST' | 'SF') => void;
+}
+
+export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}) {
   const [birthdate, setBirthdate] = useState('');
   const [timeInput, setTimeInput] = useState('');
   const [noTime, setNoTime] = useState(false);
   const [gender, setGender] = useState<'남' | '여'>('남');
-  const [mbtiGroup, setMbtiGroup] = useState<'NT' | 'NF' | 'ST' | 'SF'>('NF');
+  const mbtiGroup = selectedGroup ?? 'NF';
+  const setMbtiGroup = useCallback((g: 'NT' | 'NF' | 'ST' | 'SF') => {
+    if (onMbtiChange) onMbtiChange(g);
+  }, [onMbtiChange]);
   const [region, setRegion] = useState('');
   const [result, setResult] = useState<SajuData | null>(null);
   const [error, setError] = useState('');
