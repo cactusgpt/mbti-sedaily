@@ -334,6 +334,7 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
     const m = parseInt(dp.slice(4, 6));
     const d = parseInt(dp.slice(6, 8));
     doCalculate(y, m, d, entry.gender, entry.time || '', !entry.time, entry.region || '');
+    setShowForm(false);
   }
 
   function handleDelete(id: number) {
