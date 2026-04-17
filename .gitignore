@@ -24,5 +24,8 @@ saju-build/
 # Frontend build output
 frontend/out/
 
+# Vite cache
+.vite/
+
 # Claude Code
 .claude/
