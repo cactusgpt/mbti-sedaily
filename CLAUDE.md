@@ -38,12 +38,14 @@ The frontend uses `output: "export"` (static HTML, no SSR). There are no API rou
 ```bash
 cd backend
 pip install -r requirements.txt
-python3 main.py                    # http://localhost:8000 (local dev)
-python3 -m pytest                  # run tests (no test suite yet)
+python3 main.py                                         # http://localhost:8000 (local dev)
+python3 -m pytest tests/test_split_storage.py           # single test file
 python3 -c "import ast; ast.parse(open('file.py').read())"  # syntax check
 ```
 
-`main.py` is a local-only FastAPI server with limited endpoints (health, saju, time-machine, raw S3 articles). It does **not** serve MBTI-transformed versions or the full API surface. The authoritative API runs as 22 Lambda functions behind API Gateway.
+`main.py` is a local-only FastAPI server with limited endpoints (health, saju, time-machine, raw S3 articles). It does **not** serve MBTI-transformed versions or the full API surface. The authoritative API runs as **23 Lambda functions** behind API Gateway.
+
+`backend/tests/` contains integration tests (`test_split_storage`, `test_pipeline`, `test_pgvector`, `test_opensearch`, `test_full_integration`, `test_model_comparison`, etc.) that hit real AWS resources — they need AWS credentials and Bedrock access to run, and are not wired into CI. Treat them as operational smoke tests, not a unit-test safety net.
 
 ### Deploy
 
@@ -51,7 +53,7 @@ python3 -c "import ast; ast.parse(open('file.py').read())"  # syntax check
 # Backend (Lambda)
 cd backend
 ./deploy.sh              # all Lambda functions (API + Pipeline)
-./deploy.sh api          # API functions only (17)
+./deploy.sh api          # API functions only (18)
 ./deploy.sh pipeline     # Pipeline functions only (5)
 
 # Frontend (S3 + CloudFront)
@@ -61,7 +63,7 @@ aws s3 sync out/ s3://sedaily-mbti-frontend-dev --delete
 aws cloudfront create-invalidation --distribution-id E1QS7PY350VHF6 --paths "/*"
 ```
 
-The backend deploy script builds a Lambda zip (excluding fastapi/pytest/infrastructure/), uploads to S3, and updates 22 Lambda functions (17 API + 5 Pipeline). Functions that don't exist yet in AWS are skipped gracefully. The authoritative function list is `API_FUNCTIONS` / `PIPELINE_FUNCTIONS` in `deploy.sh`.
+The backend deploy script builds a single Lambda zip (runtime deps only — `fastapi`/`pytest` and `infrastructure/` are excluded), uploads to `s3://sedaily-mbti-lambda-packages-dev/`, and calls `update-function-code` on each of 23 Lambda functions (18 API + 5 Pipeline). Functions that don't exist in AWS are skipped gracefully (`[SKIP] Function not found`). The authoritative function list is `API_FUNCTIONS` / `PIPELINE_FUNCTIONS` in `deploy.sh`.
 
 ## Architecture
 
@@ -78,11 +80,11 @@ Monorepo with two independent applications:
 
 ```
 서울경제 XML (S3, ap-northeast-2)
-  → Step Functions pipeline (chained-Map pattern)
-    Step 1: Select (Nova, per-category allocation)
+  → Step Functions pipeline (EventBridge every 3 hours, 8 runs/day)
+    Step 1: Select (Nova, per-category allocation + dedup against earlier runs)
     Step 2: Classify (Nova, assign MBTI bucket)
     ProcessArticlesMap (inline Map, MaxConcurrency=3) — per-article:
-      Step 3: TransformOne (Claude Haiku → 4 MBTI versions)
+      Step 3: TransformOne (Claude Opus 4.6 → 4 parallel MBTI calls)
       Step 4: ValidateOne (Nova validates spelling/style/facts)
       StoreOne (Supervisor: cross-version review + write + vector index)
   → Article DB: DynamoDB (metadata + pointer) + S3 (body JSON)
@@ -90,7 +92,7 @@ Monorepo with two independent applications:
   → API Gateway → Frontend
 ```
 
-The pipeline chains Step3→Step4→Supervisor inside each Map iteration so one article's failure cannot block the others. Per-iteration output is projected to a small metrics object (via `OutputPath` on `StoreOne`) to keep the Map's aggregated state under the 256 KB Step Functions limit. `MaxConcurrency=3` respects Bedrock throttling. The old separate `merge_transform_results` Lambda was removed in this redesign — don't re-add it. Definition: `backend/infrastructure/step_functions_definition.json`.
+The pipeline chains Step3→Step4→Supervisor inside each Map iteration so one article's failure cannot block the others. Per-iteration output is projected to a small metrics object (via `OutputPath` on `StoreOne`) to keep the Map's aggregated state under the 256 KB Step Functions limit. `MaxConcurrency=3` respects Bedrock throttling (3 articles × 4 Opus calls = 12 concurrent requests). Step 1 deduplicates against already-processed articles from earlier runs via the `__type_assignments__{date}` DynamoDB item; type assignments are merged (not overwritten) across runs. The old separate `merge_transform_results` Lambda was removed in this redesign — don't re-add it. Definition: `backend/infrastructure/step_functions_definition.json`.
 
 ### Split Storage Pattern
 
@@ -126,15 +128,16 @@ First three tables have constants in `config/constants.py` and are exposed throu
 handlers/           → Lambda entry points. Each handler does its own HTTP method + path
                      routing internally (not relying on API Gateway routing). Supports
                      both REST API v1 and HTTP API v2 event formats.
-                     Deployed (17): article_collector, search, article, chatbot, engagement,
+                     Deployed (18): article_collector, search, article, chatbot, engagement,
                      tts, time_machine, s3_articles, user, archive, podcast, recommendation,
-                     post, question, metrics, abtest, translation.
+                     post, question, metrics, abtest, translation, briefing.
                      Not in deploy.sh (local-only): saju.
   pipeline/         → Step Functions stages (5 deployed Lambdas):
                      step1_select, step2_classify, step3_transform, step4_validate, supervisor.
                      translation_pipeline.py also lives here but is not in deploy.sh.
 clients/            → Service clients: dynamodb, personal_db, podcast_db, s3_article, s3_xml,
-                     opensearch, pgvector, embedding (Titan), translate, personalize.
+                     opensearch, pgvector, embedding (Titan), translate (AWS Translate),
+                     personalize (AWS Personalize for recommendations).
                      Bedrock Claude is wrapped by clients/mbti_transform_service.py (unusual
                      placement — it's a service file inside clients/). Polly has no client file;
                      tts_handler and podcast_handler call boto3 polly directly.
@@ -148,9 +151,12 @@ models/             → Dataclasses: Article, Podcast, UserProfile/ArchivedSente
 core/               → Framework: decorators.py (@lambda_handler, @require_params, etc.),
                      exceptions.py (BackendError hierarchy), response.py (success/error builders),
                      revalidation.py (CacheRevalidator — triggers frontend cache invalidation)
-config/             → settings.py (39 env vars via @lru_cache Settings dataclass) +
-                     constants.py (model IDs, DynamoDB table names, CORS_HEADERS,
-                     category normalization map)
+config/             → settings.py (env-var-driven @dataclass Settings, cached
+                     via @lru_cache get_settings()) + constants.py (model IDs,
+                     DynamoDB table names, S3_BODY_FIELDS, CORS_HEADERS,
+                     category normalization + search aliases, MBTI_GROUP_INFO,
+                     Polly podcast voice styles). Never call `os.getenv` in
+                     handlers — go through `config.settings`.
 prompts/            → AI prompt templates organized by purpose:
                      transform/ (nt/nf/st/sf.md — MBTI rewriting),
                      chatbot/ (nt/nf/st/sf.md — chatbot persona),
@@ -167,21 +173,26 @@ The frontend is migrating toward Feature-Sliced Design but is not fully there ye
 
 ```
 src/app/            → Next.js App Router routes (flat, no route groups yet):
-                     /, /login, /auth/callback, /saju, /subscription, /timeline, /timemachine
-src/components/     → Most UI still lives here: mbti/ (FeedPage ~1940 lines,
-                     ArticleView, MbtiChatBot, OnboardingPage, BriefingPage), story/,
-                     timeline/, character/
-src/features/       → 6 FSD modules migrated so far: auth, news-feed, question,
-                     community, archive, news-dna. Import only via index.ts barrel exports.
-src/shared/         → Config (api.ts, auth.ts), types, data (mbtiGroups.ts — 24+ imports),
-                     lib (userApi, readingTracker, elevenlabs, communityApi, etc.),
-                     constants (categories.ts, reporterNames.ts)
+                     /, /login, /auth/callback, /editors, /saju, /subscription,
+                     /timeline, /timemachine
+src/components/     → Most UI still lives here: mbti/ (FeedPage ~1900 lines,
+                     ArticleView, MbtiChatBot, OnboardingPage, BriefingPage),
+                     story/, timeline/, character/
+src/features/       → 7 FSD modules migrated so far: auth, news-feed, question,
+                     community, archive, news-dna, fortune. Import only via
+                     index.ts barrel exports (ESLint `boundaries` plugin enforces this).
+src/shared/         → api/, config/ (api.ts, auth.ts), constants/ (categories.ts,
+                     reporterNames.ts), data/ (mbtiGroups.ts — 24+ imports),
+                     lib/ (userApi, readingTracker, elevenlabs, communityApi, etc.),
+                     services/, types/, ui/, utils/
+src/widgets/        → Placeholder (index.ts exports nothing yet) — reserved for
+                     Header/BottomNav once FeedPage is broken up
 src/legacy/         → Old code excluded from tsconfig (do not import from here)
 ```
 
-The main page (`/`) has 4 view modes: `feed` (default), `editor-select`, `briefing`, `story`. `src/components/mbti/FeedPage.tsx` contains 5 tabs: question, feed, community, archive, dna. Tab state syncs to URL via `?tab=feed`.
+The main page (`/`) has 4 view modes: `feed` (default), `editor-select`, `briefing`, `story`. `src/components/mbti/FeedPage.tsx` contains 5 tabs: question, feed, community, archive, dna. Tab state syncs to URL via `?tab=feed`. The `/editors` route is a standalone dark-themed editor-intro page (Radix Sand Dark palette) separate from the `editor-select` view inside `/`.
 
-Planned FSD layers not yet implemented: `entities/`, `pages/`, `widgets/` (empty).
+Planned FSD layers not yet implemented: `entities/`, `pages/`.
 
 ## Key Conventions
 
@@ -252,12 +263,13 @@ OpenSearch and pgvector are optional. If `OPENSEARCH_ENDPOINT` is empty, RAG sea
 
 | Model | ID | Use |
 |-------|----|-----|
-| Claude Haiku 3.5 | `us.anthropic.claude-3-5-haiku-20241022-v1:0` | MBTI rewriting (Step 3), chatbot RAG, podcast scripts |
-| Claude Sonnet 4 | `us.anthropic.claude-sonnet-4-20250514-v1:0` | Optional upgrade for higher-quality rewriting |
+| Claude Opus 4.6 | `us.anthropic.claude-opus-4-6-v1:0` | MBTI rewriting (Step 3) — 4 parallel calls per article |
+| Claude Haiku 3.5 | `us.anthropic.claude-3-5-haiku-20241022-v1:0` | Chatbot RAG, podcast scripts, daily questions |
+| Claude Sonnet 4 | `us.anthropic.claude-sonnet-4-20250514-v1:0` | Optional upgrade (not currently used in pipeline) |
 | Nova Lite | `amazon.nova-lite-v1:0` | Article filtering (Step 1), MBTI classification (Step 2), validation (Step 4), Supervisor review |
 | Titan Embeddings V2 | `amazon.titan-embed-text-v2:0` | 1024-dim vectors for OpenSearch and pgvector |
 
-Constants are in `config/constants.py` (`BEDROCK_MODEL_ID_HAIKU`, `BEDROCK_MODEL_ID_NOVA_LITE`, etc.).
+Constants are in `config/constants.py` (`BEDROCK_MODEL_ID_OPUS`, `BEDROCK_MODEL_ID_HAIKU`, `BEDROCK_MODEL_ID_NOVA_LITE`, etc.).
 
 ### Category System
 
@@ -329,10 +341,12 @@ The frontend calls these endpoints (do not change paths or response shapes):
 
 | File | Content |
 |------|---------|
+| `AWS_BACKEND_ARCHITECTURE.md` | Verified production AWS inventory — account, ARNs, 62 API routes, 23 Lambda configs, Step Functions state details, cost estimates. Use this when you need exact resource names/IDs. |
 | `FULL_PROJECT_SPEC.md` | Complete codebase spec (all files, APIs, schemas, code examples) |
 | `ai-lens-backend-architecture.md` | To-Be architecture design document |
 | `ARTICLE_PIPELINE.md` | Step Functions pipeline walkthrough (current chained-Map design) |
 | `frontend-next/CLAUDE.md` | Target FSD architecture rules, naming conventions, dependency direction |
+| `frontend-next/AGENTS.md` | Agent-oriented rules for frontend work |
 | `backend/infrastructure/README.md` | Step Functions + CloudFormation provisioning guide |
 
 Note: `README.md` at project root is outdated (still references React+Vite and the old `frontend/` directory). Use this CLAUDE.md as the authoritative reference.
