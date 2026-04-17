@@ -51,6 +51,7 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
   const [result, setResult] = useState<SajuData | null>(null);
   const [error, setError] = useState('');
   const [savedList, setSavedList] = useState<SavedEntry[]>([]);
+  const [showForm, setShowForm] = useState(true);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveName, setSaveName] = useState('');
 
@@ -148,6 +149,7 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
     const { y, m, d } = parsed;
     if (y < 1900 || y > 2050) { setError('1900~2050년 범위만 지원합니다.'); return; }
     doCalculate(y, m, d, gender, timeInput, noTime, region);
+    setShowForm(false);
   }, [birthdate, timeInput, noTime, gender, region, parseDateStr, doCalculate]);
 
   return (
@@ -172,7 +174,7 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
       </div>
 
       {/* 입력 폼 — 결과가 있으면 접힘 */}
-      {!result ? (
+      {showForm ? (
         <>
           {/* 성별 */}
           <div className="mb-6">
@@ -230,7 +232,7 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
           </button>
         </>
       ) : (
-        <button onClick={() => setResult(null)}
+        <button onClick={() => setShowForm(true)}
           className="w-full mb-4 py-2.5 text-[13px] text-gray-500 bg-gray-100 rounded-xl hover:bg-gray-200 transition-all">
           다시 입력하기
         </button>
