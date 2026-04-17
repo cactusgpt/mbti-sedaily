@@ -33,9 +33,9 @@
   - `backend/v2/tests/test_health.py`
 - **Definition of Done**:
   - [x] `deploy-v2.sh`가 `sedaily-mbti-v2-health-dev` Lambda 함수를 빌드·업로드 (존재하지 않으면 skip 메시지)
-  - [ ] AWS 콘솔에서 수동으로 `sedaily-mbti-v2-health-dev` Lambda 생성 (사람이 한다, Claude Code 아님 — `.clauderules` 참조) (수동, 사용자 작업)
-  - [ ] API Gateway에 `/api/v2/health` 라우트 추가 (사람이 한다) (수동, 사용자 작업)
-  - [ ] `curl .../api/v2/health` → `{"status":"ok","version":"v2"}` 응답 (수동, 사용자 작업)
+  - [x] AWS 콘솔에서 수동으로 `sedaily-mbti-v2-health-dev` Lambda 생성 (사람이 한다, Claude Code 아님 — `.clauderules` 참조) (수동, 사용자 작업)
+  - [x] API Gateway에 `/api/v2/health` 라우트 추가 (사람이 한다) (수동, 사용자 작업)
+  - [x] `curl .../api/v2/health` → `{"status":"ok","version":"v2"}` 응답 (수동, 사용자 작업)
   - [x] `pytest backend/v2/tests/test_health.py` 통과
 
 ### TASK-0.3: ECR 리포지토리 생성 스크립트 (Chat Agent 준비)
