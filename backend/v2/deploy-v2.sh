@@ -182,12 +182,48 @@ echo ""
 # ============================================
 # Step 3: Update Lambda functions (update-function-code only)
 # ============================================
+# Pre-check runtime before updating. Both get-function-configuration (read)
+# and update-function-code (code swap, rule #6) are allowed by .clauderules.
+# update-function-configuration (runtime change) is NOT called here — that
+# stays manual per .clauderules #4.
+#
+# Why the runtime guard: AWS Lambda Durable Functions (re:Invent 2025,
+# python3.14-only) silently breaks API Gateway HTTP proxy integration —
+# CloudWatch shows "status 200 completed" but callers get 500 "Invalid
+# Status in invocation output". See COMMANDS.md > "Lambda 500 에러 —
+# Durable Functions 함정" for the full diagnosis recipe.
 echo "Updating Lambda functions..."
 SUCCESS_COUNT=0
 SKIP_COUNT=0
 
+# deploy-v2.sh builds wheels with --python-version 3.11 --platform manylinux2014.
+# python3.12 is ABI-compatible enough for our pure-Python deps; anything newer
+# risks Durable Functions or wheel incompatibilities, so we refuse to push.
+SUPPORTED_RUNTIMES="python3.11 python3.12"
+
 for FUNCTION_NAME in "${FUNCTIONS[@]}"; do
   echo "  -> $FUNCTION_NAME"
+
+  RUNTIME=$(aws lambda get-function-configuration \
+    --function-name "$FUNCTION_NAME" \
+    --region "$AWS_REGION" \
+    --query 'Runtime' \
+    --output text 2>/dev/null || echo "NOT_FOUND")
+
+  if [ "$RUNTIME" = "NOT_FOUND" ] || [ -z "$RUNTIME" ] || [ "$RUNTIME" = "None" ]; then
+    echo "    [SKIP] Function not found in AWS — create it manually per .clauderules #4"
+    ((SKIP_COUNT++))
+    continue
+  fi
+
+  if [[ " $SUPPORTED_RUNTIMES " != *" $RUNTIME "* ]]; then
+    echo "    [WARN] Runtime is '$RUNTIME' — deploy-v2.sh builds wheels for python3.11."
+    echo "           (python3.14 may enable Durable Functions, breaking API Gateway proxy."
+    echo "            See COMMANDS.md > 'Lambda 500 에러 — Durable Functions 함정'.)"
+    echo "    [SKIP] Change Runtime to python3.11 in AWS console, then re-run."
+    ((SKIP_COUNT++))
+    continue
+  fi
 
   if aws lambda update-function-code \
     --function-name "$FUNCTION_NAME" \
@@ -197,10 +233,10 @@ for FUNCTION_NAME in "${FUNCTIONS[@]}"; do
     --output json \
     --query 'LastModified' \
     > /dev/null 2>&1; then
-    echo "    [OK] Updated"
+    echo "    [OK] Updated (runtime: $RUNTIME)"
     ((SUCCESS_COUNT++))
   else
-    echo "    [SKIP] Function not found in AWS — create it manually per .clauderules #4"
+    echo "    [FAIL] update-function-code returned error (runtime $RUNTIME, check logs)"
     ((SKIP_COUNT++))
   fi
 done
