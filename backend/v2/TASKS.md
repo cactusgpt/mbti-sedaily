@@ -73,11 +73,11 @@
   - `backend/v2/infrastructure/schema_v2.sql` (4 테이블 DDL, `CLAUDE.md` 6절 참조)
   - `backend/v2/infrastructure/init_pgvector_v2.py` (pg8000으로 SQL 실행, `CREATE EXTENSION vector` 포함)
 - **Definition of Done**:
-  - [ ] 4 테이블 모두 `IF NOT EXISTS` 포함 (재실행 안전)
-  - [ ] 모든 필수 인덱스 (ivfflat, 카테고리·published_at, user_id·created_at)
-  - [ ] `python3 init_pgvector_v2.py --dry-run` → SQL 출력만
-  - [ ] `python3 init_pgvector_v2.py` → 실제 실행 (환경변수 `PG_V2_HOST`, `PG_V2_PASSWORD` 필요)
-  - [ ] 실행 후 `\dt` 결과에 4 테이블 확인
+  - [x] 4 테이블 모두 `IF NOT EXISTS` 포함 (재실행 안전)
+  - [x] 모든 필수 인덱스 (ivfflat, 카테고리·published_at, user_id·created_at)
+  - [x] `python3 init_pgvector_v2.py --dry-run` → SQL 출력만
+  - [ ] `python3 init_pgvector_v2.py` → 실제 실행 (환경변수 `PG_V2_HOST`, `PG_V2_PASSWORD` 필요) (수동, 사용자 작업)
+  - [ ] 실행 후 `\dt` 결과에 4 테이블 확인 (수동, 사용자 작업)
 
 ### TASK-1.3: PgVectorV2Client 작성
 - **종속성**: TASK-1.2
@@ -358,11 +358,11 @@
 | Phase | TASK 수 | 완료 | 진행 중 | 남음 |
 |---|---|---|---|---|
 | Phase 0 | 3 | 3 | 0 | 0 |
-| Phase 1 | 4 | 1 | 0 | 3 |
+| Phase 1 | 4 | 2 | 0 | 2 |
 | Phase 2 | 5 | 0 | 0 | 5 |
 | Phase 3 | 5 | 0 | 0 | 5 |
 | Phase 4 | 6 | 0 | 0 | 6 |
 | Phase 5 | 8 | 0 | 0 | 8 |
-| **합계** | **31** | **4** | **0** | **27** |
+| **합계** | **31** | **5** | **0** | **26** |
 
 세션 시작 시 이 표 업데이트할 것.
