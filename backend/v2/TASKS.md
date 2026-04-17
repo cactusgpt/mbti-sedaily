@@ -32,11 +32,11 @@
   - `backend/v2/handlers/health.py` (`/api/v2/health` 응답하는 hello world)
   - `backend/v2/tests/test_health.py`
 - **Definition of Done**:
-  - [ ] `deploy-v2.sh`가 `sedaily-mbti-v2-health-dev` Lambda 함수를 빌드·업로드 (존재하지 않으면 skip 메시지)
-  - [ ] AWS 콘솔에서 수동으로 `sedaily-mbti-v2-health-dev` Lambda 생성 (사람이 한다, Claude Code 아님 — `.clauderules` 참조)
-  - [ ] API Gateway에 `/api/v2/health` 라우트 추가 (사람이 한다)
-  - [ ] `curl .../api/v2/health` → `{"status":"ok","version":"v2"}` 응답
-  - [ ] `pytest backend/v2/tests/test_health.py` 통과
+  - [x] `deploy-v2.sh`가 `sedaily-mbti-v2-health-dev` Lambda 함수를 빌드·업로드 (존재하지 않으면 skip 메시지)
+  - [ ] AWS 콘솔에서 수동으로 `sedaily-mbti-v2-health-dev` Lambda 생성 (사람이 한다, Claude Code 아님 — `.clauderules` 참조) (수동, 사용자 작업)
+  - [ ] API Gateway에 `/api/v2/health` 라우트 추가 (사람이 한다) (수동, 사용자 작업)
+  - [ ] `curl .../api/v2/health` → `{"status":"ok","version":"v2"}` 응답 (수동, 사용자 작업)
+  - [x] `pytest backend/v2/tests/test_health.py` 통과
 
 ### TASK-0.3: ECR 리포지토리 생성 스크립트 (Chat Agent 준비)
 - **종속성**: 없음 (TASK-0.1 후 병렬 가능)
@@ -357,12 +357,12 @@
 
 | Phase | TASK 수 | 완료 | 진행 중 | 남음 |
 |---|---|---|---|---|
-| Phase 0 | 3 | 1 | 0 | 2 |
+| Phase 0 | 3 | 2 | 0 | 1 |
 | Phase 1 | 4 | 0 | 0 | 4 |
 | Phase 2 | 5 | 0 | 0 | 5 |
 | Phase 3 | 5 | 0 | 0 | 5 |
 | Phase 4 | 6 | 0 | 0 | 6 |
 | Phase 5 | 8 | 0 | 0 | 8 |
-| **합계** | **31** | **1** | **0** | **30** |
+| **합계** | **31** | **2** | **0** | **29** |
 
 세션 시작 시 이 표 업데이트할 것.
