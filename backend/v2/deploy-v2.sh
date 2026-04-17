@@ -204,14 +204,37 @@ SUPPORTED_RUNTIMES="python3.11 python3.12"
 for FUNCTION_NAME in "${FUNCTIONS[@]}"; do
   echo "  -> $FUNCTION_NAME"
 
-  RUNTIME=$(aws lambda get-function-configuration \
+  # Single read-only API call; empty = function not found.
+  CONFIG_JSON=$(aws lambda get-function-configuration \
     --function-name "$FUNCTION_NAME" \
     --region "$AWS_REGION" \
-    --query 'Runtime' \
-    --output text 2>/dev/null || echo "NOT_FOUND")
+    --output json 2>/dev/null || true)
 
-  if [ "$RUNTIME" = "NOT_FOUND" ] || [ -z "$RUNTIME" ] || [ "$RUNTIME" = "None" ]; then
+  if [ -z "$CONFIG_JSON" ]; then
     echo "    [SKIP] Function not found in AWS — create it manually per .clauderules #4"
+    ((SKIP_COUNT++))
+    continue
+  fi
+
+  # Extract Runtime and check for any Durable* config fields via python3 (no jq).
+  # The exact field name for Durable Functions isn't stably documented yet
+  # (re:Invent 2025), so scan every top-level key starting with "Durable".
+  RUNTIME=$(printf '%s' "$CONFIG_JSON" | python3 -c '
+import json, sys
+print(json.load(sys.stdin).get("Runtime", ""))
+')
+
+  DURABLE_KEYS=$(printf '%s' "$CONFIG_JSON" | python3 -c '
+import json, sys
+cfg = json.load(sys.stdin)
+print(",".join(k for k, v in cfg.items() if k.startswith("Durable") and v))
+')
+
+  if [ -n "$DURABLE_KEYS" ]; then
+    echo "    [WARN] Durable config detected (fields: $DURABLE_KEYS)."
+    echo "           Durable Functions are incompatible with API Gateway HTTP proxy"
+    echo "           integration. See COMMANDS.md > 'Lambda 500 에러 — Durable Functions 함정'."
+    echo "    [SKIP] Delete this Lambda and recreate on python3.11 without durable execution."
     ((SKIP_COUNT++))
     continue
   fi
