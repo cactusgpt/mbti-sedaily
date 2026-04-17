@@ -178,6 +178,7 @@ v2 Lambda는 **v2 전용 스크립트**로만 배포한다:
 ```bash
 cd backend
 ./v2/deploy-v2.sh                # 전체 v2 배포
+./v2/deploy-v2.sh api            # API handlers (health, etc.)
 ./v2/deploy-v2.sh collector      # Core 1만
 ./v2/deploy-v2.sh transform      # Core 2만
 ./v2/deploy-v2.sh personalization # Core 3만 (Chat Agent 제외)
