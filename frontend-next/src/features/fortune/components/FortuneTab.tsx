@@ -223,7 +223,7 @@ export function FortuneTab() {
       {/* 결과 */}
       {result && (
         <>
-          <FortuneResult data={result} />
+          <FortuneResult data={result} mbtiGroup={mbtiGroup} />
           <button
             onClick={() => {
               const parsed = parseDateStr(birthdate);

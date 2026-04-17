@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { CG_OH, JJ_OH, OH_HJ, JJG, sipsung, unsung, type Pillar, type ChongunResult, type TodayFortuneResult, type DaeunEntry, type YeonunEntry, type WolunEntry } from '../lib/engine';
 import { SajuTable } from './SajuTable';
 import { DailyCalendar } from './DailyCalendar';
+
+type MbtiGroup = 'NT' | 'NF' | 'ST' | 'SF';
 
 const EL_COLORS: Record<string, string> = {
   '목': 'text-green-600', '화': 'text-red-500', '토': 'text-yellow-600',
@@ -16,6 +18,7 @@ interface Props {
     daeuns: DaeunEntry[]; yeonuns: YeonunEntry[]; woluns: WolunEntry[];
     correctedTime?: { hour: number; minute: number };
   };
+  mbtiGroup?: MbtiGroup;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -54,6 +57,47 @@ const US_DETAIL: Record<string, string> = {
   '태': '새로운 가능성이 잉태되는 시기입니다. 눈에 보이지 않지만 씨앗이 뿌려지고 있습니다.',
   '양': '성장을 준비하는 시기입니다. 조용하지만 확실한 발전이 이루어지고 있습니다.',
 };
+
+/** 마크다운 텍스트를 간단한 HTML로 변환 */
+function parseBold(text: string) {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, j) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={j}>{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+}
+
+function renderMarkdown(text: string) {
+  const lines = text.split('\n');
+  const elements: React.ReactNode[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    // 빈 줄은 건너뜀 (단락 간격은 CSS mb로 처리)
+    if (!trimmed) continue;
+    // ### 소제목
+    if (trimmed.startsWith('### ')) {
+      elements.push(<h5 key={i} className="text-[13px] font-bold text-gray-700 mt-3 mb-1.5">{parseBold(trimmed.slice(4).trim())}</h5>);
+    }
+    // ## 제목
+    else if (trimmed.startsWith('## ')) {
+      elements.push(<h4 key={i} className="text-[14px] font-bold text-gray-800 mt-4 mb-2">{parseBold(trimmed.slice(3).trim())}</h4>);
+    }
+    // - 리스트
+    else if (trimmed.startsWith('- ')) {
+      elements.push(<li key={i} className="ml-4 list-disc text-[13px] mb-0.5">{parseBold(trimmed.slice(2))}</li>);
+    }
+    // 일반 문단
+    else {
+      elements.push(<p key={i} className="mb-2">{parseBold(trimmed)}</p>);
+    }
+  }
+
+  return elements;
+}
+
+type CacheData = Record<MbtiGroup, string>;
 
 function UnGrid({ title, cols, ilgan, activeCheck }: {
   title: string;
@@ -106,11 +150,39 @@ function UnGrid({ title, cols, ilgan, activeCheck }: {
   );
 }
 
-export function FortuneResult({ data }: Props) {
+export function FortuneResult({ data, mbtiGroup }: Props) {
   const { pillars, ilgan, year, month, day, gender, chongun, todayFortune, daeuns, yeonuns, woluns, correctedTime } = data;
   const oh = CG_OH[ilgan] || '';
   const now = new Date();
   const currentAge = now.getFullYear() - year;
+
+  // 캐시 JSON fetch
+  const [chongunCache, setChongunCache] = useState<CacheData | null>(null);
+  const [todayCache, setTodayCache] = useState<CacheData | null>(null);
+
+  useEffect(() => {
+    if (!ilgan) return;
+    const ilji = pillars[1].j;
+    const wolji = pillars[2].j;
+    if (!ilji || !wolji) return;
+    const key = `${ilgan}_${ilji}_${wolji}`;
+    fetch(`/saju-cache/chongun/${encodeURIComponent(key)}.json`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setChongunCache(d))
+      .catch(() => setChongunCache(null));
+  }, [ilgan, pillars]);
+
+  useEffect(() => {
+    if (!ilgan || !todayFortune) return;
+    const key = `${ilgan}_${todayFortune.dayPillarHanja}`;
+    fetch(`/saju-cache/today/${encodeURIComponent(key)}.json`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setTodayCache(d))
+      .catch(() => setTodayCache(null));
+  }, [ilgan, todayFortune]);
+
+  const chongunText = mbtiGroup && chongunCache?.[mbtiGroup] ? chongunCache[mbtiGroup] : null;
+  const todayText = mbtiGroup && todayCache?.[mbtiGroup] ? todayCache[mbtiGroup] : null;
 
   return (
     <div className="mt-8">
@@ -132,38 +204,50 @@ export function FortuneResult({ data }: Props) {
         )}
       </div>
 
-      {/* 총운 */}
+      {/* 총운 — 캐시가 있으면 MBTI별 리라이팅 텍스트, 없으면 기존 */}
       {chongun && (
         <Section title="총운">
-          <p className="mb-3">
-            <strong className={EL_COLORS[chongun.element]}>{chongun.symbol}</strong>의 기운을 타고난 <strong>{chongun.yinyang}{chongun.element}</strong> 일간입니다. {chongun.nature}
-          </p>
-          {chongun.keywords.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {chongun.keywords.map((kw, i) => (
-                <span key={i} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded-full">{kw}</span>
-              ))}
-            </div>
+          {chongunText ? (
+            <div>{renderMarkdown(chongunText)}</div>
+          ) : (
+            <>
+              <p className="mb-3">
+                <strong className={EL_COLORS[chongun.element]}>{chongun.symbol}</strong>의 기운을 타고난 <strong>{chongun.yinyang}{chongun.element}</strong> 일간입니다. {chongun.nature}
+              </p>
+              {chongun.keywords.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {chongun.keywords.map((kw, i) => (
+                    <span key={i} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded-full">{kw}</span>
+                  ))}
+                </div>
+              )}
+              {chongun.season && (
+                <p className="mb-3">
+                  <strong>{chongun.season.name}</strong>에 태어났습니다. {chongun.season.desc} {chongun.seasonRelation}
+                </p>
+              )}
+              {chongun.iljuReading && <p className="mb-3">{chongun.iljuReading}</p>}
+            </>
           )}
-          {chongun.season && (
-            <p className="mb-3">
-              <strong>{chongun.season.name}</strong>에 태어났습니다. {chongun.season.desc} {chongun.seasonRelation}
-            </p>
-          )}
-          {chongun.iljuReading && <p className="mb-3">{chongun.iljuReading}</p>}
         </Section>
       )}
 
-      {/* 오늘의 운세 */}
+      {/* 오늘의 운세 — 캐시가 있으면 MBTI별 리라이팅 텍스트, 없으면 기존 */}
       {todayFortune && (
         <Section title="오늘의 운세">
-          <p className="mb-3">
-            오늘은 <strong className={EL_COLORS[todayFortune.dayOh]}>{todayFortune.dayPillar}({todayFortune.dayPillarHanja})</strong>일입니다.
-            나의 일간 기준 <strong>{todayFortune.ss}</strong>의 날이며, 12운성은 <strong>{todayFortune.us}</strong>입니다.
-          </p>
-          {todayFortune.ssReading && <p className="mb-3">{todayFortune.ssReading}</p>}
-          <p className={todayFortune.sinsal.length ? 'mb-3' : ''}>12운성 <strong>{todayFortune.us}</strong> — {todayFortune.usReading}</p>
-          {todayFortune.sinsal.length > 0 && (
+          {todayText ? (
+            <div>{renderMarkdown(todayText)}</div>
+          ) : (
+            <>
+              <p className="mb-3">
+                오늘은 <strong className={EL_COLORS[todayFortune.dayOh]}>{todayFortune.dayPillar}({todayFortune.dayPillarHanja})</strong>일입니다.
+                나의 일간 기준 <strong>{todayFortune.ss}</strong>의 날이며, 12운성은 <strong>{todayFortune.us}</strong>입니다.
+              </p>
+              {todayFortune.ssReading && <p className="mb-3">{todayFortune.ssReading}</p>}
+              <p className={todayFortune.sinsal.length ? 'mb-3' : ''}>12운성 <strong>{todayFortune.us}</strong> — {todayFortune.usReading}</p>
+            </>
+          )}
+          {!todayText && todayFortune.sinsal.length > 0 && (
             <div className="border-t border-gray-100 pt-3">
               {todayFortune.sinsal.map((s, i) => (
                 <div key={i} className="mb-2 last:mb-0">
@@ -176,8 +260,8 @@ export function FortuneResult({ data }: Props) {
             </div>
           )}
 
-          {/* 카테고리별 운세 */}
-          {todayFortune.categories && todayFortune.categories.length > 0 && (
+          {/* 카테고리별 운세 — 캐시가 없을 때만 표시 */}
+          {!todayText && todayFortune.categories && todayFortune.categories.length > 0 && (
             <div className="border-t border-gray-100 pt-4 mt-4 space-y-4">
               {todayFortune.categories.map((cat) => (
                 <div key={cat.label}>
@@ -201,8 +285,8 @@ export function FortuneResult({ data }: Props) {
         </Section>
       )}
 
-      {/* 상세 해석 */}
-      {chongun?.detail && (
+      {/* 상세 해석 — 총운 캐시가 있으면 숨김 (캐시에 포함됨) */}
+      {!chongunText && chongun?.detail && (
         <Section title="상세 해석">
           <p className="mb-3">{chongun.detail.summary}</p>
           <div className="mb-3">
@@ -247,8 +331,8 @@ export function FortuneResult({ data }: Props) {
         </Section>
       )}
 
-      {/* 일지 상세 */}
-      {chongun?.iljiDetail && (
+      {/* 일지 상세 — 총운 캐시가 있으면 숨김 */}
+      {!chongunText && chongun?.iljiDetail && (
         <Section title="일지(日支) 해석">
           <p className="mb-3">{chongun.iljiDetail.summary}</p>
           <div className="grid grid-cols-2 gap-3 mb-3">
