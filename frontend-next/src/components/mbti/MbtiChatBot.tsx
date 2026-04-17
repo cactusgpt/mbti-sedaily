@@ -150,6 +150,8 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
   const [isLoading, setIsLoading] = useState(false);
   const [currentGroup, setCurrentGroup] = useState(mbtiGroup);
 
+  useEffect(() => { setCurrentGroup(mbtiGroup); }, [mbtiGroup]);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
