@@ -163,60 +163,70 @@ export function FortuneTab() {
         ))}
       </div>
 
-      {/* 성별 */}
-      <div className="mb-6">
-        <label className="block text-[13px] font-semibold text-gray-800 mb-2">성별</label>
-        <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white">
-          {(['남', '여'] as const).map(g => (
-            <button key={g} onClick={() => setGender(g)}
-              className={`flex-1 py-3 text-[15px] transition-all relative ${gender === g ? 'font-semibold text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
-              {g}
-              {gender === g && <span className="absolute bottom-0 left-4 right-4 h-[2px] bg-gray-900 rounded" />}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 생년월일시 */}
-      <div className="mb-6">
-        <label className="block text-[13px] font-semibold text-gray-800 mb-2">생년월일시</label>
-        <div className="flex gap-2">
-          <input type="text" inputMode="numeric" maxLength={14} placeholder="YYYY / MM / DD"
-            value={birthdate} onChange={e => handleDateInput(e.target.value)}
-            className="flex-1 px-3.5 py-3 text-[15px] bg-white border border-gray-200 rounded-xl outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-100 placeholder:text-gray-300 transition-all" />
-          <div className="relative flex-1">
-            <input type="text" inputMode="numeric" maxLength={5} placeholder="HH:MM"
-              value={timeInput} onChange={e => handleTimeInput(e.target.value)}
-              disabled={noTime}
-              className={`w-full px-3.5 py-3 text-[15px] text-center tracking-widest tabular-nums bg-white border border-gray-200 rounded-xl outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-100 placeholder:text-gray-300 transition-all ${noTime ? 'opacity-35' : ''}`} />
-            {timeBadgeLabel && (
-              <div className="absolute -bottom-5 left-0 right-0 text-center text-[11px] text-gray-400">{timeBadgeLabel}</div>
-            )}
+      {/* 입력 폼 — 결과가 있으면 접힘 */}
+      {!result ? (
+        <>
+          {/* 성별 */}
+          <div className="mb-6">
+            <label className="block text-[13px] font-semibold text-gray-800 mb-2">성별</label>
+            <div className="flex border border-gray-200 rounded-xl overflow-hidden bg-white">
+              {(['남', '여'] as const).map(g => (
+                <button key={g} onClick={() => setGender(g)}
+                  className={`flex-1 py-3 text-[15px] transition-all relative ${gender === g ? 'font-semibold text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>
+                  {g}
+                  {gender === g && <span className="absolute bottom-0 left-4 right-4 h-[2px] bg-gray-900 rounded" />}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-        <label className="mt-2 inline-flex items-center gap-1.5 text-[13px] text-gray-400 cursor-pointer hover:text-gray-600 transition-colors">
-          <input type="checkbox" checked={noTime} onChange={e => { setNoTime(e.target.checked); if (e.target.checked) setTimeInput(''); }}
-            className="w-[15px] h-[15px] accent-gray-900 cursor-pointer" />
-          시간 모름
-        </label>
-      </div>
 
-      {/* 도시 */}
-      <div className="mb-8">
-        <label className="block text-[13px] font-semibold text-gray-800 mb-2">도시</label>
-        <select value={region} onChange={e => setRegion(e.target.value)}
-          className="w-full px-3.5 py-3 text-[15px] bg-white border border-gray-200 rounded-xl outline-none focus:border-gray-400 appearance-none cursor-pointer transition-all"
-          style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5' stroke='%23aaa' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}>
-          {REGION_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-        </select>
-      </div>
+          {/* 생년월일시 */}
+          <div className="mb-6">
+            <label className="block text-[13px] font-semibold text-gray-800 mb-2">생년월일시</label>
+            <div className="flex gap-2">
+              <input type="text" inputMode="numeric" maxLength={14} placeholder="YYYY / MM / DD"
+                value={birthdate} onChange={e => handleDateInput(e.target.value)}
+                className="flex-1 px-3.5 py-3 text-[15px] bg-white border border-gray-200 rounded-xl outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-100 placeholder:text-gray-300 transition-all" />
+              <div className="relative flex-1">
+                <input type="text" inputMode="numeric" maxLength={5} placeholder="HH:MM"
+                  value={timeInput} onChange={e => handleTimeInput(e.target.value)}
+                  disabled={noTime}
+                  className={`w-full px-3.5 py-3 text-[15px] text-center tracking-widest tabular-nums bg-white border border-gray-200 rounded-xl outline-none focus:border-gray-400 focus:ring-1 focus:ring-gray-100 placeholder:text-gray-300 transition-all ${noTime ? 'opacity-35' : ''}`} />
+                {timeBadgeLabel && (
+                  <div className="absolute -bottom-5 left-0 right-0 text-center text-[11px] text-gray-400">{timeBadgeLabel}</div>
+                )}
+              </div>
+            </div>
+            <label className="mt-2 inline-flex items-center gap-1.5 text-[13px] text-gray-400 cursor-pointer hover:text-gray-600 transition-colors">
+              <input type="checkbox" checked={noTime} onChange={e => { setNoTime(e.target.checked); if (e.target.checked) setTimeInput(''); }}
+                className="w-[15px] h-[15px] accent-gray-900 cursor-pointer" />
+              시간 모름
+            </label>
+          </div>
 
-      {/* 버튼 */}
-      <button onClick={handleCalculate}
-        className={`w-full py-3.5 text-[15px] font-semibold rounded-xl transition-all ${isDateValid ? 'bg-gray-900 text-white hover:bg-gray-800 cursor-pointer' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
-        disabled={!isDateValid}>
-        운세 보러가기
-      </button>
+          {/* 도시 */}
+          <div className="mb-8">
+            <label className="block text-[13px] font-semibold text-gray-800 mb-2">도시</label>
+            <select value={region} onChange={e => setRegion(e.target.value)}
+              className="w-full px-3.5 py-3 text-[15px] bg-white border border-gray-200 rounded-xl outline-none focus:border-gray-400 appearance-none cursor-pointer transition-all"
+              style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' viewBox='0 0 24 24'%3E%3Cpath d='M7 10l5 5 5-5' stroke='%23aaa' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}>
+              {REGION_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            </select>
+          </div>
+
+          {/* 버튼 */}
+          <button onClick={handleCalculate}
+            className={`w-full py-3.5 text-[15px] font-semibold rounded-xl transition-all ${isDateValid ? 'bg-gray-900 text-white hover:bg-gray-800 cursor-pointer' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+            disabled={!isDateValid}>
+            운세 보러가기
+          </button>
+        </>
+      ) : (
+        <button onClick={() => setResult(null)}
+          className="w-full mb-4 py-2.5 text-[13px] text-gray-500 bg-gray-100 rounded-xl hover:bg-gray-200 transition-all">
+          다시 입력하기
+        </button>
+      )}
 
       {error && <p className="mt-3 text-center text-[13px] text-red-500">{error}</p>}
 
