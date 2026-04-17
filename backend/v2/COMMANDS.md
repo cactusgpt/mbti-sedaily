@@ -292,6 +292,41 @@ aws bedrock-agentcore invoke-agent-runtime \
 
 ## 🔍 디버깅
 
+### Lambda 500 에러 — Durable Functions 함정
+
+**증상**: CloudWatch 로그는 `"Handler ... completed with status 200"` + `platform.report status: success`로 성공, 하지만 `curl`은 HTTP 500 + body `{"errorMessage":"Invalid Status in invocation output.","errorType":"InvalidParameterValueException"}`.
+
+**원인**: Lambda가 **Durable Function**으로 생성됨 (AWS re:Invent 2025 신기능, Python 3.14 전용). `runtimeVersion` 태그에 `DurableFunction` 포함됨 (예: `python:3.14.DurableFunction.v12`). Durable Function은 checkpoint/step 기반 stateful 실행으로 설계되어 `DurableContext` 객체를 받고, 일반 Lambda의 `{statusCode, headers, body}` 반환 포맷을 기대하는 API Gateway HTTP proxy integration과 호환되지 않음. Lambda runtime은 핸들러 실행을 성공으로 리포트하지만, Lambda 서비스가 invocation output을 durable execution state로 해석하려다 "Invalid Status"로 거부 — 이 에러는 CloudWatch에 찍히지 않고 Invoke API response payload로만 반환됨.
+
+Python 3.14 런타임 선택 시 AWS 콘솔이 "Enable durable execution"을 자동 활성화하거나, 사용자가 실수로 체크했을 가능성.
+
+**확인 명령**:
+```bash
+# 1) Runtime 확인
+aws lambda get-function-configuration \
+  --function-name FN_NAME --region us-east-1 \
+  --query 'Runtime'
+# 기대값: "python3.11" 또는 "python3.12"
+# 만약 "python3.14"면 Durable Function일 가능성 — 콘솔 재확인
+
+# 2) runtimeVersion 태그 확인 (CloudWatch 로그)
+aws logs tail /aws/lambda/FN_NAME --since 10m --region us-east-1 --format short \
+  | grep runtimeVersion
+# DurableFunction 포함 여부 확인
+
+# 3) Direct invoke로 진단 (API Gateway 경로 우회)
+aws lambda invoke --function-name FN_NAME --qualifier '$LATEST' --region us-east-1 \
+  --payload '{"httpMethod":"GET"}' --cli-binary-format raw-in-base64-out /tmp/out.json
+cat /tmp/out.json
+# "Invalid Status in invocation output" 나오면 Durable Functions 확정
+```
+
+**해결**: AWS 콘솔 → Lambda → Configuration → Runtime settings → Edit → Runtime을 **`Python 3.11`**로 변경. 저장 시 Durable execution도 자동 해제됨. 재배포 불필요 (코드는 정상).
+
+**예방**: v2는 당분간 `python3.11` 고정. `deploy-v2.sh`가 `--python-version 3.11 --platform manylinux2014_x86_64`로 wheel 빌드하므로 런타임 일치시키는 게 ABI 측면에서도 안전. `deploy-v2.sh`에 사전 런타임 체크 포함되어 있어, 잘못된 런타임은 `update-function-code` 전에 `[WARN]` + `[SKIP]` 처리됨.
+
+---
+
 ### Lambda 함수 설정 확인
 ```bash
 aws lambda get-function-configuration \
