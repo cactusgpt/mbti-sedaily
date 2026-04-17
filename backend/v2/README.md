@@ -6,10 +6,10 @@ v1은 프로덕션에서 계속 운영 중이다. v2는 **이 디렉터리 안�
 
 | 문서 | 용도 |
 |---|---|
-| `v2-CLAUDE.md` | v2 작업 전체 맥락 — 3-Core 아키텍처, 재사용 자산, 네이밍 규칙 |
-| `v2-clauderules` | 절대 규칙 — v1 수정 금지, AWS 리소스 직접 생성 금지 |
-| `v2-TASKS.md` | PR 단위 체크리스트 — Phase 0~5 |
-| `v2-COMMANDS.md` | 검증된 명령어 모음 (추측 금지) |
+| `CLAUDE.md` | v2 작업 전체 맥락 — 3-Core 아키텍처, 재사용 자산, 네이밍 규칙 |
+| `.clauderules` | 절대 규칙 — v1 수정 금지, AWS 리소스 직접 생성 금지 |
+| `TASKS.md` | PR 단위 체크리스트 — Phase 0~5 |
+| `COMMANDS.md` | 검증된 명령어 모음 (추측 금지) |
 
 루트 `/CLAUDE.md`는 v1 기준이다. 이 디렉터리 문서와 충돌하면 **v2 문서가 우선**한다.
 
@@ -19,10 +19,10 @@ v1은 프로덕션에서 계속 운영 중이다. v2는 **이 디렉터리 안�
 backend/v2/
 ├── __init__.py
 ├── README.md            ← 이 파일
-├── v2-CLAUDE.md
-├── v2-clauderules
-├── v2-TASKS.md
-├── v2-COMMANDS.md
+├── CLAUDE.md
+├── .clauderules
+├── TASKS.md
+├── COMMANDS.md
 ├── requirements.txt     ← v2 전용 의존성 (pg8000, boto3, httpx, pytest)
 ├── .gitignore
 ├── clients/             ← PgVectorV2Client 등 (TASK-1.3~)

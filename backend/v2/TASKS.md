@@ -21,9 +21,9 @@
   - `backend/v2/.gitignore` (lambda-build, *.zip 등)
   - `backend/v2/clients/__init__.py`, `handlers/__init__.py`, `core3/__init__.py`, `tests/__init__.py`
 - **Definition of Done**:
-  - [ ] 디렉터리 구조가 `CLAUDE.md` 3절과 일치 (비어있어도 됨, `__init__.py`만)
-  - [ ] `requirements.txt`에 pg8000, boto3, mcp 명시 (버전은 v1 `requirements.txt` 참조)
-  - [ ] `cd backend && python3 -c "import v2"` 성공
+  - [x] 디렉터리 구조가 `CLAUDE.md` 3절과 일치 (비어있어도 됨, `__init__.py`만)
+  - [x] `requirements.txt`에 pg8000, boto3, mcp 명시 (버전은 v1 `requirements.txt` 참조)
+  - [x] `cd backend && python3 -c "import v2"` 성공
 
 ### TASK-0.2: deploy-v2.sh 작성 + hello world Lambda
 - **종속성**: TASK-0.1
@@ -357,12 +357,12 @@
 
 | Phase | TASK 수 | 완료 | 진행 중 | 남음 |
 |---|---|---|---|---|
-| Phase 0 | 3 | 0 | 0 | 3 |
+| Phase 0 | 3 | 1 | 0 | 2 |
 | Phase 1 | 4 | 0 | 0 | 4 |
 | Phase 2 | 5 | 0 | 0 | 5 |
 | Phase 3 | 5 | 0 | 0 | 5 |
 | Phase 4 | 6 | 0 | 0 | 6 |
 | Phase 5 | 8 | 0 | 0 | 8 |
-| **합계** | **31** | **0** | **0** | **31** |
+| **합계** | **31** | **1** | **0** | **30** |
 
 세션 시작 시 이 표 업데이트할 것.
