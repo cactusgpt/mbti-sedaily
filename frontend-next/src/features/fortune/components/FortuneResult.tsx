@@ -166,18 +166,18 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
     const wolji = pillars[2].j;
     if (!ilji || !wolji) return;
     const key = `${ilgan}_${ilji}_${wolji}`;
-    fetch(`/api/saju-cache?type=chongun&key=${encodeURIComponent(key)}`)
+    fetch('/saju-cache/chongun.json')
       .then(r => r.ok ? r.json() : null)
-      .then(d => setChongunCache(d))
+      .then(all => { if (all && all[key]) setChongunCache(all[key]); })
       .catch(() => setChongunCache(null));
   }, [ilgan, pillars]);
 
   useEffect(() => {
     if (!ilgan || !todayFortune) return;
     const key = `${ilgan}_${todayFortune.dayPillarHanja}`;
-    fetch(`/api/saju-cache?type=today&key=${encodeURIComponent(key)}`)
+    fetch('/saju-cache/today.json')
       .then(r => r.ok ? r.json() : null)
-      .then(d => setTodayCache(d))
+      .then(all => { if (all && all[key]) setTodayCache(all[key]); })
       .catch(() => setTodayCache(null));
   }, [ilgan, todayFortune]);
 
