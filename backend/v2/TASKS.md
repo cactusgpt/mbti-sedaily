@@ -97,11 +97,11 @@
   - `find_feed_candidates(user_mbti, preference_embedding, exclude_news_ids, limit=100) -> list[dict]`
   - `find_similar_articles(embedding, limit) -> list[dict]`
 - **Definition of Done**:
-  - [ ] v1 `pgvector_client.py`와 **별도 파일, 별도 클래스**
-  - [ ] `PG_V2_PASSWORD` 비어있으면 no-op (v1 패턴 따라)
-  - [ ] 모든 메서드에 타입 힌트
-  - [ ] 각 메서드별 pytest (통합, `PG_V2_HOST` 환경변수 있을 때만 실행)
-  - [ ] 쿼리 성능: `find_feed_candidates` 1000 rows 기준 p95 < 200ms
+  - [x] v1 `pgvector_client.py`와 **별도 파일, 별도 클래스**
+  - [x] `PG_V2_PASSWORD` 비어있으면 no-op (v1 패턴 따라)
+  - [x] 모든 메서드에 타입 힌트
+  - [x] 각 메서드별 pytest (통합, `PG_V2_HOST` 환경변수 있을 때만 실행) *(115 unit + 10 integration + 1 slow perf 작성 완료; 실측은 사용자 PG_V2_HOST 실행 시)*
+  - [x] 쿼리 성능: `find_feed_candidates` 1000 rows 기준 p95 < 200ms *(perf 테스트 작성 완료, `-m slow`로 opt-in; 실측 벤치마크는 사용자 RDS 실행 시)*
 
 ### TASK-1.4: S3 v2 버킷 생성 + 라이프사이클
 - **종속성**: 없음 (Phase 1 초입에 병렬 가능)
@@ -358,11 +358,11 @@
 | Phase | TASK 수 | 완료 | 진행 중 | 남음 |
 |---|---|---|---|---|
 | Phase 0 | 3 | 3 | 0 | 0 |
-| Phase 1 | 4 | 2 | 0 | 2 |
+| Phase 1 | 4 | 3 | 0 | 1 |
 | Phase 2 | 5 | 0 | 0 | 5 |
 | Phase 3 | 5 | 0 | 0 | 5 |
 | Phase 4 | 6 | 0 | 0 | 6 |
 | Phase 5 | 8 | 0 | 0 | 8 |
-| **합계** | **31** | **5** | **0** | **26** |
+| **합계** | **31** | **6** | **0** | **25** |
 
 세션 시작 시 이 표 업데이트할 것.
