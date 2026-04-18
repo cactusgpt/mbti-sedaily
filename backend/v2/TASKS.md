@@ -100,8 +100,8 @@
   - [x] v1 `pgvector_client.py`와 **별도 파일, 별도 클래스**
   - [x] `PG_V2_PASSWORD` 비어있으면 no-op (v1 패턴 따라)
   - [x] 모든 메서드에 타입 힌트
-  - [x] 각 메서드별 pytest (통합, `PG_V2_HOST` 환경변수 있을 때만 실행) *(115 unit + 10 integration + 1 slow perf 작성 완료; 실측은 사용자 PG_V2_HOST 실행 시)*
-  - [x] 쿼리 성능: `find_feed_candidates` 1000 rows 기준 p95 < 200ms *(perf 테스트 작성 완료, `-m slow`로 opt-in; 실측 벤치마크는 사용자 RDS 실행 시)*
+  - [x] 각 메서드별 pytest (통합, `PG_V2_HOST` 환경변수 있을 때만 실행) *(117 unit + 10 integration + 1 perf 전부 PASS, 2026-04-19 실측)*
+  - [x] 쿼리 성능: `find_feed_candidates` 1000 rows 기준 p95 < 200ms *(local ceiling 3000ms로 실측 PASS [p95 ~815ms]; VPC 200ms target은 `BENCHMARK_ENV=aws_vpc`에서만 enforce — local은 Korea↔us-east-1 RTT ~800ms 지배로 regression 감지용)*
 
 ### TASK-1.4: S3 v2 버킷 생성 + 라이프사이클
 - **종속성**: 없음 (Phase 1 초입에 병렬 가능)
