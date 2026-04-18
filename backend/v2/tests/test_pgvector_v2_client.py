@@ -21,6 +21,7 @@ Run from ``backend/``::
 from __future__ import annotations
 
 import json
+import logging
 import os
 import statistics
 import time
@@ -30,6 +31,8 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 from v2.clients.pgvector_v2_client import (
     PgVectorV2Client,
@@ -447,9 +450,32 @@ def test_upsert_user_profile_with_embedding() -> None:
 
 
 def test_upsert_user_profile_without_embedding() -> None:
+    """None embedding → path (B): no ``:vec`` parameter bound at all."""
     c = _enabled()
     c.upsert_user_profile("u1", "INTJ", {}, None)
-    assert c._conn.run.call_args.kwargs["vec"] is None
+    assert "vec" not in c._conn.run.call_args.kwargs
+
+
+def test_upsert_user_profile_embedding_path_casts_vector() -> None:
+    """Path (A): SQL binds ``:vec`` and casts it with ``::vector``."""
+    c = _enabled()
+    c.upsert_user_profile("u1", "INTJ", {}, [0.1, 0.2])
+    sql = c._conn.run.call_args.args[0]
+    assert ":vec::vector" in sql
+    # Regression guard: the CASE WHEN form previously raised pg 42P08
+    # "could not determine data type of parameter". Never bring it back.
+    assert "CASE WHEN" not in sql
+
+
+def test_upsert_user_profile_null_path_uses_null_literal() -> None:
+    """Path (B): SQL has a literal NULL in VALUES, no ``:vec`` param."""
+    c = _enabled()
+    c.upsert_user_profile("u1", "INTJ", {}, None)
+    sql = c._conn.run.call_args.args[0]
+    assert ":vec" not in sql
+    assert "CASE WHEN" not in sql
+    # Closing VALUES tuple carries literal NULL for the embedding column.
+    assert ", NULL)" in sql
 
 
 def test_upsert_user_profile_allows_null_mbti_and_weights() -> None:
@@ -814,9 +840,25 @@ PERF_PREFIX = "test_v2_1_3_perf_"
 
 
 def _embedding(seed: float = 0.1) -> list[float]:
-    """1024-dim synthetic vector. Value is deliberately simple so ORDER BY
-    distance is deterministic in small fixtures."""
-    return [seed] * 1024
+    """1024-dim vector with guaranteed non-zero magnitude.
+
+    The first component is always 1.0; the remaining 1023 carry ``seed``.
+    This avoids two traps in cosine-distance tests:
+
+    * **Zero-magnitude vectors produce NaN distances.** pgvector computes
+      cosine distance as ``1 - (a·b) / (|a| * |b|)``; if either vector has
+      magnitude 0, the denominator is 0 and the result is NaN. A bare
+      ``[seed] * 1024`` with ``seed=0.0`` (trivially produced by callers
+      like ``_embedding(0.1 * i)`` at ``i=0`` or perf seeds
+      ``(i % 100) / 100`` at ``i=0, 100, 200, …``) would silently poison
+      distance assertions.
+    * **Parallel uniform vectors collapse to cosine distance 0.** With
+      ``[seed] * 1024``, any two seeds produce parallel vectors — cosine
+      similarity is always 1.0 and ORDER BY distance has nothing to
+      sort. A 1.0 head component plus seed-varied tail breaks parallelism
+      while keeping the vector deterministic and easy to reason about.
+    """
+    return [1.0] + [seed] * 1023
 
 
 def _wipe_prefix(client: PgVectorV2Client, prefix: str) -> None:
@@ -1044,36 +1086,97 @@ def pg_session_client():
         client.close()
 
 
+# Environment-split perf thresholds — network RTT dominates the measurement
+# when the test runs outside the RDS's VPC, so the two modes serve different
+# purposes rather than measuring the same thing on the same scale.
+_PERF_P95_VPC_S = 0.200             # in-region Lambda → RDS production target
+_PERF_P95_LOCAL_CEILING_S = 3.000   # catastrophic-regression sanity ceiling
+# The local ceiling is deliberately loose — a measured Korea ↔ us-east-1
+# baseline of ~800ms leaves no room for a meaningful p95 assertion, so the
+# local mode only catches "query is obviously broken" situations (≥3s).
+# Treat local p95 as a regression detector, never a performance metric.
+
+
 @pytest.fixture(scope="session")
 def seeded_feed_candidates(pg_session_client: PgVectorV2Client):
-    """Seed 1000 transformed articles with NT versions for a perf benchmark.
+    """Seed 1000 transformed articles + NT versions in 2 bulk statements.
 
-    NOTE: This benchmark uses 1000 rows which does not reflect production
-    scale. Re-evaluate with 100K+ rows in Phase 3.
-    ivfflat lists=100 is tuned for ~100K rows; at 1K rows a full scan may
-    outperform the index.
-    This test validates query correctness, not realistic latency.
+    Per-call seeding via ``insert_article`` + ``update_article_status`` +
+    ``insert_article_version`` is **3000 round-trips**. From a local
+    laptop to us-east-1 RDS (~150–200ms RTT) that alone is 7–10 minutes,
+    which the user reasonably mistakes for a hang. Collapsing into two
+    ``unnest``-based multi-row INSERTs brings setup under ~30s.
 
-    Pre-seed cleanup clears any PERF_PREFIX rows left by a previously
-    aborted perf run — without it a crash mid-benchmark would leave
-    cruft and the second run's INSERT ... DO NOTHING would silently
-    skip fresh vectors, making the benchmark stale.
+    This fixture deliberately bypasses ``insert_article`` /
+    ``insert_article_version`` — those methods are tested elsewhere, and
+    status is inserted directly as ``'transformed'`` (skipping the
+    raw → transformed transition since no pipeline is running).
+
+    NOTE: 1000 rows does not reflect production scale. Re-evaluate with
+    100K+ rows in Phase 3. ivfflat ``lists=100`` is tuned for ~100K rows;
+    at 1K rows a full scan may outperform the index. This test validates
+    query correctness, not realistic latency.
+
+    Pre- and post-seed cleanup both wipe PERF_PREFIX so an aborted
+    previous perf run cannot corrupt the benchmark (stale rows with
+    ON CONFLICT DO NOTHING would silently skip the fresh embeddings).
+
+    SAFETY: every element passed into ``:embs::text[]`` is produced by
+    ``_vec_literal`` on a list of Python floats — no user input or
+    external-source string ever reaches the array.
     """
     _wipe_prefix(pg_session_client, PERF_PREFIX)
-    for i in range(1000):
-        nid = f"{PERF_PREFIX}{i:04d}"
-        seed = (i % 100) / 100.0
-        pg_session_client.insert_article(
-            nid,
-            {"title": f"T{i}", "category": "IT_과학"},
-            _embedding(seed),
-        )
-        pg_session_client.update_article_status(nid, "transformed")
-        pg_session_client.insert_article_version(
-            nid, "NT",
-            {"title": f"T{i}_NT", "body": f"B{i}"},
-            _embedding(seed + 0.01),
-        )
+
+    N = 1000
+    nids = [f"{PERF_PREFIX}{i:04d}" for i in range(N)]
+    # ``seed`` uses ``i % 100`` so it repeats across blocks of 100 rows —
+    # fine now that ``_embedding`` guarantees non-zero magnitude regardless
+    # of seed value (see ``_embedding`` docstring).
+    seeds = [(i % 100) / 100.0 for i in range(N)]
+    article_embs = [_vec_literal(_embedding(s)) for s in seeds]
+    version_embs = [_vec_literal(_embedding(s + 0.01)) for s in seeds]
+    metas = ["{}"] * N
+
+    # Bulk INSERT articles — 1 round-trip.
+    pg_session_client.conn.run(
+        """
+        INSERT INTO articles
+            (news_id, status, title, category, embedding, metadata)
+        SELECT nid, 'transformed', ttl, cat, emb::vector, meta::jsonb
+        FROM unnest(:nids::text[], :titles::text[], :cats::text[],
+                    :embs::text[], :metas::text[])
+             AS u(nid, ttl, cat, emb, meta)
+        ON CONFLICT (news_id) DO NOTHING
+        """,
+        nids=nids,
+        titles=[f"T{i}" for i in range(N)],
+        cats=["IT_과학"] * N,
+        embs=article_embs,
+        metas=metas,
+    )
+
+    # Bulk INSERT article_versions — 1 round-trip.
+    pg_session_client.conn.run(
+        """
+        INSERT INTO article_versions
+            (news_id, mbti_type, title, body, embedding, metadata)
+        SELECT nid, 'NT', ttl, body, emb::vector, meta::jsonb
+        FROM unnest(:nids::text[], :titles::text[], :bodies::text[],
+                    :embs::text[], :metas::text[])
+             AS u(nid, ttl, body, emb, meta)
+        ON CONFLICT (news_id, mbti_type) DO UPDATE SET
+            title     = EXCLUDED.title,
+            body      = EXCLUDED.body,
+            embedding = EXCLUDED.embedding,
+            metadata  = EXCLUDED.metadata
+        """,
+        nids=nids,
+        titles=[f"T{i}_NT" for i in range(N)],
+        bodies=[f"B{i}" for i in range(N)],
+        embs=version_embs,
+        metas=metas,
+    )
+
     try:
         yield PERF_PREFIX
     finally:
@@ -1082,14 +1185,29 @@ def seeded_feed_candidates(pg_session_client: PgVectorV2Client):
 
 @pytest.mark.integration
 @pytest.mark.slow
-def test_perf_find_feed_candidates_p95_under_200ms(
+def test_perf_find_feed_candidates_p95(
     pg_session_client: PgVectorV2Client,
     seeded_feed_candidates: str,
 ) -> None:
-    """``find_feed_candidates`` p95 latency — see ``seeded_feed_candidates``
-    fixture for scale caveats."""
+    """``find_feed_candidates`` p95 latency — two threshold modes by env.
+
+    * ``BENCHMARK_ENV=aws_vpc``: enforces 200ms — the production
+      Lambda → RDS target, meaningful only when the caller shares the
+      RDS's VPC.
+    * default (local): enforces a 3000ms **ceiling** only. Local
+      measurements are network-bound (measured Korea ↔ us-east-1
+      baseline ~800ms) and cannot validate query performance. Use the
+      VPC mode for real perf validation. Local mode exists solely to
+      catch catastrophic regressions (query going 3s+) that indicate
+      code or schema issues independent of network conditions.
+
+    See ``seeded_feed_candidates`` for scale caveats (1K rows vs the
+    production-relevant ≥100K).
+    """
+    in_vpc = os.getenv("BENCHMARK_ENV") == "aws_vpc"
+
     query = _embedding(0.42)
-    # warm-up: connection pool, plan cache
+    # Warm-up: connection pool, plan cache.
     for _ in range(3):
         pg_session_client.find_feed_candidates("NT", query, [], limit=50)
     latencies = []
@@ -1097,9 +1215,29 @@ def test_perf_find_feed_candidates_p95_under_200ms(
         start = time.perf_counter()
         pg_session_client.find_feed_candidates("NT", query, [], limit=50)
         latencies.append(time.perf_counter() - start)
-    # statistics.quantiles(n=20)[-1] = the 19th cut point ≈ 95th percentile
+    # statistics.quantiles(n=20)[-1] is the 19th cut point ≈ 95th percentile.
     p95 = statistics.quantiles(latencies, n=20)[-1]
-    assert p95 < 0.200, (
-        f"p95={p95 * 1000:.1f}ms exceeds 200ms target. "
-        f"all latencies (ms): {[round(x * 1000, 1) for x in latencies]}"
-    )
+
+    if in_vpc:
+        assert p95 < _PERF_P95_VPC_S, (
+            f"VPC p95={p95 * 1000:.0f}ms exceeds target "
+            f"{_PERF_P95_VPC_S * 1000:.0f}ms. "
+            f"all latencies (ms): {[round(x * 1000, 1) for x in latencies]}"
+        )
+    else:
+        # Local: ceiling catches catastrophic regression (query going 3s+),
+        # tolerates Korea ↔ us-east-1 network variance (baseline ~800ms).
+        assert p95 < _PERF_P95_LOCAL_CEILING_S, (
+            f"local p95={p95 * 1000:.0f}ms exceeds ceiling "
+            f"{_PERF_P95_LOCAL_CEILING_S * 1000:.0f}ms "
+            f"(baseline ~800ms for Korea ↔ us-east-1, so this likely "
+            f"indicates a query or schema regression, not network). "
+            f"all latencies (ms): {[round(x * 1000, 1) for x in latencies]}"
+        )
+        # Log for manual regression tracking — visible via
+        # `pytest --log-cli-level=INFO`.
+        logger.info(
+            f"local perf p95={p95 * 1000:.1f}ms "
+            f"(ceiling {_PERF_P95_LOCAL_CEILING_S * 1000:.0f}ms, "
+            f"baseline ~800ms)"
+        )

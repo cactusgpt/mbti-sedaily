@@ -58,6 +58,25 @@ python3 -m pytest v2/tests/test_pgvector_v2_client.py -v
 python3 -m pytest v2/tests/test_pgvector_v2_client.py::test_insert_article -v
 ```
 
+### Performance test thresholds
+- **Local** (default): ceiling-only (3000ms), catches catastrophic regression.
+- **VPC** (`BENCHMARK_ENV=aws_vpc`): tight 200ms production target.
+- Network latency varies wildly between these — do **NOT** treat local p95
+  as a meaningful performance metric. Use it as a regression detector only.
+  Measured Korea ↔ us-east-1 baseline was ~800ms, which makes anything
+  under 1s indistinguishable from network jitter.
+
+```bash
+# Local (opt-in): regression detector only, loose ceiling
+python3 -m pytest v2/tests/test_pgvector_v2_client.py -v -m slow
+
+# In-VPC (Lambda/EC2 inside the RDS VPC): enforces production p95
+BENCHMARK_ENV=aws_vpc python3 -m pytest v2/tests/ -v -m slow
+
+# See live p95 log (local mode logs it even on PASS)
+python3 -m pytest v2/tests/test_pgvector_v2_client.py -v -m slow --log-cli-level=INFO
+```
+
 ---
 
 ## 🚀 배포

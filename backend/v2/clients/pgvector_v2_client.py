@@ -461,36 +461,61 @@ class PgVectorV2Client:
         The 4-char ``mbti_type`` is stored verbatim (schema CHECK enforces
         the 16-value set). ``category_weights`` defaults to ``{}`` so the
         JSONB column stays non-null even during cold-start.
+
+        Two explicit SQL paths rather than a single ``CASE WHEN :vec IS
+        NULL THEN NULL ELSE :vec::vector END`` — PostgreSQL cannot infer
+        the type of a bare parameter inside that CASE (error 42P08
+        "could not determine data type of parameter"), because neither
+        branch supplies type information for ``:vec`` itself before the
+        cast runs. The pre-cast parameter is inspected for the IS NULL
+        check, and the server refuses to proceed without a resolved
+        type. Branching in Python sidesteps this entirely.
         """
         if preference_embedding is not None:
             self._validate_embedding(preference_embedding)
         if not self._enabled:
             return
         try:
-            weights = category_weights or {}
-            vec = (
-                _vec_literal(preference_embedding)
-                if preference_embedding is not None
-                else None
+            weights_json = json.dumps(
+                category_weights or {},
+                default=_json_default,
+                ensure_ascii=False,
             )
-            self.conn.run(
-                """
-                INSERT INTO user_profiles
-                    (user_id, mbti_type, category_weights, preference_embedding)
-                VALUES
-                    (:uid, :mbti, :weights::jsonb,
-                     CASE WHEN :vec IS NULL THEN NULL ELSE :vec::vector END)
-                ON CONFLICT (user_id) DO UPDATE SET
-                    mbti_type            = EXCLUDED.mbti_type,
-                    category_weights     = EXCLUDED.category_weights,
-                    preference_embedding = EXCLUDED.preference_embedding,
-                    updated_at           = now()
-                """,
-                uid=user_id,
-                mbti=mbti_type,
-                weights=json.dumps(weights, default=_json_default, ensure_ascii=False),
-                vec=vec,
-            )
+            if preference_embedding is not None:
+                self.conn.run(
+                    """
+                    INSERT INTO user_profiles
+                        (user_id, mbti_type, category_weights, preference_embedding)
+                    VALUES
+                        (:uid, :mbti, :weights::jsonb, :vec::vector)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        mbti_type            = EXCLUDED.mbti_type,
+                        category_weights     = EXCLUDED.category_weights,
+                        preference_embedding = EXCLUDED.preference_embedding,
+                        updated_at           = now()
+                    """,
+                    uid=user_id,
+                    mbti=mbti_type,
+                    weights=weights_json,
+                    vec=_vec_literal(preference_embedding),
+                )
+            else:
+                self.conn.run(
+                    """
+                    INSERT INTO user_profiles
+                        (user_id, mbti_type, category_weights, preference_embedding)
+                    VALUES
+                        (:uid, :mbti, :weights::jsonb, NULL)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        mbti_type            = EXCLUDED.mbti_type,
+                        category_weights     = EXCLUDED.category_weights,
+                        preference_embedding = EXCLUDED.preference_embedding,
+                        updated_at           = now()
+                    """,
+                    uid=user_id,
+                    mbti=mbti_type,
+                    weights=weights_json,
+                )
         except Exception as exc:
             logger.warning(f"upsert_user_profile({user_id!r}) failed: {exc}")
 
