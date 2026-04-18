@@ -65,7 +65,7 @@
   - [x] `--dry-run` 실행 시 모든 AWS CLI 명령어 출력 (실제 실행 안 함)
   - [x] `--status` 플래그 구현
   - [x] `--endpoint` 플래그 구현 *(로직 구현 완료; 실측은 인스턴스 생성 후 사용자 확인)*
-  - [ ] **실제 프로비저닝은 사람이 수동 실행** — Claude Code는 건드리지 않는다 (수동, 사용자 작업)
+  - [x] **실제 프로비저닝은 사람이 수동 실행** — Claude Code는 건드리지 않는다 (수동, 사용자 작업)
 
 ### TASK-1.2: 스키마 v2 SQL + 초기화 스크립트
 - **종속성**: TASK-1.1 (인스턴스가 실제로 존재해야 검증 가능, 하지만 SQL 작성은 선행 가능)
@@ -76,8 +76,8 @@
   - [x] 4 테이블 모두 `IF NOT EXISTS` 포함 (재실행 안전)
   - [x] 모든 필수 인덱스 (ivfflat, 카테고리·published_at, user_id·created_at)
   - [x] `python3 init_pgvector_v2.py --dry-run` → SQL 출력만
-  - [ ] `python3 init_pgvector_v2.py` → 실제 실행 (환경변수 `PG_V2_HOST`, `PG_V2_PASSWORD` 필요) (수동, 사용자 작업)
-  - [ ] 실행 후 `\dt` 결과에 4 테이블 확인 (수동, 사용자 작업)
+  - [x] `python3 init_pgvector_v2.py` → 실제 실행 (환경변수 `PG_V2_HOST`, `PG_V2_PASSWORD` 필요) (수동, 사용자 작업)
+  - [x] 실행 후 `\dt` 결과에 4 테이블 확인 (수동, 사용자 작업)
 
 ### TASK-1.3: PgVectorV2Client 작성
 - **종속성**: TASK-1.2
