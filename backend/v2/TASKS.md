@@ -108,10 +108,10 @@
 - **Files to create**:
   - `backend/v2/infrastructure/setup_s3_v2.sh` (dry-run 기본)
 - **Definition of Done**:
-  - [ ] 버킷 `sedaily-mbti-article-body-v2-dev` 생성 명령 출력
-  - [ ] 라이프사이클 정책: 90일 후 Glacier (JSON으로 작성, 스크립트가 적용)
-  - [ ] CORS 정책 (프론트가 직접 body를 읽는 경우 대비)
-  - [ ] **실제 생성은 사람이 수동 실행**
+  - [x] 버킷 `sedaily-mbti-article-body-v2-dev` 생성 명령 출력
+  - [x] 라이프사이클 정책: 90일 후 Glacier (JSON으로 작성, 스크립트가 적용) *(GLACIER_IR 구체 선택 — sub-second retrieval 필요, 커밋 903f138 참조)*
+  - [x] CORS 정책 (프론트가 직접 body를 읽는 경우 대비)
+  - [x] **실제 생성은 사람이 수동 실행** *(--apply 성공, --status 6개 섹션 검증 완료: PAB 4/4, AES256, GLACIER_IR@90d, CORS 2 origins, versioning OFF, 2026-04-19 실측)*
 
 ---
 
@@ -358,11 +358,11 @@
 | Phase | TASK 수 | 완료 | 진행 중 | 남음 |
 |---|---|---|---|---|
 | Phase 0 | 3 | 3 | 0 | 0 |
-| Phase 1 | 4 | 3 | 0 | 1 |
+| Phase 1 | 4 | 4 | 0 | 0 |
 | Phase 2 | 5 | 0 | 0 | 5 |
 | Phase 3 | 5 | 0 | 0 | 5 |
 | Phase 4 | 6 | 0 | 0 | 6 |
 | Phase 5 | 8 | 0 | 0 | 8 |
-| **합계** | **31** | **6** | **0** | **25** |
+| **합계** | **31** | **7** | **0** | **24** |
 
 세션 시작 시 이 표 업데이트할 것.
