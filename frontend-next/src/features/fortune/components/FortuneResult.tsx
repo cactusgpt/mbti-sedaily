@@ -100,6 +100,12 @@ function renderMarkdown(text: string) {
 
 type CacheData = Record<MbtiGroup, string>;
 
+interface TodayPartsCache {
+  ss: Record<MbtiGroup, Record<string, string>>;
+  us: Record<MbtiGroup, Record<string, string>>;
+  category: Record<string, Record<MbtiGroup, Record<string, string>>>;
+}
+
 function UnGrid({ title, cols, ilgan, activeCheck }: {
   title: string;
   cols: { c: string; j: string; ck: string; jk: string; label: string }[];
@@ -166,7 +172,7 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
 
   // 캐시 JSON fetch
   const [chongunCache, setChongunCache] = useState<CacheData | null>(null);
-  const [todayCache, setTodayCache] = useState<CacheData | null>(null);
+  const [todayParts, setTodayParts] = useState<TodayPartsCache | null>(null);
 
   useEffect(() => {
     if (!ilgan) return;
@@ -180,17 +186,19 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
       .catch(() => setChongunCache(null));
   }, [ilgan, pillars]);
 
+  // 오늘의 운세 파트별 리라이팅 JSON (한번만 로드)
   useEffect(() => {
-    if (!ilgan || !todayFortune) return;
-    const key = `${ilgan}_${todayFortune.dayPillarHanja}`;
-    fetch('/saju-cache/today.json')
+    fetch('/saju-cache/today-parts.json')
       .then(r => r.ok ? r.json() : null)
-      .then(all => { if (all && all[key]) setTodayCache(all[key]); })
-      .catch(() => setTodayCache(null));
-  }, [ilgan, todayFortune]);
+      .then(d => setTodayParts(d))
+      .catch(() => setTodayParts(null));
+  }, []);
 
   const chongunText = mbtiGroup && chongunCache?.[mbtiGroup] ? chongunCache[mbtiGroup] : null;
-  const todayText = mbtiGroup && todayCache?.[mbtiGroup] ? todayCache[mbtiGroup] : null;
+  const ssReadingText = mbtiGroup && todayParts?.ss?.[mbtiGroup]?.[todayFortune?.ss || ''] || todayFortune?.ssReading || '';
+  const usReadingText = mbtiGroup && todayParts?.us?.[mbtiGroup]?.[todayFortune?.us || ''] || todayFortune?.usReading || '';
+  const getCategoryDesc = (catLabel: string, ss: string, fallback: string) =>
+    mbtiGroup && todayParts?.category?.[catLabel]?.[mbtiGroup]?.[ss] || fallback;
 
   return (
     <div className="mt-8">
@@ -240,22 +248,16 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
         </Section>
       )}
 
-      {/* 오늘의 운세 — 캐시가 있으면 MBTI별 리라이팅 텍스트, 없으면 기존 */}
+      {/* 오늘의 운세 — 파트별 리라이팅 캐시 적용 */}
       {todayFortune && (
         <Section title="오늘의 운세">
-          {todayText ? (
-            <div>{renderMarkdown(todayText)}</div>
-          ) : (
-            <>
-              <p className="mb-3">
-                오늘은 <strong className={EL_COLORS[todayFortune.dayOh]}>{todayFortune.dayPillar}({todayFortune.dayPillarHanja})</strong>일입니다.
-                나의 일간 기준 <strong>{todayFortune.ss}</strong>의 날이며, 12운성은 <strong>{todayFortune.us}</strong>입니다.
-              </p>
-              {todayFortune.ssReading && <p className="mb-3">{todayFortune.ssReading}</p>}
-              <p className={todayFortune.sinsal.length ? 'mb-3' : ''}>12운성 <strong>{todayFortune.us}</strong> — {todayFortune.usReading}</p>
-            </>
-          )}
-          {!todayText && todayFortune.sinsal.length > 0 && (
+          <p className="mb-3">
+            오늘은 <strong className={EL_COLORS[todayFortune.dayOh]}>{todayFortune.dayPillar}({todayFortune.dayPillarHanja})</strong>일입니다.
+            나의 일간 기준 <strong>{todayFortune.ss}</strong>의 날이며, 12운성은 <strong>{todayFortune.us}</strong>입니다.
+          </p>
+          {ssReadingText && <p className="mb-3">{ssReadingText}</p>}
+          <p className={todayFortune.sinsal.length ? 'mb-3' : ''}>12운성 <strong>{todayFortune.us}</strong> — {usReadingText}</p>
+          {todayFortune.sinsal.length > 0 && (
             <div className="border-t border-gray-100 pt-3">
               {todayFortune.sinsal.map((s, i) => (
                 <div key={i} className="mb-2 last:mb-0">
@@ -268,8 +270,8 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
             </div>
           )}
 
-          {/* 카테고리별 운세 — 캐시가 없을 때만 표시 */}
-          {!todayText && todayFortune.categories && todayFortune.categories.length > 0 && (
+          {/* 카테고리별 운세 */}
+          {todayFortune.categories && todayFortune.categories.length > 0 && (
             <div className="border-t border-gray-100 pt-4 mt-4 space-y-4">
               {todayFortune.categories.map((cat) => (
                 <div key={cat.label}>
@@ -285,7 +287,9 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
                       style={{ width: `${cat.score}%` }}
                     />
                   </div>
-                  <p className="text-[12px] text-gray-500 leading-relaxed">{cat.desc}</p>
+                  <p className="text-[12px] text-gray-500 leading-relaxed">
+                    {getCategoryDesc(cat.label, todayFortune.ss, cat.desc)}
+                  </p>
                 </div>
               ))}
             </div>
