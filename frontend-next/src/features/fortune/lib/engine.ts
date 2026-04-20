@@ -2,7 +2,7 @@
  * 사주 해석 엔진 — 데이터 + 순수 계산 로직
  * DOM 의존 없음
  */
-import { calculateSaju, getGapja } from '@fullstackfamily/manseryeok';
+import { calculateSaju, getGapja, getSolarTermsByYear } from '@fullstackfamily/manseryeok';
 
 // ── 매핑 데이터 ──
 export const CG_OH: Record<string, string> = {'甲':'목','乙':'목','丙':'화','丁':'화','戊':'토','己':'토','庚':'금','辛':'금','壬':'수','癸':'수'};
@@ -356,6 +356,7 @@ export interface DaeunEntry extends GapjaEntry { age: number; }
 export interface DaeunResult { daeuns: DaeunEntry[]; daeunsu: number; }
 
 // 절기(節氣) 근사 날짜 - 월별 절입일 (양력 기준 평균)
+// 라이브러리 지원 범위(2020~2030) 밖 연도용 폴백
 // 인월(寅)=입춘~, 묘월(卯)=경칩~, ... 축월(丑)=소한~
 const JEOLGI_APPROX: [number, number][] = [
   [2, 4],   // 1: 입춘 (인월 시작)
@@ -372,16 +373,34 @@ const JEOLGI_APPROX: [number, number][] = [
   [1, 6],   // 12: 소한 (축월)
 ];
 
-function getJeolgiDates(year: number): Date[] {
+function getJeolgiApproxDates(year: number): Date[] {
   const dates: Date[] = [];
   for (const [m, d] of JEOLGI_APPROX) {
     const y = m === 1 ? year + 1 : year; // 소한은 다음해 1월
     dates.push(new Date(y, m - 1, d));
   }
-  // 이전해 절기도 추가 (역행 계산용)
   for (const [m, d] of JEOLGI_APPROX) {
     const y = m === 1 ? year : year - 1;
     dates.push(new Date(y, m - 1, d));
+  }
+  return dates.sort((a, b) => a.getTime() - b.getTime());
+}
+
+/** 출생 연도 기준 전/당/다음 연도의 절기(節氣) 시각을 정확히 조회.
+ *  라이브러리 범위 밖이면 근사 날짜로 폴백. */
+function getJeolgiDates(year: number): Date[] {
+  const dates: Date[] = [];
+  for (const y of [year - 1, year, year + 1]) {
+    try {
+      const terms = getSolarTermsByYear(y);
+      for (const t of terms) {
+        if (t.type !== 'jeolgi') continue;
+        dates.push(new Date(t.year, t.month - 1, t.day, t.hour, t.minute));
+      }
+    } catch {
+      // 범위 밖: 근사치 사용
+      return getJeolgiApproxDates(year);
+    }
   }
   return dates.sort((a, b) => a.getTime() - b.getTime());
 }
