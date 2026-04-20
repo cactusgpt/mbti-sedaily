@@ -117,6 +117,12 @@
 
 ## Phase 2: Core 1 + Core 2 (목표 3주)
 
+> ⚠️ **Phase 5 재검토 예정**: `U`/`D` action 처리 정책
+> - 현재 Core 1 Collector는 `I`만 처리, `U`/`D`는 카운트만 (TASK-2.1 참조)
+> - `U`: 서울경제 기사 수정 반영 여부 (embedding + MBTI 4 버전 재생성 비용 고려)
+> - `D`: 기사 삭제 전파 여부 (v2 DB에 tombstone 유지 or 완전 제거)
+> - 결정 후 Core 1 Collector 로직 확장. 담당 TASK 번호 미정.
+
 ### TASK-2.1: Core 1 Collector Lambda
 - **종속성**: TASK-1.3 (PgVectorV2Client 필요), TASK-1.4
 - **Files to create**:
@@ -138,11 +144,11 @@
   6. `S3ArticleV2Client.put_article_file(news_id, "original.json", dict)` 업로드
   7. `insert_article(status='raw')`
 - **Definition of Done**:
-  - [ ] Lambda 함수명 `sedaily-mbti-v2-collector-dev`
-  - [ ] 선별 로직 **없음** — 모든 기사 수집 (쓰레기 기사만 간단한 룰 필터: 본문 < 300자 제외, [인사]/[부고] 제외)
-  - [ ] dedup 통과한 기사만 Bedrock·S3·pgvector 쓰기
-  - [ ] 실패 시 CloudWatch 에러 로그 (기사별 try/except로 부분 실패 격리, 실패 news_id는 응답 페이로드에 포함)
-  - [ ] 테스트: mock 기사 5개 주입 → DB에 5 row, S3에 5 object
+  - [x] Lambda 함수명 `sedaily-mbti-v2-collector-dev` *(deploy-v2.sh CORE1_FUNCTIONS 등록 완료; Lambda 생성·env·IAM은 사용자 수동 작업)*
+  - [x] 선별 로직 **없음** — 모든 기사 수집 (쓰레기 기사만 간단한 룰 필터: 본문 < 300자 제외, [인사]/[부고] 제외)
+  - [x] dedup 통과한 기사만 Bedrock·S3·pgvector 쓰기
+  - [x] 실패 시 CloudWatch 에러 로그 (기사별 try/except로 부분 실패 격리, 실패 news_id는 응답 페이로드에 포함)
+  - [x] 테스트: mock 기사 5개 주입 → DB에 5 row, S3에 5 object *(unit 23 + integration 4 구현; 실측은 사용자 Lambda 생성 후 env 세팅하고 `pytest -m integration` 실행)*
 - **Notes**:
   - `PgVectorV2Client`에 `filter_existing_news_ids(news_ids: List[str]) -> set` 추가 (TASK-1.3의 11 메서드에는 없던 dedup 헬퍼 — Collector 핵심 경로에서 필요성 발견). 해당 테스트는 `test_pgvector_v2_client.py`에 기존 prefix `test_v2_1_3_`로 합류. TASK-1.3 스펙은 무수정 — 작업 당시 합의된 11 메서드로 완결된 상태 그대로 둠. 히스토리 정직성 우선.
   - `S3ArticleV2Client` 신설 — v1 `clients.s3_article_client.S3ArticleClient`는 객체 키가 `articles/{news_id}/body.json` 고정이라 Core 1의 `original.json`과 Core 2의 `version_*.json`을 담을 수 없음. 같은 버킷 레이아웃을 둘 다 쓰는 Core 2 Transform에서도 재사용 예정.
@@ -371,10 +377,10 @@
 |---|---|---|---|---|
 | Phase 0 | 3 | 3 | 0 | 0 |
 | Phase 1 | 4 | 4 | 0 | 0 |
-| Phase 2 | 5 | 0 | 0 | 5 |
+| Phase 2 | 5 | 1 | 0 | 4 |
 | Phase 3 | 5 | 0 | 0 | 5 |
 | Phase 4 | 6 | 0 | 0 | 6 |
 | Phase 5 | 8 | 0 | 0 | 8 |
-| **합계** | **31** | **7** | **0** | **24** |
+| **합계** | **31** | **8** | **0** | **23** |
 
 세션 시작 시 이 표 업데이트할 것.
