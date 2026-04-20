@@ -103,7 +103,8 @@ type CacheData = Record<MbtiGroup, string>;
 interface TodayPartsCache {
   ss: Record<MbtiGroup, Record<string, string>>;
   us: Record<MbtiGroup, Record<string, string>>;
-  category: Record<string, Record<MbtiGroup, Record<string, string>>>;
+  // 카테고리는 variant 배열. 기존 단일 string도 호환.
+  category: Record<string, Record<MbtiGroup, Record<string, string | string[]>>>;
 }
 
 function UnGrid({ title, cols, ilgan, activeCheck }: {
@@ -197,8 +198,15 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
   const chongunText = mbtiGroup && chongunCache?.[mbtiGroup] ? chongunCache[mbtiGroup] : null;
   const ssReadingText = mbtiGroup && todayParts?.ss?.[mbtiGroup]?.[todayFortune?.ss || ''] || todayFortune?.ssReading || '';
   const usReadingText = mbtiGroup && todayParts?.us?.[mbtiGroup]?.[todayFortune?.us || ''] || todayFortune?.usReading || '';
-  const getCategoryDesc = (catLabel: string, ss: string, fallback: string) =>
-    mbtiGroup && todayParts?.category?.[catLabel]?.[mbtiGroup]?.[ss] || fallback;
+  // 날짜 기반 variant 선택 — 같은 날엔 같은 variant, 날이 바뀌면 다른 variant
+  const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86400000);
+  const getCategoryDesc = (catLabel: string, ss: string, fallback: string) => {
+    const entry = mbtiGroup ? todayParts?.category?.[catLabel]?.[mbtiGroup]?.[ss] : undefined;
+    if (!entry) return fallback;
+    if (typeof entry === 'string') return entry;
+    if (entry.length === 0) return fallback;
+    return entry[dayOfYear % entry.length];
+  };
 
   return (
     <div className="mt-8">
