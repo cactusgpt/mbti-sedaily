@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { isBeforeLichun, getSajuMonth } from '@fullstackfamily/manseryeok';
-import { CG_OH, JJ_OH, OH_HJ, JJG, sipsung, unsung, type Pillar, type ChongunResult, type TodayFortuneResult, type DaeunEntry, type YeonunEntry, type WolunEntry } from '../lib/engine';
+import { CG_OH, JJ_OH, OH_HJ, JJG, sipsung, unsung, buildStructureAnalysis, type Pillar, type ChongunResult, type TodayFortuneResult, type DaeunEntry, type YeonunEntry, type WolunEntry } from '../lib/engine';
 import { SajuTable } from './SajuTable';
 import { DailyCalendar } from './DailyCalendar';
 
@@ -195,6 +195,8 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
       .catch(() => setTodayParts(null));
   }, []);
 
+  const structure = buildStructureAnalysis(pillars);
+
   const chongunText = mbtiGroup && chongunCache?.[mbtiGroup] ? chongunCache[mbtiGroup] : null;
   const ssReadingText = mbtiGroup && todayParts?.ss?.[mbtiGroup]?.[todayFortune?.ss || ''] || todayFortune?.ssReading || '';
   const usReadingText = mbtiGroup && todayParts?.us?.[mbtiGroup]?.[todayFortune?.us || ''] || todayFortune?.usReading || '';
@@ -227,6 +229,88 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
           </>
         )}
       </div>
+
+      {/* 사주 구조 진단 (팔자 전체 기반) */}
+      {structure && (
+        <Section title="사주 구조 진단">
+          <div className="mb-3">
+            <span className="text-[12px] font-semibold text-gray-700">한줄 요약 · </span>
+            <span className="text-[13px] text-gray-800">{structure.summary}</span>
+          </div>
+
+          {/* 오행 분포 */}
+          <div className="mb-3">
+            <div className="text-[12px] font-semibold text-gray-700 mb-1.5">오행 분포</div>
+            <div className="grid grid-cols-5 gap-1.5">
+              {(['목','화','토','금','수'] as const).map(o => {
+                const n = structure.distribution.counts[o];
+                const isExcess = structure.distribution.excess.includes(o);
+                const isLacking = structure.distribution.lacking.includes(o);
+                return (
+                  <div key={o} className={`text-center p-1.5 rounded border text-[11px] ${isExcess ? 'border-red-300 bg-red-50' : isLacking ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
+                    <div className={`font-bold ${EL_COLORS[o]}`}>{o}</div>
+                    <div className="text-gray-600">{n}개</div>
+                    {isExcess && <div className="text-[9px] text-red-500">과다</div>}
+                    {isLacking && <div className="text-[9px] text-blue-500">결여</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 신강/신약 */}
+          {structure.singangyak && (
+            <div className="mb-3">
+              <div className="text-[12px] font-semibold text-gray-700 mb-1">신강/신약</div>
+              <div className="text-[13px]">
+                <strong className={structure.singangyak.level.includes('강') ? 'text-red-500' : structure.singangyak.level.includes('약') ? 'text-blue-500' : 'text-gray-700'}>{structure.singangyak.level}</strong>
+                <span className="text-[11px] text-gray-500 ml-2">({structure.singangyak.reasoning})</span>
+              </div>
+            </div>
+          )}
+
+          {/* 격국 */}
+          {structure.gyeokguk && (
+            <div className="mb-3">
+              <div className="text-[12px] font-semibold text-gray-700 mb-1">격국(格局)</div>
+              <div className="text-[13px]">
+                <strong>{structure.gyeokguk.name}</strong>
+                <span className="text-[12px] text-gray-500 ml-2">{structure.gyeokguk.description}</span>
+              </div>
+            </div>
+          )}
+
+          {/* 용신 */}
+          {structure.yongsin && (
+            <div className="mb-3">
+              <div className="text-[12px] font-semibold text-gray-700 mb-1">용신(用神)</div>
+              <div className="text-[13px]">
+                <strong className={EL_COLORS[structure.yongsin.primary]}>{structure.yongsin.primary}</strong>
+                {structure.yongsin.supportElements.length > 0 && (
+                  <span className="text-[11px] text-gray-500 ml-2">
+                    (희신: {structure.yongsin.supportElements.map(e => <span key={e} className={`${EL_COLORS[e]} ml-1`}>{e}</span>)})
+                  </span>
+                )}
+                <p className="text-[12px] text-gray-600 mt-1">{structure.yongsin.description}</p>
+              </div>
+            </div>
+          )}
+
+          {/* 합·충 */}
+          {structure.hapChung.length > 0 && (
+            <div>
+              <div className="text-[12px] font-semibold text-gray-700 mb-1">합·충</div>
+              <div className="flex flex-wrap gap-1.5">
+                {structure.hapChung.map((hc, i) => (
+                  <span key={i} className={`text-[11px] px-2 py-0.5 rounded-full border ${hc.type === '지지충' ? 'border-red-300 text-red-600 bg-red-50' : 'border-green-300 text-green-700 bg-green-50'}`}>
+                    {hc.type} {hc.chars}{hc.meaning ? ` (${hc.meaning})` : ''}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </Section>
+      )}
 
       {/* 총운 — 캐시가 있으면 MBTI별 리라이팅 텍스트, 없으면 기존 */}
       {chongun && (

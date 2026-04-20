@@ -512,3 +512,311 @@ export const REGION_OPTIONS = [
   { value: '128.68', label: '경상남도' },
   { value: '126.57', label: '제주특별자치도' },
 ];
+
+// ══════════════════════════════════════════════════════════════
+// 팔자 전체 구조 분석 (오행 분포·신강약·격국·용신·합충)
+// ══════════════════════════════════════════════════════════════
+
+// 오행 상생: 목→화→토→금→수→목
+// 오행 상극: 목→토→수→화→금→목
+const OH_LIST = ['목', '화', '토', '금', '수'];
+
+export interface ElementDistribution {
+  counts: Record<string, number>;           // 오행별 개수 (천간+지지 본기)
+  weighted: Record<string, number>;         // 지장간 가중 합산 (본기 3, 중기 2, 여기 1)
+  excess: string[];                         // 과다 (≥3 또는 가중 ≥5)
+  lacking: string[];                        // 결여 (0)
+}
+
+/** 팔자 8자의 오행 분포 계산.
+ *  지지는 본기만 카운트하되, 가중합은 지장간(본기 3, 중기 2, 여기 1)으로 계산. */
+export function calculateElementDistribution(ps: Pillar[]): ElementDistribution {
+  const counts: Record<string, number> = { 목: 0, 화: 0, 토: 0, 금: 0, 수: 0 };
+  const weighted: Record<string, number> = { 목: 0, 화: 0, 토: 0, 금: 0, 수: 0 };
+
+  for (const p of ps) {
+    if (p.c && CG_OH[p.c]) counts[CG_OH[p.c]] += 1;
+    if (p.j && JJ_OH[p.j]) counts[JJ_OH[p.j]] += 1;
+  }
+
+  // 지장간 가중 (본기=3, 중기=2, 여기=1 혹은 본기만이면 3)
+  for (const p of ps) {
+    if (p.c && CG_OH[p.c]) weighted[CG_OH[p.c]] += 3;
+    if (!p.j || !JJG[p.j]) continue;
+    const hidden = JJG[p.j];
+    const weights = hidden.length === 1 ? [3] : hidden.length === 2 ? [1, 3] : [1, 2, 3];
+    hidden.forEach((h, i) => {
+      const oh = CG_OH[h];
+      if (oh) weighted[oh] += weights[i];
+    });
+  }
+
+  const excess = OH_LIST.filter(o => counts[o] >= 3);
+  const lacking = OH_LIST.filter(o => counts[o] === 0);
+  return { counts, weighted, excess, lacking };
+}
+
+// ── 신강/신약 판정 ──
+export type SinGangYakLevel = '극신강' | '신강' | '중화' | '신약' | '극신약';
+export interface SinGangYakResult {
+  level: SinGangYakLevel;
+  deukryeong: boolean;  // 득령 (월지가 일간을 돕는가)
+  deukji: boolean;      // 득지 (일지가 일간을 돕는가)
+  deukse: number;       // 득세 (인성+비겁 개수 - 일간 본인 제외)
+  score: number;        // 종합 점수 (0~100)
+  reasoning: string;    // 판단 근거 요약
+}
+
+/** 일간의 신강/신약 판정. 득령·득지·득세를 종합. */
+export function judgeSinGangYak(ps: Pillar[]): SinGangYakResult | null {
+  const ilgan = ps[1].c;
+  if (!ilgan) return null;
+  const ilganOh = CG_OH[ilgan];
+  if (!ilganOh) return null;
+
+  // 도움 오행: 인성(생아) + 비겁(동오행)
+  const prev = OH_LIST[(OH_LIST.indexOf(ilganOh) + 4) % 5];  // 나를 생하는 오행
+  const same = ilganOh;
+
+  // 득령: 월지 본기가 도움 오행인가
+  const wolji = ps[2].j;
+  const woljiMain = wolji && JJG[wolji] ? JJG[wolji][JJG[wolji].length - 1] : null;
+  const woljiOh = woljiMain ? CG_OH[woljiMain] : '';
+  const deukryeong = woljiOh === prev || woljiOh === same;
+
+  // 득지: 일지 본기가 도움 오행인가
+  const ilji = ps[1].j;
+  const iljiMain = ilji && JJG[ilji] ? JJG[ilji][JJG[ilji].length - 1] : null;
+  const iljiOh = iljiMain ? CG_OH[iljiMain] : '';
+  const deukji = iljiOh === prev || iljiOh === same;
+
+  // 득세: 일간 제외 나머지 7자 중 도움 오행 개수
+  let deukse = 0;
+  for (let i = 0; i < ps.length; i++) {
+    const p = ps[i];
+    if (i !== 1 && p.c && (CG_OH[p.c] === prev || CG_OH[p.c] === same)) deukse++;
+    if (p.j && (JJ_OH[p.j] === prev || JJ_OH[p.j] === same)) deukse++;
+  }
+
+  // 점수 계산 (0~100)
+  let score = 50;
+  if (deukryeong) score += 25;
+  else score -= 15;
+  if (deukji) score += 15;
+  else score -= 10;
+  score += (deukse - 3) * 4;  // 평균 3 기준
+  score = Math.max(0, Math.min(100, score));
+
+  let level: SinGangYakLevel;
+  if (score >= 80) level = '극신강';
+  else if (score >= 60) level = '신강';
+  else if (score >= 40) level = '중화';
+  else if (score >= 20) level = '신약';
+  else level = '극신약';
+
+  const reasons: string[] = [];
+  reasons.push(deukryeong ? '득령(월지 도움)' : '실령(월지 무관/극)');
+  reasons.push(deukji ? '득지(일지 도움)' : '실지(일지 무관/극)');
+  reasons.push(`득세 ${deukse}자 (일간 제외 7자 중 나를 돕는 글자 수)`);
+
+  return { level, deukryeong, deukji, deukse, score, reasoning: reasons.join(' · ') };
+}
+
+// ── 격국 판정 (월지 주지장간 기반) ──
+export interface GyeokgukResult {
+  name: string;           // 격국 이름
+  description: string;    // 설명
+  sipsung: string;        // 월지 본기의 십성
+}
+
+export function detectGyeokguk(ps: Pillar[]): GyeokgukResult | null {
+  const ilgan = ps[1].c;
+  const wolji = ps[2].j;
+  if (!ilgan || !wolji) return null;
+
+  const woljiMain = JJG[wolji] ? JJG[wolji][JJG[wolji].length - 1] : null;
+  if (!woljiMain) return null;
+
+  // 월간이 월지 본기와 일치하면 그 기준, 아니면 월지 본기 기준
+  const monthGan = ps[2].c;
+  const basis = (monthGan === woljiMain) ? monthGan : woljiMain;
+
+  const ss = sipsung(ilgan, basis);
+  if (!ss) return null;
+
+  // 특수 격: 건록격 (월지 본기가 일간과 같은 오행·양음 = 비견)
+  //        양인격 (월지가 일간의 겁재 위치 + 특정 지지)
+  const gyeokMap: Record<string, { name: string; desc: string }> = {
+    '비견': { name: '건록격(建祿格)', desc: '월지가 일간과 같은 기운으로 자립심과 독립성이 강한 구조.' },
+    '겁재': { name: '양인격(羊刃格)', desc: '강한 경쟁심과 추진력의 구조. 과격해질 수 있으니 절제가 관건.' },
+    '식신': { name: '식신격(食神格)', desc: '표현력·창의력이 빛나는 구조. 여유와 복이 따르기 쉬움.' },
+    '상관': { name: '상관격(傷官格)', desc: '재능과 표현력이 두드러지는 구조. 자존심과 날카로움 주의.' },
+    '편재': { name: '편재격(偏財格)', desc: '활동적 재물·사교의 구조. 큰 기회와 리스크가 공존.' },
+    '정재': { name: '정재격(正財格)', desc: '성실·근면·안정적 재물의 구조. 꾸준한 축적이 강점.' },
+    '편관': { name: '편관격(偏官格)', desc: '추진력과 위기 돌파력의 구조. 압박 속 성장하는 타입.' },
+    '정관': { name: '정관격(正官格)', desc: '명예·규율·조직 적합형. 사회적 성취에 유리한 구조.' },
+    '편인': { name: '편인격(偏印格)', desc: '직관과 영감의 구조. 학문·창작·신비 분야에 재능.' },
+    '정인': { name: '정인격(正印格)', desc: '지혜와 학문의 구조. 배움·전문성·후견인의 도움이 따름.' },
+  };
+
+  const info = gyeokMap[ss];
+  return { name: info.name, description: info.desc, sipsung: ss };
+}
+
+// ── 용신 간단 추천 ──
+export interface YongsinResult {
+  primary: string;       // 주 용신 오행
+  description: string;
+  supportElements: string[];  // 도움 오행 (희신 포함)
+}
+
+/** 간단 용신 추천: 신강약 + 오행 결여 + 조후 고려 */
+export function suggestYongsin(ps: Pillar[], sgy: SinGangYakResult, dist: ElementDistribution): YongsinResult | null {
+  const ilgan = ps[1].c;
+  if (!ilgan) return null;
+  const ilganOh = CG_OH[ilgan];
+  if (!ilganOh) return null;
+
+  // 오행 상생/상극 관계
+  const nextEl = OH_LIST[(OH_LIST.indexOf(ilganOh) + 1) % 5];  // 식상 (내가 생함)
+  const prevEl = OH_LIST[(OH_LIST.indexOf(ilganOh) + 4) % 5];  // 인성 (나를 생함)
+  const ctrlEl = OH_LIST[(OH_LIST.indexOf(ilganOh) + 2) % 5];  // 재성 (내가 극함)
+  const ctrldEl = OH_LIST[(OH_LIST.indexOf(ilganOh) + 3) % 5]; // 관성 (나를 극함)
+
+  let primary: string;
+  let support: string[] = [];
+  let desc = '';
+
+  if (sgy.level === '극신강' || sgy.level === '신강') {
+    // 신강하면 설기(식상)·극(재관) 용신
+    // 결여 오행 중 설기/극 성분 우선
+    const candidates = [nextEl, ctrlEl, ctrldEl];
+    const missing = candidates.find(c => dist.lacking.includes(c));
+    primary = missing || candidates.find(c => dist.counts[c] < 2) || nextEl;
+    support = primary === nextEl ? [ctrlEl] : primary === ctrlEl ? [nextEl, ctrldEl] : [ctrlEl, nextEl];
+    desc = `신강한 일간을 설기·극하는 ${primary}이(가) 균형을 잡는 용신입니다.`;
+  } else if (sgy.level === '극신약' || sgy.level === '신약') {
+    // 신약하면 도움(인성·비겁) 용신
+    primary = dist.counts[prevEl] <= dist.counts[ilganOh] ? prevEl : ilganOh;
+    support = [prevEl === primary ? ilganOh : prevEl];
+    desc = `신약한 일간을 돕는 ${primary}이(가) 기운을 북돋는 용신입니다.`;
+  } else {
+    // 중화: 결여 오행 보충
+    primary = dist.lacking[0] || dist.excess.length > 0 ? OH_LIST.find(o => dist.counts[o] < 2) || nextEl : nextEl;
+    support = [prevEl, nextEl];
+    desc = `중화된 사주라 결여 보충형 용신 ${primary}이(가) 무난합니다.`;
+  }
+
+  return { primary, description: desc, supportElements: [...new Set(support)].filter(x => x !== primary) };
+}
+
+// ── 합·충 탐지 ──
+// 천간합: 甲己, 乙庚, 丙辛, 丁壬, 戊癸
+const CG_HAP: Record<string, string> = { '甲': '己', '己': '甲', '乙': '庚', '庚': '乙', '丙': '辛', '辛': '丙', '丁': '壬', '壬': '丁', '戊': '癸', '癸': '戊' };
+// 지지 육합
+const JJ_YUKHAP: Record<string, string> = { '子': '丑', '丑': '子', '寅': '亥', '亥': '寅', '卯': '戌', '戌': '卯', '辰': '酉', '酉': '辰', '巳': '申', '申': '巳', '午': '未', '未': '午' };
+// 지지 충
+const JJ_CHUNG: Record<string, string> = { '子': '午', '午': '子', '丑': '未', '未': '丑', '寅': '申', '申': '寅', '卯': '酉', '酉': '卯', '辰': '戌', '戌': '辰', '巳': '亥', '亥': '巳' };
+// 삼합 국
+const SAMHAP: [string, string, string, string][] = [
+  ['申', '子', '辰', '水'],
+  ['亥', '卯', '未', '木'],
+  ['寅', '午', '戌', '火'],
+  ['巳', '酉', '丑', '金'],
+];
+
+const PILLAR_NAMES = ['시주', '일주', '월주', '년주'];
+
+export interface HapChungItem {
+  type: '천간합' | '지지육합' | '지지삼합' | '지지충';
+  positions: string[];
+  chars: string;
+  meaning?: string;
+}
+
+export function detectHapChung(ps: Pillar[]): HapChungItem[] {
+  const results: HapChungItem[] = [];
+
+  // 천간합
+  for (let i = 0; i < ps.length; i++) {
+    for (let j = i + 1; j < ps.length; j++) {
+      if (ps[i].c && ps[j].c && CG_HAP[ps[i].c] === ps[j].c) {
+        results.push({
+          type: '천간합',
+          positions: [PILLAR_NAMES[i], PILLAR_NAMES[j]],
+          chars: `${ps[i].c}${ps[j].c}`,
+        });
+      }
+    }
+  }
+
+  // 지지 육합
+  for (let i = 0; i < ps.length; i++) {
+    for (let j = i + 1; j < ps.length; j++) {
+      if (ps[i].j && ps[j].j && JJ_YUKHAP[ps[i].j] === ps[j].j) {
+        results.push({
+          type: '지지육합',
+          positions: [PILLAR_NAMES[i], PILLAR_NAMES[j]],
+          chars: `${ps[i].j}${ps[j].j}`,
+        });
+      }
+    }
+  }
+
+  // 지지 충
+  for (let i = 0; i < ps.length; i++) {
+    for (let j = i + 1; j < ps.length; j++) {
+      if (ps[i].j && ps[j].j && JJ_CHUNG[ps[i].j] === ps[j].j) {
+        results.push({
+          type: '지지충',
+          positions: [PILLAR_NAMES[i], PILLAR_NAMES[j]],
+          chars: `${ps[i].j}${ps[j].j}`,
+        });
+      }
+    }
+  }
+
+  // 지지 삼합 (3개 전부 있어야 성립. 2개면 반합이지만 여기선 생략)
+  const branches = ps.map(p => p.j).filter(Boolean);
+  for (const [a, b, c, el] of SAMHAP) {
+    if (branches.includes(a) && branches.includes(b) && branches.includes(c)) {
+      results.push({
+        type: '지지삼합',
+        positions: [],
+        chars: `${a}${b}${c}`,
+        meaning: `${el}국(局) 형성`,
+      });
+    }
+  }
+
+  return results;
+}
+
+// ── 종합 구조 분석 ──
+export interface StructureAnalysis {
+  distribution: ElementDistribution;
+  singangyak: SinGangYakResult | null;
+  gyeokguk: GyeokgukResult | null;
+  yongsin: YongsinResult | null;
+  hapChung: HapChungItem[];
+  summary: string;
+}
+
+export function buildStructureAnalysis(ps: Pillar[]): StructureAnalysis | null {
+  if (!ps[1]?.c) return null;
+
+  const distribution = calculateElementDistribution(ps);
+  const singangyak = judgeSinGangYak(ps);
+  const gyeokguk = detectGyeokguk(ps);
+  const yongsin = singangyak ? suggestYongsin(ps, singangyak, distribution) : null;
+  const hapChung = detectHapChung(ps);
+
+  const parts: string[] = [];
+  if (distribution.excess.length > 0) parts.push(`${distribution.excess.join('·')} 과다`);
+  if (distribution.lacking.length > 0) parts.push(`${distribution.lacking.join('·')} 결여`);
+  if (singangyak) parts.push(singangyak.level);
+  if (gyeokguk) parts.push(gyeokguk.name);
+  const summary = parts.length > 0 ? parts.join(' · ') : '균형 잡힌 구조';
+
+  return { distribution, singangyak, gyeokguk, yongsin, hapChung, summary };
+}
