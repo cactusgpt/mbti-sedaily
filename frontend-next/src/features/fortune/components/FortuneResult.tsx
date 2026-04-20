@@ -362,28 +362,30 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
             </div>
           )}
 
-          {/* 카테고리별 운세 */}
+          {/* 카테고리별 운세 — 점수 대신 정성 라벨 */}
           {todayFortune.categories && todayFortune.categories.length > 0 && (
             <div className="border-t border-gray-100 pt-4 mt-4 space-y-4">
-              {todayFortune.categories.map((cat) => (
-                <div key={cat.label}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[13px] font-semibold text-gray-800">{cat.label}</span>
-                    <span className={`text-[12px] font-bold ${cat.score >= 70 ? 'text-blue-600' : cat.score >= 50 ? 'text-gray-600' : 'text-red-400'}`}>
-                      {cat.score}점
-                    </span>
+              {todayFortune.categories.map((cat) => {
+                const label =
+                  cat.score >= 80 ? { text: '매우 유리', cls: 'bg-blue-100 text-blue-700 border-blue-200' } :
+                  cat.score >= 65 ? { text: '유리', cls: 'bg-green-100 text-green-700 border-green-200' } :
+                  cat.score >= 45 ? { text: '무난', cls: 'bg-gray-100 text-gray-600 border-gray-200' } :
+                  cat.score >= 30 ? { text: '주의', cls: 'bg-yellow-100 text-yellow-700 border-yellow-200' } :
+                                    { text: '강한 주의', cls: 'bg-red-100 text-red-700 border-red-200' };
+                return (
+                  <div key={cat.label}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[13px] font-semibold text-gray-800">{cat.label}</span>
+                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${label.cls}`}>
+                        {label.text}
+                      </span>
+                    </div>
+                    <p className="text-[12px] text-gray-500 leading-relaxed">
+                      {getCategoryDesc(cat.label, todayFortune.ss, cat.desc)}
+                    </p>
                   </div>
-                  <div className="w-full bg-gray-100 rounded-full h-2 mb-2">
-                    <div
-                      className={`h-2 rounded-full transition-all ${cat.score >= 70 ? 'bg-blue-500' : cat.score >= 50 ? 'bg-gray-400' : 'bg-red-400'}`}
-                      style={{ width: `${cat.score}%` }}
-                    />
-                  </div>
-                  <p className="text-[12px] text-gray-500 leading-relaxed">
-                    {getCategoryDesc(cat.label, todayFortune.ss, cat.desc)}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Section>
