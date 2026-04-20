@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { isBeforeLichun, getSajuMonth } from '@fullstackfamily/manseryeok';
 import { CG_OH, JJ_OH, OH_HJ, JJG, sipsung, unsung, type Pillar, type ChongunResult, type TodayFortuneResult, type DaeunEntry, type YeonunEntry, type WolunEntry } from '../lib/engine';
 import { SajuTable } from './SajuTable';
 import { DailyCalendar } from './DailyCalendar';
@@ -155,6 +156,13 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
   const oh = CG_OH[ilgan] || '';
   const now = new Date();
   const currentAge = now.getFullYear() - year;
+  // 사주 연도/월은 절기 기준: 입춘 전이면 전년도, 월주는 절기 기반 사주월
+  const currentMonth = now.getMonth() + 1;
+  const currentDay = now.getDate();
+  const sajuYear = isBeforeLichun(currentMonth, currentDay) ? now.getFullYear() - 1 : now.getFullYear();
+  // calcWolun은 각 달력 월 15일 기준이라 사주월 N(인월=1)이 label "N+1월"과 매칭됨
+  // (예: 입춘 후~경칩 전 = 사주월 1 = 인월 = 캘린더 2월 15일 월주)
+  const wolunActiveMonth = (getSajuMonth(currentMonth, currentDay) % 12) + 1;
 
   // 캐시 JSON fetch
   const [chongunCache, setChongunCache] = useState<CacheData | null>(null);
@@ -360,10 +368,10 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
             activeCheck={(col) => currentAge >= (col as unknown as DaeunEntry).age && currentAge < (col as unknown as DaeunEntry).age + 10} />
           <div className="border-t border-gray-100 my-3" />
           <UnGrid title="연운" cols={yeonuns.map(x => ({ ...x, label: `${x.year}` }))} ilgan={ilgan}
-            activeCheck={(col) => (col as unknown as YeonunEntry).year === now.getFullYear()} />
+            activeCheck={(col) => (col as unknown as YeonunEntry).year === sajuYear} />
           <div className="border-t border-gray-100 my-3" />
           <UnGrid title="월운" cols={woluns.map(x => ({ ...x, label: `${x.month}월` }))} ilgan={ilgan}
-            activeCheck={(col) => (col as unknown as WolunEntry).month === now.getMonth() + 1} />
+            activeCheck={(col) => (col as unknown as WolunEntry).month === wolunActiveMonth} />
         </div>
       )}
 
