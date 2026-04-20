@@ -107,18 +107,19 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
       const opts: { longitude?: number; applyTimeCorrection?: boolean } = {};
       if (reg) { opts.longitude = parseFloat(reg); opts.applyTimeCorrection = true; }
       let hr: number | undefined;
+      let mn = 0;
       if (!isNoTime) {
         const raw = timeStr.replace(/[^0-9]/g, '');
         if (raw.length === 4) {
           const hh = parseInt(raw.slice(0, 2));
           const mm = parseInt(raw.slice(2, 4));
           if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
-            const matched = matchSijin(hh, mm);
-            hr = matched ? matched.value : undefined;
+            hr = hh;
+            mn = mm;
           }
         }
       }
-      const s = calculateSaju(y, m, d, hr, 0, opts);
+      const s = calculateSaju(y, m, d, hr, mn, opts);
       const ps = [
         parsePillar(s.hourPillar ?? '', s.hourPillarHanja ?? ''),
         parsePillar(s.dayPillar ?? '', s.dayPillarHanja ?? ''),
