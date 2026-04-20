@@ -31,6 +31,60 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+/** 접힘 가능한 섹션 (기본 접힘) */
+function CollapsibleSection({ title, subtitle, children, defaultOpen = false }: {
+  title: string; subtitle?: string; children: React.ReactNode; defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl mb-4 overflow-hidden">
+      <button type="button" onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-5 py-4 hover:bg-gray-50 transition-colors">
+        <div className="text-left">
+          <h3 className="text-[14px] font-bold text-gray-900">{title}</h3>
+          {subtitle && <p className="text-[11px] text-gray-400 mt-0.5">{subtitle}</p>}
+        </div>
+        <span className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}>⌄</span>
+      </button>
+      {open && (
+        <div className="px-5 pb-5 text-[13px] text-gray-600 leading-relaxed border-t border-gray-100 pt-4">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 일반 사용자용 십성 풀이 (한 줄 설명)
+const SS_MEANING: Record<string, string> = {
+  '비견': '동료·경쟁자 기운',
+  '겁재': '경쟁·지출 기운',
+  '식신': '표현·여유 기운',
+  '상관': '재능·비판 기운',
+  '편재': '활동적 재물 기운',
+  '정재': '성실한 재물 기운',
+  '편관': '압박·도전 기운',
+  '정관': '명예·규율 기운',
+  '편인': '직관·영감 기운',
+  '정인': '학문·지혜 기운',
+};
+
+// 12운성 한 줄 풀이
+const US_MEANING: Record<string, string> = {
+  '장생': '새로운 시작',
+  '목욕': '불안정한 변화',
+  '관대': '자신감·성장',
+  '건록': '전성기 시작',
+  '제왕': '에너지의 정점',
+  '쇠': '기운이 쇠약해짐',
+  '병': '쇠약한 상태',
+  '사': '정체와 막힘',
+  '묘': '내면의 회고',
+  '절': '단절과 전환',
+  '태': '잉태와 준비',
+  '양': '조용한 성장',
+};
+
 const SS_DETAIL: Record<string, string> = {
   '비견': '나와 같은 기운이 작용합니다. 동료, 형제와의 관계가 부각되고 자립심이 강해집니다. 경쟁 속에서 성장하되 독선을 경계하세요.',
   '겁재': '경쟁과 도전의 기운입니다. 재물 지출에 주의하고 승부욕을 긍정적으로 활용하세요. 공동 사업보다 단독 판단이 유리합니다.',
@@ -230,193 +284,43 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
         )}
       </div>
 
-      {/* 사주 구조 진단 (팔자 전체 기반) */}
-      {structure && (
-        <Section title="사주 구조 진단">
-          <p className="text-[11px] text-gray-400 mb-3 -mt-1">팔자 8글자 전체를 보고 만든 구조 요약이에요</p>
-
-          {/* 오행 분포 — 무엇을 상징하는지 포함 */}
-          <div className="mb-4">
-            <div className="text-[12px] font-semibold text-gray-700 mb-1.5">기운의 균형 <span className="text-[11px] font-normal text-gray-400">(오행 분포)</span></div>
-            <div className="grid grid-cols-5 gap-1.5">
-              {([
-                { o: '목', meaning: '성장·학문' },
-                { o: '화', meaning: '열정·표현' },
-                { o: '토', meaning: '안정·관계' },
-                { o: '금', meaning: '원칙·결단' },
-                { o: '수', meaning: '지혜·소통' },
-              ] as const).map(({ o, meaning }) => {
-                const n = structure.distribution.counts[o];
-                const isExcess = structure.distribution.excess.includes(o);
-                const isLacking = structure.distribution.lacking.includes(o);
-                return (
-                  <div key={o} className={`text-center p-1.5 rounded border ${isExcess ? 'border-red-300 bg-red-50' : isLacking ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
-                    <div className={`font-bold text-[13px] ${EL_COLORS[o]}`}>{o}</div>
-                    <div className="text-[10px] text-gray-400 leading-tight">{meaning}</div>
-                    <div className="text-[11px] text-gray-700 mt-0.5">{n}개</div>
-                    {isExcess && <div className="text-[9px] text-red-500 font-semibold">많음</div>}
-                    {isLacking && <div className="text-[9px] text-blue-500 font-semibold">없음</div>}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 신강/신약 — 쉬운 말 + 자리별 도움 여부 breakdown */}
-          {structure.singangyak && (() => {
-            const lv = structure.singangyak.level;
-            const plain =
-              lv === '극신강' ? { text: '내 기운이 아주 강한 편이에요', tone: 'text-red-500' } :
-              lv === '신강' ? { text: '내 기운이 강한 편이에요', tone: 'text-red-400' } :
-              lv === '중화' ? { text: '내 기운이 적절히 균형 잡혀 있어요', tone: 'text-gray-700' } :
-              lv === '신약' ? { text: '내 기운이 약한 편이에요', tone: 'text-blue-500' } :
-                              { text: '내 기운이 매우 약한 편이에요', tone: 'text-blue-600' };
-            return (
-              <div className="mb-4">
-                <div className="text-[12px] font-semibold text-gray-700 mb-1">내 기운의 세기 <span className="text-[11px] font-normal text-gray-400">(신강/신약)</span></div>
-                <div className="text-[13px] mb-2">
-                  <strong className={plain.tone}>{plain.text}</strong>
-                  <span className="text-[11px] text-gray-400 ml-1.5">({lv})</span>
-                </div>
-                <div className="space-y-1 text-[11px]">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`inline-block w-[52px] text-center py-0.5 rounded border text-[10px] ${structure.singangyak.deukryeong ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-300 text-gray-500'}`}>
-                      {structure.singangyak.deukryeong ? '득령 ✓' : '실령'}
-                    </span>
-                    <span className="text-gray-500">월지(태어난 달)가 {structure.singangyak.deukryeong ? '나를 도움' : '나를 돕지 않음'}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className={`inline-block w-[52px] text-center py-0.5 rounded border text-[10px] ${structure.singangyak.deukji ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-300 text-gray-500'}`}>
-                      {structure.singangyak.deukji ? '득지 ✓' : '실지'}
-                    </span>
-                    <span className="text-gray-500">일지(배우자 자리)가 {structure.singangyak.deukji ? '나를 도움' : '나를 돕지 않음'}</span>
-                  </div>
-                  <div className="flex items-start gap-1.5">
-                    <span className="inline-block w-[52px] text-center py-0.5 rounded border border-gray-300 text-gray-600 text-[10px] shrink-0">득세 {structure.singangyak.deukse}/5</span>
-                    <div className="flex flex-wrap gap-1">
-                      {structure.singangyak.supports.map((s, i) => (
-                        <span key={i} className={`px-1.5 py-0.5 rounded text-[10px] border ${s.helps ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 text-gray-400'}`}>
-                          {s.position} {s.char}{s.helps ? ' ✓' : ''}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* 격국 — 한자 없이 */}
-          {structure.gyeokguk && (
-            <div className="mb-4">
-              <div className="text-[12px] font-semibold text-gray-700 mb-1">타고난 기질 <span className="text-[11px] font-normal text-gray-400">(격국)</span></div>
-              <div className="text-[13px]">
-                <strong>{structure.gyeokguk.name.replace(/\([^)]+\)/g, '')}</strong>
-                <p className="text-[12px] text-gray-600 mt-0.5">{structure.gyeokguk.description}</p>
-              </div>
-            </div>
-          )}
-
-          {/* 용신 — 역할·작용·근거 명시 */}
-          {structure.yongsin && (
-            <div className="mb-4">
-              <div className="text-[12px] font-semibold text-gray-700 mb-1">내게 필요한 기운 <span className="text-[11px] font-normal text-gray-400">(용신)</span></div>
-              <div className="text-[13px]">
-                <span>주 기운: </span>
-                <strong className={EL_COLORS[structure.yongsin.primary]}>{structure.yongsin.primary}</strong>
-                <span className="text-[11px] text-gray-500 ml-1">— {structure.yongsin.role}, {structure.yongsin.action}</span>
-                {structure.yongsin.supportElements.length > 0 && (
-                  <span className="ml-3">
-                    보조:
-                    {structure.yongsin.supportElements.map(e => <strong key={e} className={`${EL_COLORS[e]} ml-1`}>{e}</strong>)}
-                  </span>
-                )}
-                <p className="text-[12px] text-gray-600 mt-1">{structure.yongsin.description}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">선택 근거: {structure.yongsin.basis}</p>
-              </div>
-            </div>
-          )}
-
-          {/* 합·충 — 쉬운 설명 */}
-          {structure.hapChung.length > 0 && (
-            <div>
-              <div className="text-[12px] font-semibold text-gray-700 mb-1">기운들 간 관계 <span className="text-[11px] font-normal text-gray-400">(합·충)</span></div>
-              <p className="text-[11px] text-gray-500 mb-1.5">합 = 친화·결합, 충 = 부딪침·변화</p>
-              <div className="flex flex-wrap gap-1.5">
-                {structure.hapChung.map((hc, i) => {
-                  const isChung = hc.type === '지지충';
-                  const cls = isChung ? 'border-red-300 text-red-600 bg-red-50' : 'border-green-300 text-green-700 bg-green-50';
-                  const plainType = isChung ? '충돌' : '친화';
-                  const posText = hc.positions.length > 0 ? `${hc.positions.join('↔')}` : '';
-                  return (
-                    <span key={i} className={`text-[11px] px-2 py-0.5 rounded-full border ${cls}`}>
-                      {plainType} {posText && `(${posText})`}
-                      {hc.meaning ? ` · ${hc.meaning}` : ''}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </Section>
-      )}
-
-      {/* 총운 — 캐시가 있으면 MBTI별 리라이팅 텍스트, 없으면 기존 */}
-      {chongun && (
-        <Section title="총운">
-          {chongunText ? (
-            <div>{renderMarkdown(chongunText)}</div>
-          ) : (
-            <>
-              <p className="mb-3">
-                <strong className={EL_COLORS[chongun.element]}>{chongun.symbol}</strong>의 기운을 타고난 <strong>{chongun.yinyang}{chongun.element}</strong> 일간입니다. {chongun.nature}
-              </p>
-              {chongun.keywords.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {chongun.keywords.map((kw, i) => (
-                    <span key={i} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded-full">{kw}</span>
-                  ))}
-                </div>
-              )}
-              {chongun.season && (
-                <p className="mb-3">
-                  <strong>{chongun.season.name}</strong>에 태어났습니다. {chongun.season.desc} {chongun.seasonRelation}
-                </p>
-              )}
-              {chongun.iljuReading && <p className="mb-3">{chongun.iljuReading}</p>}
-            </>
-          )}
-        </Section>
-      )}
-
-      {/* 오늘의 운세 — 파트별 리라이팅 캐시 적용 */}
+      {/* 오늘의 운세 — 상단 우선 배치 (일반 사용자 관심사) */}
       {todayFortune && (
         <Section title="오늘의 운세">
           <p className="mb-3">
             오늘은 <strong className={EL_COLORS[todayFortune.dayOh]}>{todayFortune.dayPillar}({todayFortune.dayPillarHanja})</strong>일입니다.
-            나의 일간 기준 <strong>{todayFortune.ss}</strong>의 날이며, 12운성은 <strong>{todayFortune.us}</strong>입니다.
+            나의 일간 기준 <strong>{todayFortune.ss}</strong>
+            <span className="text-[11px] text-gray-400">({SS_MEANING[todayFortune.ss]})</span>의 날이며,
+            12운성은 <strong>{todayFortune.us}</strong>
+            <span className="text-[11px] text-gray-400">({US_MEANING[todayFortune.us]})</span>입니다.
           </p>
           {ssReadingText && <p className="mb-3">{ssReadingText}</p>}
-          <p className={todayFortune.sinsal.length || todayFortune.hiddenSipsung?.length ? 'mb-3' : ''}>12운성 <strong>{todayFortune.us}</strong> — {usReadingText}</p>
+          <p className={todayFortune.sinsal.length || todayFortune.hiddenSipsung?.length ? 'mb-3' : ''}>
+            12운성 <strong>{todayFortune.us}</strong>
+            <span className="text-[11px] text-gray-400 ml-1">— {US_MEANING[todayFortune.us]}</span>
+            <br />{usReadingText}
+          </p>
 
-          {/* 일진 지지의 지장간별 십성 — 천간만 보면 놓치는 관계 제공 */}
+          {/* 일진 지지의 지장간별 십성 — 풀이 포함 */}
           {todayFortune.hiddenSipsung && todayFortune.hiddenSipsung.length > 0 && (
             <div className="border-t border-gray-100 pt-3 mb-3">
               <div className="text-[11px] text-gray-500 mb-1.5">
-                일진 지지(<strong>{todayFortune.dayPillarHanja[1]}</strong>) 안의 숨은 기운:
+                천간({todayFortune.dayPillarHanja[0]})뿐 아니라 지지(<strong>{todayFortune.dayPillarHanja[1]}</strong>) 안에도 숨은 기운이 있어요:
               </div>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="space-y-1">
                 {todayFortune.hiddenSipsung.map((h, i) => (
-                  <span key={i} className={`text-[11px] px-2 py-0.5 rounded-full border ${h.weight === '본기' ? 'border-gray-400 bg-gray-50' : 'border-gray-200'}`}>
-                    <span className="text-gray-400">{h.weight}</span>{' '}
-                    <span className="text-gray-700 font-semibold">{h.hanja}</span>{' '}
-                    <span className="text-gray-600">{h.ss}</span>
-                  </span>
+                  <div key={i} className="flex items-center gap-2 text-[12px]">
+                    <span className={`inline-block w-[40px] text-center px-1 py-0.5 rounded text-[10px] border ${h.weight === '본기' ? 'border-gray-400 bg-gray-50 font-semibold' : 'border-gray-200 text-gray-500'}`}>
+                      {h.weight}
+                    </span>
+                    <span className="text-gray-700 font-semibold w-[20px]">{h.hanja}</span>
+                    <span className="text-gray-600 w-[40px]">{h.ss}</span>
+                    <span className="text-[11px] text-gray-400">— {SS_MEANING[h.ss] || ''}</span>
+                  </div>
                 ))}
               </div>
-              <p className="text-[11px] text-gray-400 mt-1.5">
-                천간(<strong>{todayFortune.dayPillarHanja[0]}</strong>)만 보면 <strong>{todayFortune.ss}</strong>이지만,
-                지지 안에 위 기운들이 함께 작용합니다.
+              <p className="text-[11px] text-gray-400 mt-2">
+                <span className="font-semibold text-gray-500">본기</span>가 가장 강하고 <span className="font-semibold text-gray-500">여기</span>는 약한 보조 기운입니다.
               </p>
             </div>
           )}
@@ -458,6 +362,34 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
                 );
               })}
             </div>
+          )}
+        </Section>
+      )}
+
+      {/* 총운 — 오늘의 운세 다음 */}
+      {chongun && (
+        <Section title="총운">
+          {chongunText ? (
+            <div>{renderMarkdown(chongunText)}</div>
+          ) : (
+            <>
+              <p className="mb-3">
+                <strong className={EL_COLORS[chongun.element]}>{chongun.symbol}</strong>의 기운을 타고난 <strong>{chongun.yinyang}{chongun.element}</strong> 일간입니다. {chongun.nature}
+              </p>
+              {chongun.keywords.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {chongun.keywords.map((kw, i) => (
+                    <span key={i} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-[11px] rounded-full">{kw}</span>
+                  ))}
+                </div>
+              )}
+              {chongun.season && (
+                <p className="mb-3">
+                  <strong>{chongun.season.name}</strong>에 태어났습니다. {chongun.season.desc} {chongun.seasonRelation}
+                </p>
+              )}
+              {chongun.iljuReading && <p className="mb-3">{chongun.iljuReading}</p>}
+            </>
           )}
         </Section>
       )}
@@ -546,6 +478,138 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
 
       {/* 일진 달력 */}
       {ilgan && <DailyCalendar ilgan={ilgan} />}
+
+      {/* 사주 구조 진단 (팔자 전체 기반) — 접힘 */}
+      {structure && (
+        <CollapsibleSection
+          title="사주 구조 진단"
+          subtitle="팔자 8글자 전체 구조 · 명리 용어 포함 (전문 분석)"
+        >
+          {/* 오행 분포 */}
+          <div className="mb-4">
+            <div className="text-[12px] font-semibold text-gray-700 mb-1.5">기운의 균형 <span className="text-[11px] font-normal text-gray-400">(오행 분포)</span></div>
+            <div className="grid grid-cols-5 gap-1.5">
+              {([
+                { o: '목', meaning: '성장·학문' },
+                { o: '화', meaning: '열정·표현' },
+                { o: '토', meaning: '안정·관계' },
+                { o: '금', meaning: '원칙·결단' },
+                { o: '수', meaning: '지혜·소통' },
+              ] as const).map(({ o, meaning }) => {
+                const n = structure.distribution.counts[o];
+                const isExcess = structure.distribution.excess.includes(o);
+                const isLacking = structure.distribution.lacking.includes(o);
+                return (
+                  <div key={o} className={`text-center p-1.5 rounded border ${isExcess ? 'border-red-300 bg-red-50' : isLacking ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
+                    <div className={`font-bold text-[13px] ${EL_COLORS[o]}`}>{o}</div>
+                    <div className="text-[10px] text-gray-400 leading-tight">{meaning}</div>
+                    <div className="text-[11px] text-gray-700 mt-0.5">{n}개</div>
+                    {isExcess && <div className="text-[9px] text-red-500 font-semibold">많음</div>}
+                    {isLacking && <div className="text-[9px] text-blue-500 font-semibold">없음</div>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 신강/신약 */}
+          {structure.singangyak && (() => {
+            const lv = structure.singangyak.level;
+            const plain =
+              lv === '극신강' ? { text: '내 기운이 아주 강한 편이에요', tone: 'text-red-500' } :
+              lv === '신강' ? { text: '내 기운이 강한 편이에요', tone: 'text-red-400' } :
+              lv === '중화' ? { text: '내 기운이 적절히 균형 잡혀 있어요', tone: 'text-gray-700' } :
+              lv === '신약' ? { text: '내 기운이 약한 편이에요', tone: 'text-blue-500' } :
+                              { text: '내 기운이 매우 약한 편이에요', tone: 'text-blue-600' };
+            return (
+              <div className="mb-4">
+                <div className="text-[12px] font-semibold text-gray-700 mb-1">내 기운의 세기 <span className="text-[11px] font-normal text-gray-400">(신강/신약)</span></div>
+                <div className="text-[13px] mb-2">
+                  <strong className={plain.tone}>{plain.text}</strong>
+                  <span className="text-[11px] text-gray-400 ml-1.5">({lv})</span>
+                </div>
+                <div className="space-y-1 text-[11px]">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`inline-block w-[52px] text-center py-0.5 rounded border text-[10px] ${structure.singangyak.deukryeong ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-300 text-gray-500'}`}>
+                      {structure.singangyak.deukryeong ? '득령 ✓' : '실령'}
+                    </span>
+                    <span className="text-gray-500">월지(태어난 달)가 {structure.singangyak.deukryeong ? '나를 도움' : '나를 돕지 않음'}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`inline-block w-[52px] text-center py-0.5 rounded border text-[10px] ${structure.singangyak.deukji ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-300 text-gray-500'}`}>
+                      {structure.singangyak.deukji ? '득지 ✓' : '실지'}
+                    </span>
+                    <span className="text-gray-500">일지(배우자 자리)가 {structure.singangyak.deukji ? '나를 도움' : '나를 돕지 않음'}</span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="inline-block w-[52px] text-center py-0.5 rounded border border-gray-300 text-gray-600 text-[10px] shrink-0">득세 {structure.singangyak.deukse}/5</span>
+                    <div className="flex flex-wrap gap-1">
+                      {structure.singangyak.supports.map((s, i) => (
+                        <span key={i} className={`px-1.5 py-0.5 rounded text-[10px] border ${s.helps ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 text-gray-400'}`}>
+                          {s.position} {s.char}{s.helps ? ' ✓' : ''}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* 격국 */}
+          {structure.gyeokguk && (
+            <div className="mb-4">
+              <div className="text-[12px] font-semibold text-gray-700 mb-1">타고난 기질 <span className="text-[11px] font-normal text-gray-400">(격국)</span></div>
+              <div className="text-[13px]">
+                <strong>{structure.gyeokguk.name.replace(/\([^)]+\)/g, '')}</strong>
+                <p className="text-[12px] text-gray-600 mt-0.5">{structure.gyeokguk.description}</p>
+              </div>
+            </div>
+          )}
+
+          {/* 용신 */}
+          {structure.yongsin && (
+            <div className="mb-4">
+              <div className="text-[12px] font-semibold text-gray-700 mb-1">내게 필요한 기운 <span className="text-[11px] font-normal text-gray-400">(용신)</span></div>
+              <div className="text-[13px]">
+                <span>주 기운: </span>
+                <strong className={EL_COLORS[structure.yongsin.primary]}>{structure.yongsin.primary}</strong>
+                <span className="text-[11px] text-gray-500 ml-1">— {structure.yongsin.role}, {structure.yongsin.action}</span>
+                {structure.yongsin.supportElements.length > 0 && (
+                  <span className="ml-3">
+                    보조:
+                    {structure.yongsin.supportElements.map(e => <strong key={e} className={`${EL_COLORS[e]} ml-1`}>{e}</strong>)}
+                  </span>
+                )}
+                <p className="text-[12px] text-gray-600 mt-1">{structure.yongsin.description}</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">선택 근거: {structure.yongsin.basis}</p>
+              </div>
+            </div>
+          )}
+
+          {/* 합·충 */}
+          {structure.hapChung.length > 0 && (
+            <div>
+              <div className="text-[12px] font-semibold text-gray-700 mb-1">기운들 간 관계 <span className="text-[11px] font-normal text-gray-400">(합·충)</span></div>
+              <p className="text-[11px] text-gray-500 mb-1.5">합 = 친화·결합, 충 = 부딪침·변화</p>
+              <div className="flex flex-wrap gap-1.5">
+                {structure.hapChung.map((hc, i) => {
+                  const isChung = hc.type === '지지충';
+                  const cls = isChung ? 'border-red-300 text-red-600 bg-red-50' : 'border-green-300 text-green-700 bg-green-50';
+                  const plainType = isChung ? '충돌' : '친화';
+                  const posText = hc.positions.length > 0 ? `${hc.positions.join('↔')}` : '';
+                  return (
+                    <span key={i} className={`text-[11px] px-2 py-0.5 rounded-full border ${cls}`}>
+                      {plainType} {posText && `(${posText})`}
+                      {hc.meaning ? ` · ${hc.meaning}` : ''}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </CollapsibleSection>
+      )}
     </div>
   );
 }
