@@ -39,7 +39,9 @@ API_V2_FUNCTIONS=(
   "sedaily-mbti-v2-health-dev"
 )
 
-CORE1_FUNCTIONS=()  # TASK-2.1 → sedaily-mbti-v2-collector-dev
+CORE1_FUNCTIONS=(
+  "sedaily-mbti-v2-collector-dev"  # TASK-2.1
+)
 CORE2_FUNCTIONS=()  # TASK-2.3 → transform, validator
 CORE3_FUNCTIONS=()  # TASK-3.4 → feed, article, event, consolidation
 

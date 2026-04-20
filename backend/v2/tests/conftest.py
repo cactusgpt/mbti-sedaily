@@ -28,6 +28,7 @@ import pytest
 # cleanup covers it. Convention: ``test_v2_<task>_<scope>_``.
 _TEST_PREFIXES: tuple[str, ...] = (
     "test_v2_1_3_",  # test_pgvector_v2_client.py — TASK-1.3
+    "test_v2_2_1_",  # test_core1_collector.py — TASK-2.1 (pg rows only; S3 cleanup is per-test)
 )
 
 

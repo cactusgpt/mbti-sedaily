@@ -356,6 +356,38 @@ class PgVectorV2Client:
             logger.warning(f"find_similar_articles failed: {exc}")
             return []
 
+    def filter_existing_news_ids(self, news_ids: List[str]) -> set:
+        """Return the subset of ``news_ids`` already present in ``articles``.
+
+        Used by Core 1 Collector to skip Bedrock + S3 writes for duplicates.
+        ``insert_article`` already has ``ON CONFLICT (news_id) DO NOTHING``,
+        so this is strictly a cost-saver for the upstream embed/S3 steps —
+        correctness still holds if the method returns the empty set.
+
+        Empty input short-circuits to avoid pg8000's empty-array type
+        inference brittleness (see the SAFETY comment in
+        ``find_feed_candidates`` about ``<> ALL(ARRAY[]::text[])``). For
+        non-empty input the Python list binds to ``text[]`` the same way
+        ``find_feed_candidates.excl`` does — pg8000 handles the cast once
+        the list has at least one element.
+
+        Fail-open semantics: if the query raises (DB down, transient
+        network error), returns an empty set so the caller treats every
+        candidate as "new" and relies on ``ON CONFLICT DO NOTHING`` for
+        dedup at insert time. A logged warning records the failure.
+        """
+        if not self._enabled or not news_ids:
+            return set()
+        try:
+            rows = self.conn.run(
+                "SELECT news_id FROM articles WHERE news_id = ANY(:ids::text[])",
+                ids=list(news_ids),
+            )
+            return {r[0] for r in rows}
+        except Exception as exc:
+            logger.warning(f"filter_existing_news_ids failed: {exc}")
+            return set()
+
     # =========================================================================
     # article_versions
     # =========================================================================

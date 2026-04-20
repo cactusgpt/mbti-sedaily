@@ -222,6 +222,10 @@ def test_disabled_find_similar_articles_returns_empty() -> None:
     assert _disabled().find_similar_articles(_e()) == []
 
 
+def test_disabled_filter_existing_news_ids_returns_empty() -> None:
+    assert _disabled().filter_existing_news_ids(["a", "b"]) == set()
+
+
 # =============================================================================
 # SQL binding — articles
 # =============================================================================
@@ -359,6 +363,40 @@ def test_find_similar_articles_rejects_wrong_dimension() -> None:
     c = _enabled(dim=1024)
     with pytest.raises(ValueError, match="length mismatch"):
         c.find_similar_articles([0.1, 0.2])
+
+
+def test_filter_existing_news_ids_empty_input_short_circuits() -> None:
+    c = _enabled()
+    # Empty input must NOT hit the DB — pg8000 empty-array inference is brittle.
+    assert c.filter_existing_news_ids([]) == set()
+    c._conn.run.assert_not_called()
+
+
+def test_filter_existing_news_ids_binds_list_and_parses_rows() -> None:
+    c = _enabled()
+    c._conn.run.return_value = [["n1"], ["n3"]]  # only 2 of 3 existed
+    result = c.filter_existing_news_ids(["n1", "n2", "n3"])
+    assert result == {"n1", "n3"}
+    sql = c._conn.run.call_args.args[0]
+    assert "SELECT news_id FROM articles" in sql
+    assert "news_id = ANY(:ids::text[])" in sql
+    # Python list passed through to pg8000 as :ids binding
+    assert c._conn.run.call_args.kwargs == {"ids": ["n1", "n2", "n3"]}
+
+
+def test_filter_existing_news_ids_returns_empty_on_exception() -> None:
+    c = _enabled()
+    c._conn.run.side_effect = RuntimeError("DB gone")
+    # Fail-open: empty set = caller treats everything as new, insert_article's
+    # ON CONFLICT DO NOTHING is the final dedup safety net.
+    assert c.filter_existing_news_ids(["n1", "n2"]) == set()
+
+
+def test_filter_existing_news_ids_handles_duplicate_input() -> None:
+    c = _enabled()
+    c._conn.run.return_value = [["n1"]]
+    # Duplicate in input → still a single result because return is a set.
+    assert c.filter_existing_news_ids(["n1", "n1", "n2"]) == {"n1"}
 
 
 # =============================================================================
@@ -937,6 +975,48 @@ def test_integration_insert_article_is_idempotent(pg_client: PgVectorV2Client) -
     }
     assert nid not in raw_ids
     assert nid in transformed_ids
+
+
+@pytest.mark.integration
+def test_integration_filter_existing_news_ids_returns_subset(
+    pg_client: PgVectorV2Client,
+) -> None:
+    nid_a = f"{IT_PREFIX}filter_a"
+    nid_b = f"{IT_PREFIX}filter_b"
+    nid_missing = f"{IT_PREFIX}filter_missing"
+    pg_client.insert_article(nid_a, {"title": "a"}, _embedding(0.1))
+    pg_client.insert_article(nid_b, {"title": "b"}, _embedding(0.2))
+
+    result = pg_client.filter_existing_news_ids(
+        [nid_a, nid_b, nid_missing]
+    )
+    assert result == {nid_a, nid_b}
+
+
+@pytest.mark.integration
+def test_integration_filter_existing_news_ids_empty_result(
+    pg_client: PgVectorV2Client,
+) -> None:
+    # IDs that definitely do not exist in the cleaned table.
+    result = pg_client.filter_existing_news_ids(
+        [f"{IT_PREFIX}nope_1", f"{IT_PREFIX}nope_2"]
+    )
+    assert result == set()
+
+
+@pytest.mark.integration
+def test_integration_filter_existing_news_ids_large_batch(
+    pg_client: PgVectorV2Client,
+) -> None:
+    # 400 items ≈ real Collector batch size — confirms pg8000 text[] binding
+    # handles production-scale inputs without a parameter-count limit.
+    nids = [f"{IT_PREFIX}batch_{i:04d}" for i in range(400)]
+    # Insert half of them
+    for nid in nids[:200]:
+        pg_client.insert_article(nid, {"title": "t"}, _embedding(0.1))
+
+    existing = pg_client.filter_existing_news_ids(nids)
+    assert existing == set(nids[:200])
 
 
 @pytest.mark.integration

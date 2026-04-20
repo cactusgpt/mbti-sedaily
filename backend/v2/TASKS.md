@@ -121,20 +121,32 @@
 - **종속성**: TASK-1.3 (PgVectorV2Client 필요), TASK-1.4
 - **Files to create**:
   - `backend/v2/handlers/core1_collector.py`
+  - `backend/v2/clients/s3_article_v2_client.py` (Core 2에서도 재사용)
   - `backend/v2/tests/test_core1_collector.py`
+  - `backend/v2/tests/test_s3_article_v2_client.py`
+- **Files to modify** (v2 내부만):
+  - `backend/v2/clients/pgvector_v2_client.py` — `filter_existing_news_ids` 메서드 추가 (Notes 참조)
+  - `backend/v2/tests/test_pgvector_v2_client.py` — 새 메서드 테스트 합류
+  - `backend/v2/deploy-v2.sh` — `CORE1_FUNCTIONS`에 `sedaily-mbti-v2-collector-dev` 등록
+  - `backend/v2/tests/conftest.py` — `_TEST_PREFIXES`에 `test_v2_2_1_` 추가
 - **로직**:
   1. EventBridge 이벤트에서 날짜 추출 (기본 오늘 KST)
   2. v1 `S3XMLClient`로 XML 다운로드 & 파싱
-  3. `PgVectorV2Client.get_articles_by_status('*')`로 기존 news_id 조회 → dedup
-  4. 새 기사만 Titan V2 임베딩 (제목 + 본문 앞 6000자)
-  5. S3에 `articles/{news_id}/original.json` 업로드
-  6. `insert_article(status='raw')`
+  3. `PgVectorV2Client.filter_existing_news_ids(candidate_ids)` → dedup (기존 news_id 제외)
+  4. garbage 필터 (본문 < 300자, 제목에 `[인사]`/`[부고]` 포함 기사 제외); action `I`만 처리, `U`/`D`는 카운트만
+  5. 새 기사만 Titan V2 임베딩 (제목 + 본문 앞 6000자)
+  6. `S3ArticleV2Client.put_article_file(news_id, "original.json", dict)` 업로드
+  7. `insert_article(status='raw')`
 - **Definition of Done**:
   - [ ] Lambda 함수명 `sedaily-mbti-v2-collector-dev`
   - [ ] 선별 로직 **없음** — 모든 기사 수집 (쓰레기 기사만 간단한 룰 필터: 본문 < 300자 제외, [인사]/[부고] 제외)
   - [ ] dedup 통과한 기사만 Bedrock·S3·pgvector 쓰기
-  - [ ] 실패 시 CloudWatch 에러 로그
+  - [ ] 실패 시 CloudWatch 에러 로그 (기사별 try/except로 부분 실패 격리, 실패 news_id는 응답 페이로드에 포함)
   - [ ] 테스트: mock 기사 5개 주입 → DB에 5 row, S3에 5 object
+- **Notes**:
+  - `PgVectorV2Client`에 `filter_existing_news_ids(news_ids: List[str]) -> set` 추가 (TASK-1.3의 11 메서드에는 없던 dedup 헬퍼 — Collector 핵심 경로에서 필요성 발견). 해당 테스트는 `test_pgvector_v2_client.py`에 기존 prefix `test_v2_1_3_`로 합류. TASK-1.3 스펙은 무수정 — 작업 당시 합의된 11 메서드로 완결된 상태 그대로 둠. 히스토리 정직성 우선.
+  - `S3ArticleV2Client` 신설 — v1 `clients.s3_article_client.S3ArticleClient`는 객체 키가 `articles/{news_id}/body.json` 고정이라 Core 1의 `original.json`과 Core 2의 `version_*.json`을 담을 수 없음. 같은 버킷 레이아웃을 둘 다 쓰는 Core 2 Transform에서도 재사용 예정.
+  - 동시성: Bedrock Titan V2 호출은 `asyncio.Semaphore(10)`으로 제한 (on-demand RPM 한도 대비 충분한 여유), pgvector insert는 `asyncio.Lock`으로 직렬화 (pg8000.native.Connection은 스레드 안전하지 않음). S3 `put_object`는 boto3 low-level client 문서상 스레드 안전하므로 잠금 없이 병렬.
 
 ### TASK-2.2: EventBridge 스케줄 등록 스크립트
 - **종속성**: TASK-2.1 (Lambda 배포 후)
