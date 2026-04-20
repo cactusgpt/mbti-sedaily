@@ -330,9 +330,14 @@ function buildCategoryFortunes(ss: string, us: string, sinsal: SinsalInfo[]): Ca
   });
 }
 
+export interface HiddenSipsung { hanja: string; ss: string; weight: '본기' | '중기' | '여기'; }
+
 export interface TodayFortuneResult {
   dayPillar: string; dayPillarHanja: string; dayOh: string;
-  ss: string; us: string; ssReading: string; usReading: string;
+  ss: string;                  // 일진 천간의 십성
+  us: string;                  // 일진 지지의 12운성
+  ssReading: string; usReading: string;
+  hiddenSipsung: HiddenSipsung[];  // 일진 지지의 지장간별 십성
   sinsal: SinsalInfo[];
   categories: CategoryFortune[];
 }
@@ -345,6 +350,18 @@ export function buildTodayFortune(ps: Pillar[]): TodayFortuneResult | null {
   const tCg = tg.dayPillarHanja[0]; const tJj = tg.dayPillarHanja[1];
   const tSS = sipsung(ilgan, tCg); const tUS = unsung(ilgan, tJj);
   const tOh = CG_OH[tCg];
+
+  // 일진 지지의 지장간별 십성 (여기·중기·본기)
+  const hidden = JJG[tJj] || [];
+  const weightLabels: ('여기' | '중기' | '본기')[] =
+    hidden.length === 1 ? ['본기']
+    : hidden.length === 2 ? ['여기', '본기']
+    : ['여기', '중기', '본기'];
+  const hiddenSipsung: HiddenSipsung[] = hidden.map((h, i) => ({
+    hanja: h,
+    ss: sipsung(ilgan, h),
+    weight: weightLabels[i],
+  }));
 
   const sinsal: SinsalInfo[] = [];
   if (CHEONUL[ilgan]?.includes(tJj)) sinsal.push({ name: '천을귀인', ...SINSAL_DESC['천을귀인'] });
@@ -361,6 +378,7 @@ export function buildTodayFortune(ps: Pillar[]): TodayFortuneResult | null {
   return {
     dayPillar: tg.dayPillar, dayPillarHanja: tg.dayPillarHanja, dayOh: tOh,
     ss: tSS, us: tUS, ssReading: SS_READING[tSS] || '', usReading: US_READING[tUS] || '',
+    hiddenSipsung,
     sinsal, categories,
   };
 }
@@ -558,54 +576,74 @@ export function calculateElementDistribution(ps: Pillar[]): ElementDistribution 
 
 // ── 신강/신약 판정 ──
 export type SinGangYakLevel = '극신강' | '신강' | '중화' | '신약' | '극신약';
+export interface SinGangYakSupport {
+  position: string;   // '시간'·'시지'·'월간'·'월지'·'년간'·'년지'
+  char: string;
+  oh: string;
+  helps: boolean;     // 일간을 돕는가
+}
 export interface SinGangYakResult {
   level: SinGangYakLevel;
   deukryeong: boolean;  // 득령 (월지가 일간을 돕는가)
   deukji: boolean;      // 득지 (일지가 일간을 돕는가)
-  deukse: number;       // 득세 (인성+비겁 개수 - 일간 본인 제외)
+  deukse: number;       // 득세 (일주 제외한 6자 중 도움 개수)
+  supports: SinGangYakSupport[];  // 각 자리 상세
   score: number;        // 종합 점수 (0~100)
-  reasoning: string;    // 판단 근거 요약
 }
 
-/** 일간의 신강/신약 판정. 득령·득지·득세를 종합. */
+/** 일간의 신강/신약 판정.
+ *  득령 = 월지 단독, 득지 = 일지 단독, 득세 = 일주 제외한 나머지 6자.
+ *  득세에는 월지·일지가 포함되지 않아 중복 카운트 방지. */
 export function judgeSinGangYak(ps: Pillar[]): SinGangYakResult | null {
   const ilgan = ps[1].c;
   if (!ilgan) return null;
   const ilganOh = CG_OH[ilgan];
   if (!ilganOh) return null;
 
-  // 도움 오행: 인성(생아) + 비겁(동오행)
-  const prev = OH_LIST[(OH_LIST.indexOf(ilganOh) + 4) % 5];  // 나를 생하는 오행
-  const same = ilganOh;
+  const prev = OH_LIST[(OH_LIST.indexOf(ilganOh) + 4) % 5];  // 인성
+  const same = ilganOh;                                       // 비겁
+  const helps = (oh: string) => oh === prev || oh === same;
 
-  // 득령: 월지 본기가 도움 오행인가
+  // 득령: 월지 본기
   const wolji = ps[2].j;
   const woljiMain = wolji && JJG[wolji] ? JJG[wolji][JJG[wolji].length - 1] : null;
-  const woljiOh = woljiMain ? CG_OH[woljiMain] : '';
-  const deukryeong = woljiOh === prev || woljiOh === same;
+  const deukryeong = woljiMain ? helps(CG_OH[woljiMain]) : false;
 
-  // 득지: 일지 본기가 도움 오행인가
+  // 득지: 일지 본기
   const ilji = ps[1].j;
   const iljiMain = ilji && JJG[ilji] ? JJG[ilji][JJG[ilji].length - 1] : null;
-  const iljiOh = iljiMain ? CG_OH[iljiMain] : '';
-  const deukji = iljiOh === prev || iljiOh === same;
+  const deukji = iljiMain ? helps(CG_OH[iljiMain]) : false;
 
-  // 득세: 일간 제외 나머지 7자 중 도움 오행 개수
+  // 득세: 시간·시지·월간·년간·년지 (5자) 중 도움 개수
+  //       ※ 월지는 득령, 일주(일간·일지)는 득지/일간 자체로 분리
+  // (일부 유파에서는 득세에 월지도 포함하지만, 중복 카운트 피하기 위해 제외)
+  const positions: [number, 'c' | 'j', string][] = [
+    [0, 'c', '시간'], [0, 'j', '시지'],
+    [2, 'c', '월간'],
+    [3, 'c', '년간'], [3, 'j', '년지'],
+  ];
+
+  const supports: SinGangYakSupport[] = [];
   let deukse = 0;
-  for (let i = 0; i < ps.length; i++) {
-    const p = ps[i];
-    if (i !== 1 && p.c && (CG_OH[p.c] === prev || CG_OH[p.c] === same)) deukse++;
-    if (p.j && (JJ_OH[p.j] === prev || JJ_OH[p.j] === same)) deukse++;
+  for (const [idx, type, label] of positions) {
+    const char = type === 'c' ? ps[idx].c : ps[idx].j;
+    if (!char) continue;
+    const oh = type === 'c' ? CG_OH[char] : JJ_OH[char];
+    const h = helps(oh);
+    if (h) deukse++;
+    supports.push({ position: label, char, oh, helps: h });
   }
 
   // 점수 계산 (0~100)
+  // 득령 비중 가장 크게 (월령이 사주의 중심)
   let score = 50;
   if (deukryeong) score += 25;
   else score -= 15;
   if (deukji) score += 15;
   else score -= 10;
-  score += (deukse - 3) * 4;  // 평균 3 기준
-  score = Math.max(0, Math.min(100, score));
+  // 득세는 5자 중 평균 2.5 기준, 1자당 ±5
+  score += (deukse - 2.5) * 5;
+  score = Math.max(0, Math.min(100, Math.round(score)));
 
   let level: SinGangYakLevel;
   if (score >= 80) level = '극신강';
@@ -614,12 +652,7 @@ export function judgeSinGangYak(ps: Pillar[]): SinGangYakResult | null {
   else if (score >= 20) level = '신약';
   else level = '극신약';
 
-  const reasons: string[] = [];
-  reasons.push(deukryeong ? '득령(월지 도움)' : '실령(월지 무관/극)');
-  reasons.push(deukji ? '득지(일지 도움)' : '실지(일지 무관/극)');
-  reasons.push(`득세 ${deukse}자 (일간 제외 7자 중 나를 돕는 글자 수)`);
-
-  return { level, deukryeong, deukji, deukse, score, reasoning: reasons.join(' · ') };
+  return { level, deukryeong, deukji, deukse, supports, score };
 }
 
 // ── 격국 판정 (월지 주지장간 기반) ──
@@ -666,48 +699,105 @@ export function detectGyeokguk(ps: Pillar[]): GyeokgukResult | null {
 // ── 용신 간단 추천 ──
 export interface YongsinResult {
   primary: string;       // 주 용신 오행
+  role: string;          // 일간에게 어떤 역할인지 (재성/관성/식상/인성/비겁)
+  action: string;        // 어떤 작용인지 (설기/극/생/비화)
   description: string;
-  supportElements: string[];  // 도움 오행 (희신 포함)
+  basis: string;         // 선택 근거
+  supportElements: string[];  // 희신
 }
 
-/** 간단 용신 추천: 신강약 + 오행 결여 + 조후 고려 */
+/** 일간 기준 오행의 관계(십성군)와 작용 */
+function elementRole(ilganOh: string, targetOh: string): { role: string; action: string } {
+  if (!ilganOh || !targetOh) return { role: '', action: '' };
+  const idx = OH_LIST.indexOf(ilganOh);
+  const nextEl = OH_LIST[(idx + 1) % 5];
+  const prevEl = OH_LIST[(idx + 4) % 5];
+  const ctrlEl = OH_LIST[(idx + 2) % 5];
+  const ctrldEl = OH_LIST[(idx + 3) % 5];
+
+  if (targetOh === ilganOh) return { role: '비겁', action: '비화(기운 합세)' };
+  if (targetOh === prevEl) return { role: '인성', action: '생(나를 도움)' };
+  if (targetOh === nextEl) return { role: '식상', action: '설기(내가 흘려냄)' };
+  if (targetOh === ctrlEl) return { role: '재성', action: '극(내가 극함)' };
+  if (targetOh === ctrldEl) return { role: '관성', action: '극(나를 극함)' };
+  return { role: '', action: '' };
+}
+
+/** 간단 용신 추천: 신강약 + 오행 결여 고려
+ *  신강: 재(재성) → 관(관성) → 식(식상) 우선순위
+ *  신약: 인(인성) → 비(비겁) 우선순위
+ */
 export function suggestYongsin(ps: Pillar[], sgy: SinGangYakResult, dist: ElementDistribution): YongsinResult | null {
   const ilgan = ps[1].c;
   if (!ilgan) return null;
   const ilganOh = CG_OH[ilgan];
   if (!ilganOh) return null;
 
-  // 오행 상생/상극 관계
-  const nextEl = OH_LIST[(OH_LIST.indexOf(ilganOh) + 1) % 5];  // 식상 (내가 생함)
-  const prevEl = OH_LIST[(OH_LIST.indexOf(ilganOh) + 4) % 5];  // 인성 (나를 생함)
-  const ctrlEl = OH_LIST[(OH_LIST.indexOf(ilganOh) + 2) % 5];  // 재성 (내가 극함)
-  const ctrldEl = OH_LIST[(OH_LIST.indexOf(ilganOh) + 3) % 5]; // 관성 (나를 극함)
+  const idx = OH_LIST.indexOf(ilganOh);
+  const nextEl = OH_LIST[(idx + 1) % 5];  // 식상
+  const prevEl = OH_LIST[(idx + 4) % 5];  // 인성
+  const ctrlEl = OH_LIST[(idx + 2) % 5];  // 재성
+  const ctrldEl = OH_LIST[(idx + 3) % 5]; // 관성
 
   let primary: string;
-  let support: string[] = [];
-  let desc = '';
+  let support: string[];
+  let basis: string;
 
   if (sgy.level === '극신강' || sgy.level === '신강') {
-    // 신강하면 설기(식상)·극(재관) 용신
-    // 결여 오행 중 설기/극 성분 우선
-    const candidates = [nextEl, ctrlEl, ctrldEl];
-    const missing = candidates.find(c => dist.lacking.includes(c));
-    primary = missing || candidates.find(c => dist.counts[c] < 2) || nextEl;
-    support = primary === nextEl ? [ctrlEl] : primary === ctrlEl ? [nextEl, ctrldEl] : [ctrlEl, nextEl];
-    desc = `신강한 일간을 설기·극하는 ${primary}이(가) 균형을 잡는 용신입니다.`;
+    // 신강: 재 → 관 → 식 우선
+    const priority = [ctrlEl, ctrldEl, nextEl];
+    const priorityLabels = ['재성', '관성', '식상'];
+    // 원국에 어느 정도 뿌리(≥1)가 있는 것 중 우선순위 높은 오행
+    const rooted = priority.find(el => dist.counts[el] >= 1);
+    if (rooted) {
+      primary = rooted;
+      const idx2 = priority.indexOf(rooted);
+      basis = `신강하여 기운을 조절할 필요. 재성→관성→식상 순위 중 원국에 존재하는 ${priorityLabels[idx2]}(${rooted}) 선택`;
+    } else {
+      // 뿌리 없으면 가장 우선순위 높은 것 (재성)
+      primary = priority[0];
+      basis = `신강하여 기운을 조절할 필요. 재성이 원국에 없지만 일반 우선 원칙에 따라 ${primary}(재성) 보충`;
+    }
+    support = priority.filter(c => c !== primary);
   } else if (sgy.level === '극신약' || sgy.level === '신약') {
-    // 신약하면 도움(인성·비겁) 용신
-    primary = dist.counts[prevEl] <= dist.counts[ilganOh] ? prevEl : ilganOh;
-    support = [prevEl === primary ? ilganOh : prevEl];
-    desc = `신약한 일간을 돕는 ${primary}이(가) 기운을 북돋는 용신입니다.`;
+    // 신약: 인성 → 비겁
+    if (dist.counts[prevEl] === 0) {
+      primary = prevEl;
+      basis = `신약하여 도움 필요. 인성(${prevEl})이 원국에 없어 시급히 보충`;
+    } else if (dist.counts[prevEl] <= dist.counts[ilganOh]) {
+      primary = prevEl;
+      basis = `신약하여 도움 필요. 인성(${prevEl}, ${dist.counts[prevEl]}개)이 비겁(${ilganOh}, ${dist.counts[ilganOh]}개) 이하로 인성 우선`;
+    } else {
+      primary = ilganOh;
+      basis = `신약하지만 인성(${prevEl}) 충분. 비겁(${ilganOh})으로 세력 보강`;
+    }
+    support = primary === prevEl ? [ilganOh] : [prevEl];
   } else {
-    // 중화: 결여 오행 보충
-    primary = dist.lacking[0] || dist.excess.length > 0 ? OH_LIST.find(o => dist.counts[o] < 2) || nextEl : nextEl;
-    support = [prevEl, nextEl];
-    desc = `중화된 사주라 결여 보충형 용신 ${primary}이(가) 무난합니다.`;
+    // 중화: 결여 보충
+    if (dist.lacking.length > 0) {
+      primary = dist.lacking[0];
+      basis = `중화된 사주. 원국 결여 오행 ${primary} 보충이 우선`;
+    } else {
+      primary = OH_LIST.find(o => dist.counts[o] < 2) || nextEl;
+      basis = `중화된 사주. 특별한 결여 없음, 균형 유지`;
+    }
+    support = [prevEl, nextEl].filter(x => x !== primary);
   }
 
-  return { primary, description: desc, supportElements: [...new Set(support)].filter(x => x !== primary) };
+  const rel = elementRole(ilganOh, primary);
+  const desc =
+    sgy.level.includes('강') ? `내 기운이 강하므로 ${rel.role}(${rel.action})인 ${primary}이(가) 기운을 조절해줍니다.`
+    : sgy.level.includes('약') ? `내 기운이 약하므로 ${rel.role}(${rel.action})인 ${primary}이(가) 기운을 북돋아줍니다.`
+    : `균형 잡힌 구조에서 ${rel.role}(${rel.action})인 ${primary}이(가) 조화를 돕습니다.`;
+
+  return {
+    primary,
+    role: rel.role,
+    action: rel.action,
+    description: desc,
+    basis,
+    supportElements: [...new Set(support)].filter(x => x !== primary),
+  };
 }
 
 // ── 합·충 탐지 ──

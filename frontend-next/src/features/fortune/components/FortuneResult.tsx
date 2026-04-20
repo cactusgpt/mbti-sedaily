@@ -262,7 +262,7 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
             </div>
           </div>
 
-          {/* 신강/신약 — 쉬운 말로 */}
+          {/* 신강/신약 — 쉬운 말 + 자리별 도움 여부 breakdown */}
           {structure.singangyak && (() => {
             const lv = structure.singangyak.level;
             const plain =
@@ -271,22 +271,37 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
               lv === '중화' ? { text: '내 기운이 적절히 균형 잡혀 있어요', tone: 'text-gray-700' } :
               lv === '신약' ? { text: '내 기운이 약한 편이에요', tone: 'text-blue-500' } :
                               { text: '내 기운이 매우 약한 편이에요', tone: 'text-blue-600' };
-            const tips: string[] = [];
-            if (structure.singangyak.deukryeong) tips.push('태어난 달이 나를 돕는 기운');
-            else tips.push('태어난 달이 나를 돕지 않는 기운');
-            if (structure.singangyak.deukji) tips.push('배우자 자리(일지)가 나를 돕는 기운');
-            else tips.push('배우자 자리(일지)가 나를 돕지 않는 기운');
-            tips.push(`주변 7글자 중 ${structure.singangyak.deukse}개가 나를 도와줌`);
             return (
               <div className="mb-4">
                 <div className="text-[12px] font-semibold text-gray-700 mb-1">내 기운의 세기 <span className="text-[11px] font-normal text-gray-400">(신강/신약)</span></div>
-                <div className="text-[13px] mb-1">
+                <div className="text-[13px] mb-2">
                   <strong className={plain.tone}>{plain.text}</strong>
                   <span className="text-[11px] text-gray-400 ml-1.5">({lv})</span>
                 </div>
-                <ul className="text-[11px] text-gray-500 space-y-0.5 pl-3">
-                  {tips.map((t, i) => <li key={i} className="list-disc list-inside">{t}</li>)}
-                </ul>
+                <div className="space-y-1 text-[11px]">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`inline-block w-[52px] text-center py-0.5 rounded border text-[10px] ${structure.singangyak.deukryeong ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-300 text-gray-500'}`}>
+                      {structure.singangyak.deukryeong ? '득령 ✓' : '실령'}
+                    </span>
+                    <span className="text-gray-500">월지(태어난 달)가 {structure.singangyak.deukryeong ? '나를 도움' : '나를 돕지 않음'}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`inline-block w-[52px] text-center py-0.5 rounded border text-[10px] ${structure.singangyak.deukji ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-300 text-gray-500'}`}>
+                      {structure.singangyak.deukji ? '득지 ✓' : '실지'}
+                    </span>
+                    <span className="text-gray-500">일지(배우자 자리)가 {structure.singangyak.deukji ? '나를 도움' : '나를 돕지 않음'}</span>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="inline-block w-[52px] text-center py-0.5 rounded border border-gray-300 text-gray-600 text-[10px] shrink-0">득세 {structure.singangyak.deukse}/5</span>
+                    <div className="flex flex-wrap gap-1">
+                      {structure.singangyak.supports.map((s, i) => (
+                        <span key={i} className={`px-1.5 py-0.5 rounded text-[10px] border ${s.helps ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 text-gray-400'}`}>
+                          {s.position} {s.char}{s.helps ? ' ✓' : ''}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             );
           })()}
@@ -302,20 +317,22 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
             </div>
           )}
 
-          {/* 용신 — 쉬운 말로 */}
+          {/* 용신 — 역할·작용·근거 명시 */}
           {structure.yongsin && (
             <div className="mb-4">
               <div className="text-[12px] font-semibold text-gray-700 mb-1">내게 필요한 기운 <span className="text-[11px] font-normal text-gray-400">(용신)</span></div>
               <div className="text-[13px]">
                 <span>주 기운: </span>
                 <strong className={EL_COLORS[structure.yongsin.primary]}>{structure.yongsin.primary}</strong>
+                <span className="text-[11px] text-gray-500 ml-1">— {structure.yongsin.role}, {structure.yongsin.action}</span>
                 {structure.yongsin.supportElements.length > 0 && (
                   <span className="ml-3">
                     보조:
                     {structure.yongsin.supportElements.map(e => <strong key={e} className={`${EL_COLORS[e]} ml-1`}>{e}</strong>)}
                   </span>
                 )}
-                <p className="text-[12px] text-gray-600 mt-0.5">{structure.yongsin.description}</p>
+                <p className="text-[12px] text-gray-600 mt-1">{structure.yongsin.description}</p>
+                <p className="text-[11px] text-gray-400 mt-0.5">선택 근거: {structure.yongsin.basis}</p>
               </div>
             </div>
           )}
@@ -380,7 +397,29 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
             나의 일간 기준 <strong>{todayFortune.ss}</strong>의 날이며, 12운성은 <strong>{todayFortune.us}</strong>입니다.
           </p>
           {ssReadingText && <p className="mb-3">{ssReadingText}</p>}
-          <p className={todayFortune.sinsal.length ? 'mb-3' : ''}>12운성 <strong>{todayFortune.us}</strong> — {usReadingText}</p>
+          <p className={todayFortune.sinsal.length || todayFortune.hiddenSipsung?.length ? 'mb-3' : ''}>12운성 <strong>{todayFortune.us}</strong> — {usReadingText}</p>
+
+          {/* 일진 지지의 지장간별 십성 — 천간만 보면 놓치는 관계 제공 */}
+          {todayFortune.hiddenSipsung && todayFortune.hiddenSipsung.length > 0 && (
+            <div className="border-t border-gray-100 pt-3 mb-3">
+              <div className="text-[11px] text-gray-500 mb-1.5">
+                일진 지지(<strong>{todayFortune.dayPillarHanja[1]}</strong>) 안의 숨은 기운:
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {todayFortune.hiddenSipsung.map((h, i) => (
+                  <span key={i} className={`text-[11px] px-2 py-0.5 rounded-full border ${h.weight === '본기' ? 'border-gray-400 bg-gray-50' : 'border-gray-200'}`}>
+                    <span className="text-gray-400">{h.weight}</span>{' '}
+                    <span className="text-gray-700 font-semibold">{h.hanja}</span>{' '}
+                    <span className="text-gray-600">{h.ss}</span>
+                  </span>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">
+                천간(<strong>{todayFortune.dayPillarHanja[0]}</strong>)만 보면 <strong>{todayFortune.ss}</strong>이지만,
+                지지 안에 위 기운들이 함께 작용합니다.
+              </p>
+            </div>
+          )}
           {todayFortune.sinsal.length > 0 && (
             <div className="border-t border-gray-100 pt-3">
               {todayFortune.sinsal.map((s, i) => (
