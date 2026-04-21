@@ -30,16 +30,87 @@ def _fetch_json(url: str) -> Optional[Dict]:
         return None
 
 
+# 주식 투자자들이 흔히 쓰는 축약어·별칭 → 정식 종목명
+STOCK_ALIASES: Dict[str, str] = {
+    # 반도체·IT 대형주
+    "하닉": "SK하이닉스",
+    "sk하닉": "SK하이닉스",
+    "삼전": "삼성전자",
+    "삼바": "삼성바이오로직스",
+    "삼전우": "삼성전자우",
+    # 자동차
+    "현차": "현대차",
+    "기차": "기아",
+    "현모비스": "현대모비스",
+    # 금융
+    "카뱅": "카카오뱅크",
+    "케뱅": "케이뱅크",
+    "신한지주": "신한지주",
+    "kb": "KB금융",
+    # 인터넷·플랫폼
+    "네이버": "NAVER",
+    "엔카": "엔씨소프트",
+    "엔씨": "엔씨소프트",
+    # 2차전지·배터리
+    "lg엔솔": "LG에너지솔루션",
+    "엔솔": "LG에너지솔루션",
+    "포스코퓨": "포스코퓨처엠",
+    "포퓨": "포스코퓨처엠",
+    "에코프로비엠": "에코프로비엠",
+    "에코프로": "에코프로",
+    # 바이오·제약
+    "셀트": "셀트리온",
+    "한미": "한미약품",
+    "유한": "유한양행",
+    "sk바팜": "SK바이오팜",
+    "sk바사": "SK바이오사이언스",
+    # 에너지·화학
+    "sk이노": "SK이노베이션",
+    "sk": "SK",
+    "lg화학": "LG화학",
+    "두전": "두산에너빌리티",
+    "두산로보": "두산로보틱스",
+    # 엔터테인먼트
+    "하이브": "하이브",
+    "sm": "에스엠",
+    "jyp": "JYP Ent.",
+    "와이지": "와이지엔터테인먼트",
+    # 철강·조선
+    "포홀": "POSCO홀딩스",
+    "포스코홀딩스": "POSCO홀딩스",
+    "한조해": "한화오션",
+    "현중": "HD현대중공업",
+    # 기타 대형주
+    "카오": "카카오",
+    "네카오": "네이버",  # 기본은 네이버로 매핑
+}
+
+
+def _resolve_alias(query: str) -> str:
+    """축약어를 정식 종목명으로 변환 (매칭 없으면 원본 반환)"""
+    normalized = query.strip().lower().replace(" ", "")
+    return STOCK_ALIASES.get(normalized, query.strip())
+
+
 def search_stock(query: str) -> Optional[Dict[str, str]]:
     """
     Search for a stock by name or code.
     Returns the best match: {'code': '005930', 'name': '삼성전자', 'market': '코스피'}
+    축약어('하닉', '삼전' 등)는 사전에 정식 명칭으로 변환 후 검색.
     """
-    url = NAVER_SEARCH_API.format(query=quote(query))
+    resolved = _resolve_alias(query)
+    url = NAVER_SEARCH_API.format(query=quote(resolved))
     data = _fetch_json(url)
 
     if not data or not data.get("items"):
-        return None
+        # 변환된 이름으로도 실패하면 원본으로 재시도
+        if resolved != query.strip():
+            url = NAVER_SEARCH_API.format(query=quote(query.strip()))
+            data = _fetch_json(url)
+            if not data or not data.get("items"):
+                return None
+        else:
+            return None
 
     item = data["items"][0]
     return {
