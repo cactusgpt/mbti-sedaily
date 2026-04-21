@@ -48,7 +48,7 @@ TRANSFORM_PER_CATEGORY = {
 TRANSFORM_LIMIT = 10
 
 
-async def collect_articles(hours: int = 24) -> Dict[str, Any]:
+async def collect_articles(hours: int = 24, event: dict = None) -> Dict[str, Any]:
     """
     Collect articles from S3 XML and save to DynamoDB.
 
@@ -76,13 +76,14 @@ async def collect_articles(hours: int = 24) -> Dict[str, Any]:
 
         transform_service = MbtiTransformService(region=settings.region)
 
-        # ==================== Process Today's Articles ====================
+        # ==================== Process Articles ====================
+        # event.target_date (YYYYMMDD)로 특정 날짜 백필 지원; 없으면 오늘 KST 기준
         kst = timezone(timedelta(hours=9))
-        today_kst = datetime.now(kst).strftime("%Y%m%d")
+        target_date = (event or {}).get("target_date") or datetime.now(kst).strftime("%Y%m%d")
 
-        logger.info(f"Fetching articles from S3 XML for date: {today_kst}")
+        logger.info(f"Fetching articles from S3 XML for date: {target_date}")
 
-        articles_by_action = await s3_xml_client.get_articles_to_process(today_kst)
+        articles_by_action = await s3_xml_client.get_articles_to_process(target_date)
 
         new_articles_xml = articles_by_action['new']
         updated_articles_xml = articles_by_action['updated']
@@ -411,7 +412,7 @@ def lambda_handler(event: dict, context) -> dict:
     Triggered by EventBridge on schedule.
     """
     logger.info(f"Article collection triggered: {event}")
-    result = asyncio.run(collect_articles(24))
+    result = asyncio.run(collect_articles(24, event=event))
     return {
         "statusCode": 200,
         "body": result
