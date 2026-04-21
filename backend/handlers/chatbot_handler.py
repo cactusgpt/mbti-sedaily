@@ -292,10 +292,14 @@ def search_related_articles(user_message: str, limit: int = 3) -> List[Dict[str,
 
         all_matches.sort(key=lambda x: x.get('published_at', ''), reverse=True)
 
-        # Fallback: 키워드 매칭 없고, 광범위한 뉴스 질문일 때만 최신 기사 반환
-        BROAD_KEYWORDS = {'뉴스', '기사', '소식', '이슈', '헤드라인', '브리핑', '시장', '경제', '오늘'}
-        is_broad = any(bk in user_message for bk in BROAD_KEYWORDS)
-        if not all_matches and is_broad:
+        # Fallback: 키워드 매칭 없고, 매우 광범위한 뉴스 요청일 때만 최신 기사 반환
+        # '오늘'·'시장'·'경제' 등은 너무 포괄적이라 구체 질문(예: '삼성전자 오늘 주가')까지
+        # 광범위로 분류되어 엉뚱한 기사가 추천되던 문제가 있었음. 엄격한 화이트리스트 사용.
+        BROAD_KEYWORDS = {'뉴스', '기사', '소식', '이슈', '헤드라인', '브리핑'}
+        has_broad = any(bk in user_message for bk in BROAD_KEYWORDS)
+        # 추가 안전장치: 키워드가 3개 이하일 때만 fallback 허용 (구체 질문 제외)
+        is_short_query = len(keywords) <= 3
+        if not all_matches and has_broad and is_short_query:
             for cat in ['경제', '정치', '사회']:
                 try:
                     response = table.query(
