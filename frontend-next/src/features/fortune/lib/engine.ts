@@ -819,9 +819,85 @@ const PILLAR_NAMES = ['시주', '일주', '월주', '년주'];
 
 export interface HapChungItem {
   type: '천간합' | '지지육합' | '지지삼합' | '지지충';
-  positions: string[];
-  chars: string;
-  meaning?: string;
+  positions: string[];       // ['시주', '일주'] 등
+  chars: string;             // 예: '丁壬'
+  meaning: string;           // 실생활 번역 해석
+  headline: string;          // 한 줄 요약
+}
+
+// ── 주(柱) 조합별 영역 매핑 ──
+// 시주 = 자녀·말년·내면의 목표·실현
+// 일주 = 나 자신·배우자궁·현재 행동·정체성
+// 월주 = 청년기·직장·사회·가정환경·부모
+// 년주 = 초년기·조부모·뿌리·유산
+
+interface PillarRelationTranslation {
+  headline: string;
+  meaning: string;
+}
+
+/** 두 주(柱) 간 관계를 합(긍정)/충(부정) 관점에서 실생활로 번역 */
+function translatePillarPair(
+  posA: string, posB: string,
+  type: '천간합' | '지지육합' | '지지충',
+): PillarRelationTranslation {
+  const pair = [posA, posB].sort().join('-');
+  const isPositive = type === '천간합' || type === '지지육합';
+
+  // 주 조합별 번역 (충 기준으로 작성, 합은 반대 뉘앙스로 덮어씀)
+  const CLASH_MAP: Record<string, PillarRelationTranslation> = {
+    '시주-일주': {
+      headline: '이상과 실행의 괴리',
+      meaning: '내면의 목표(시주)와 실제 행동(일주) 사이에 간극이 반복되는 패턴. 계획은 세우지만 실행 방식이 달라지는 경험이 잦을 수 있어요.',
+    },
+    '월주-시주': {
+      headline: '현재 기반과 미래 비전의 마찰',
+      meaning: '지금의 사회적 위치·직장(월주)과 내가 꿈꾸는 미래(시주) 사이에 방향 차이. 커리어와 장기 비전을 일치시키는 작업이 필요합니다.',
+    },
+    '년주-시주': {
+      headline: '뿌리와 미래의 거리감',
+      meaning: '가문·전통(년주)과 자녀·실현하려는 것(시주) 사이의 세대·가치 차이. 물려받은 것을 어떻게 새로 해석할지가 과제.',
+    },
+    '월주-일주': {
+      headline: '사회적 기대와 나의 방향',
+      meaning: '가정환경·직장(월주)과 개인 정체성(일주)의 긴장. 부모·회사의 기대와 본인이 가고 싶은 길이 다를 수 있어요.',
+    },
+    '년주-일주': {
+      headline: '가문 부담과 개인 자아',
+      meaning: '조부모·가문의 배경(년주)과 현재의 나(일주) 사이 긴장. 집안 기대에 눌리거나 전통과 다른 길을 개척하는 경험.',
+    },
+    '년주-월주': {
+      headline: '어릴 적 환경과 청년기 변화',
+      meaning: '초년(년주)과 청년기(월주) 사이 환경·가치 전환이 큼. 이사·이직 등 성장기 변화가 많거나 세대 간 마찰 경험.',
+    },
+  };
+
+  const base = CLASH_MAP[pair] || {
+    headline: `${posA}↔${posB} ${isPositive ? '조화' : '긴장'}`,
+    meaning: `두 영역 사이에 ${isPositive ? '연결·협력' : '마찰·변동'}의 흐름이 있습니다.`,
+  };
+
+  if (isPositive) {
+    // 합: 긍정 뉘앙스로 반전
+    const positivizedHeadline = base.headline
+      .replace('괴리', '연결')
+      .replace('마찰', '시너지')
+      .replace('거리감', '연계')
+      .replace('긴장', '조화')
+      .replace('부담', '지원')
+      .replace('변화', '이어짐');
+    const positivizedMeaning = base.meaning
+      .replace(/간극이 반복되는 패턴\.?/, '이 자연스럽게 이어지는 구조.')
+      .replace(/방향 차이/, '흐름의 연결')
+      .replace(/세대·가치 차이/, '세대 간 계승')
+      .replace(/긴장/g, '조화')
+      .replace(/다를 수 있어요/g, '맞물려 갑니다')
+      .replace(/부담/g, '든든한 지지')
+      .replace(/마찰/g, '자연스러운 전환');
+    return { headline: positivizedHeadline, meaning: positivizedMeaning };
+  }
+
+  return base;
 }
 
 export function detectHapChung(ps: Pillar[]): HapChungItem[] {
@@ -831,10 +907,13 @@ export function detectHapChung(ps: Pillar[]): HapChungItem[] {
   for (let i = 0; i < ps.length; i++) {
     for (let j = i + 1; j < ps.length; j++) {
       if (ps[i].c && ps[j].c && CG_HAP[ps[i].c] === ps[j].c) {
+        const t = translatePillarPair(PILLAR_NAMES[i], PILLAR_NAMES[j], '천간합');
         results.push({
           type: '천간합',
           positions: [PILLAR_NAMES[i], PILLAR_NAMES[j]],
           chars: `${ps[i].c}${ps[j].c}`,
+          headline: t.headline,
+          meaning: t.meaning,
         });
       }
     }
@@ -844,10 +923,13 @@ export function detectHapChung(ps: Pillar[]): HapChungItem[] {
   for (let i = 0; i < ps.length; i++) {
     for (let j = i + 1; j < ps.length; j++) {
       if (ps[i].j && ps[j].j && JJ_YUKHAP[ps[i].j] === ps[j].j) {
+        const t = translatePillarPair(PILLAR_NAMES[i], PILLAR_NAMES[j], '지지육합');
         results.push({
           type: '지지육합',
           positions: [PILLAR_NAMES[i], PILLAR_NAMES[j]],
           chars: `${ps[i].j}${ps[j].j}`,
+          headline: t.headline,
+          meaning: t.meaning,
         });
       }
     }
@@ -857,24 +939,33 @@ export function detectHapChung(ps: Pillar[]): HapChungItem[] {
   for (let i = 0; i < ps.length; i++) {
     for (let j = i + 1; j < ps.length; j++) {
       if (ps[i].j && ps[j].j && JJ_CHUNG[ps[i].j] === ps[j].j) {
+        const t = translatePillarPair(PILLAR_NAMES[i], PILLAR_NAMES[j], '지지충');
         results.push({
           type: '지지충',
           positions: [PILLAR_NAMES[i], PILLAR_NAMES[j]],
           chars: `${ps[i].j}${ps[j].j}`,
+          headline: t.headline,
+          meaning: t.meaning,
         });
       }
     }
   }
 
-  // 지지 삼합 (3개 전부 있어야 성립. 2개면 반합이지만 여기선 생략)
+  // 지지 삼합 (3개 전부 있어야 성립)
   const branches = ps.map(p => p.j).filter(Boolean);
   for (const [a, b, c, el] of SAMHAP) {
     if (branches.includes(a) && branches.includes(b) && branches.includes(c)) {
+      const domain =
+        el === '水' ? '지혜·소통·학문' :
+        el === '木' ? '성장·창의·개척' :
+        el === '火' ? '열정·표현·사교' :
+        el === '金' ? '원칙·결단·재물' : '안정·관계';
       results.push({
         type: '지지삼합',
         positions: [],
         chars: `${a}${b}${c}`,
-        meaning: `${el}국(局) 형성`,
+        headline: `${el}국 완성 — 큰 흐름 형성`,
+        meaning: `원국 지지가 ${el}국(${domain})을 이루어, 이 테마가 인생의 주요 동력이 되는 구조입니다.`,
       });
     }
   }

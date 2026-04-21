@@ -747,19 +747,32 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
           {/* 합·충 */}
           {structure.hapChung.length > 0 && (
             <div>
-              <div className="text-[12px] font-semibold text-gray-700 mb-1">기운들 간 관계 <span className="text-[11px] font-normal text-gray-400">(합·충)</span></div>
-              <p className="text-[11px] text-gray-500 mb-1.5">합 = 친화·결합, 충 = 부딪침·변화</p>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="text-[12px] font-semibold text-gray-700 mb-1">내 사주 속 관계 <span className="text-[11px] font-normal text-gray-400">(합·충)</span></div>
+              <p className="text-[11px] text-gray-500 mb-2">합 = 친화·연결, 충 = 부딪침·변동이 일어나는 자리 조합</p>
+              <div className="space-y-2">
                 {structure.hapChung.map((hc, i) => {
                   const isChung = hc.type === '지지충';
-                  const cls = isChung ? 'border-red-300 text-red-600 bg-red-50' : 'border-green-300 text-green-700 bg-green-50';
-                  const plainType = isChung ? '충돌' : '친화';
-                  const posText = hc.positions.length > 0 ? `${hc.positions.join('↔')}` : '';
+                  const cls = isChung
+                    ? 'border-red-200 bg-red-50'
+                    : 'border-green-200 bg-green-50';
+                  const badgeCls = isChung
+                    ? 'border-red-300 text-red-700 bg-white'
+                    : 'border-green-300 text-green-700 bg-white';
+                  const plainType = isChung ? '충돌' : hc.type === '지지삼합' ? '삼합' : '친화';
+                  const posText = hc.positions.length > 0 ? hc.positions.join(' ↔ ') : '원국 전체';
                   return (
-                    <span key={i} className={`text-[11px] px-2 py-0.5 rounded-full border ${cls}`}>
-                      {plainType} {posText && `(${posText})`}
-                      {hc.meaning ? ` · ${hc.meaning}` : ''}
-                    </span>
+                    <div key={i} className={`p-2.5 rounded-lg border ${cls}`}>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${badgeCls}`}>
+                          {plainType}
+                        </span>
+                        <span className="text-[11px] text-gray-500">
+                          {posText} <span className="text-gray-400">({hc.chars})</span>
+                        </span>
+                      </div>
+                      <div className="text-[12px] font-semibold text-gray-800 mb-0.5">{hc.headline}</div>
+                      <p className="text-[11px] text-gray-600 leading-snug">{hc.meaning}</p>
+                    </div>
                   );
                 })}
               </div>
