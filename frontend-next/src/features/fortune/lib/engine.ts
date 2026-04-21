@@ -910,3 +910,123 @@ export function buildStructureAnalysis(ps: Pillar[]): StructureAnalysis | null {
 
   return { distribution, singangyak, gyeokguk, yongsin, hapChung, summary };
 }
+
+// ── 일진 ↔ 원국 합충 감지 (오늘·특정 날짜와 내 사주의 관계) ──
+export interface DayHapChungItem {
+  type: '천간합' | '육합' | '충' | '삼합';
+  with: string;           // 어느 자리와 상호작용 ('년주'·'월주'·'일주'·'시주')
+  chars: string;          // 글자 조합 (예: '甲己')
+  meaning: string;        // 해석
+  good: boolean | null;   // 긍정/부정/중립
+}
+
+/** 일진(또는 특정 날짜의 갑자)과 원국 4주 사이의 합·충 관계 탐지.
+ *  @param ps 원국 pillars [시주, 일주, 월주, 년주]
+ *  @param dayHanja 비교할 일진 한자 2자 (예: '甲子')
+ */
+export function detectDayHapChung(ps: Pillar[], dayHanja: string): DayHapChungItem[] {
+  if (!dayHanja || dayHanja.length !== 2) return [];
+  const dCg = dayHanja[0];
+  const dJj = dayHanja[1];
+  const result: DayHapChungItem[] = [];
+  const labels = ['시주', '일주', '월주', '년주'];
+
+  for (let i = 0; i < ps.length; i++) {
+    const p = ps[i];
+    // 천간합 (일진 천간 vs 원국 천간)
+    if (p.c && CG_HAP[dCg] === p.c) {
+      result.push({
+        type: '천간합',
+        with: labels[i],
+        chars: `${dCg}${p.c}`,
+        meaning: `오늘과 ${labels[i]} 천간이 합을 이루어 협력·결합의 기운이 강해집니다.`,
+        good: true,
+      });
+    }
+    // 지지 육합
+    if (p.j && JJ_YUKHAP[dJj] === p.j) {
+      result.push({
+        type: '육합',
+        with: labels[i],
+        chars: `${dJj}${p.j}`,
+        meaning: `오늘 지지와 ${labels[i]} 지지가 육합으로 조화·친밀의 관계가 형성됩니다.`,
+        good: true,
+      });
+    }
+    // 지지 충
+    if (p.j && JJ_CHUNG[dJj] === p.j) {
+      const domain =
+        labels[i] === '년주' ? '가정·조부모·뿌리' :
+        labels[i] === '월주' ? '직장·사회·형제' :
+        labels[i] === '일주' ? '나 자신·배우자' :
+        labels[i] === '시주' ? '자녀·말년·실현' : '해당 영역';
+      result.push({
+        type: '충',
+        with: labels[i],
+        chars: `${dJj}${p.j}`,
+        meaning: `오늘 지지가 ${labels[i]} 지지와 충돌합니다 — ${domain} 영역에 변동·긴장이 발생할 수 있으니 신중히 대응하세요.`,
+        good: false,
+      });
+    }
+  }
+
+  // 삼합: 오늘 지지 + 원국 지지 2개로 삼합 국 완성
+  const branches = ps.map(p => p.j).filter(Boolean);
+  for (const [a, b, c, el] of SAMHAP) {
+    const trio = [a, b, c];
+    if (!trio.includes(dJj)) continue;
+    const others = trio.filter(x => x !== dJj);
+    if (others.every(o => branches.includes(o))) {
+      result.push({
+        type: '삼합',
+        with: '원국 전체',
+        chars: trio.join(''),
+        meaning: `오늘의 기운이 원국과 만나 ${el}국(局)을 이루어 큰 흐름의 변화가 일어날 수 있습니다.`,
+        good: true,
+      });
+    }
+  }
+
+  return result;
+}
+
+// ── 용신 득실 평가 (특정 갑자가 용신에게 유리/불리한가) ──
+export type YongsinRating = 'favor' | 'neutral' | 'caution';
+export interface YongsinMonthEval {
+  rating: YongsinRating;
+  score: number;   // -2~+2
+  reason: string;
+}
+
+/** 특정 천간·지지가 용신 오행에게 어떤 영향을 주는지 평가.
+ *  @param cg 천간 한자 (예: '甲')
+ *  @param jj 지지 한자 (예: '子')
+ *  @param yongsinOh 용신 오행 ('목'·'화'·'토'·'금'·'수')
+ */
+export function evaluateForYongsin(cg: string, jj: string, yongsinOh: string): YongsinMonthEval {
+  if (!yongsinOh) return { rating: 'neutral', score: 0, reason: '용신 미확정' };
+  const yIdx = OH_LIST.indexOf(yongsinOh);
+  if (yIdx < 0) return { rating: 'neutral', score: 0, reason: '' };
+
+  const helpOh = OH_LIST[(yIdx + 4) % 5];  // 용신을 生하는 오행 (희신)
+  const harmOh = OH_LIST[(yIdx + 3) % 5];  // 용신을 剋하는 오행 (기신)
+
+  const cgOh = CG_OH[cg] || '';
+  const jjOh = JJ_OH[jj] || '';
+
+  let score = 0;
+  const reasons: string[] = [];
+  for (const [oh, label] of [[cgOh, '천간'], [jjOh, '지지']]) {
+    if (!oh) continue;
+    if (oh === yongsinOh) { score += 1; reasons.push(`${label}이 용신(${oh})과 같음`); }
+    else if (oh === helpOh) { score += 1; reasons.push(`${label}이 용신을 생함(${oh}생${yongsinOh})`); }
+    else if (oh === harmOh) { score -= 1; reasons.push(`${label}이 용신을 극함(${oh}극${yongsinOh})`); }
+  }
+
+  let rating: YongsinRating;
+  if (score >= 1) rating = 'favor';
+  else if (score <= -1) rating = 'caution';
+  else rating = 'neutral';
+
+  return { rating, score, reason: reasons.join(' · ') || '중립' };
+}

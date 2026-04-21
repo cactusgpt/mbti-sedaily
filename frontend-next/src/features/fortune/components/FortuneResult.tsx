@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { isBeforeLichun, getSajuMonth } from '@fullstackfamily/manseryeok';
-import { CG_OH, JJ_OH, OH_HJ, JJG, sipsung, unsung, buildStructureAnalysis, type Pillar, type ChongunResult, type TodayFortuneResult, type DaeunEntry, type YeonunEntry, type WolunEntry } from '../lib/engine';
+import { CG_OH, JJ_OH, OH_HJ, JJG, sipsung, unsung, buildStructureAnalysis, detectDayHapChung, evaluateForYongsin, type Pillar, type ChongunResult, type TodayFortuneResult, type DaeunEntry, type YeonunEntry, type WolunEntry, type YongsinRating } from '../lib/engine';
 import { SajuTable } from './SajuTable';
 import { DailyCalendar } from './DailyCalendar';
 
@@ -178,12 +178,13 @@ const US_TONE_BUCKET: Record<string, 'favor' | 'caution' | 'default'> = {
   '쇠': 'caution', '병': 'caution', '사': 'caution', '묘': 'caution', '절': 'caution', '목욕': 'caution',
 };
 
-function UnGrid({ title, cols, ilgan, activeCheck, periodType }: {
+function UnGrid({ title, cols, ilgan, activeCheck, periodType, yongsinOh }: {
   title: string;
   cols: { c: string; j: string; ck: string; jk: string; label: string }[];
   ilgan: string;
   activeCheck?: (col: { c: string; j: string; ck: string; jk: string; label: string } & Record<string, unknown>) => boolean;
   periodType?: 'daeun' | 'yeonun' | 'wolun';
+  yongsinOh?: string;
 }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
   const periodName = periodType === 'daeun' ? '10년' : periodType === 'yeonun' ? '1년' : periodType === 'wolun' ? '1개월' : '이 기간';
@@ -200,16 +201,29 @@ function UnGrid({ title, cols, ilgan, activeCheck, periodType }: {
             const jjMain = col.j && JJG[col.j] ? JJG[col.j][JJG[col.j].length - 1] : null;
             const jjSS = jjMain ? sipsung(ilgan, jjMain) : '';
             const us = unsung(ilgan, col.j);
+            const yEval = yongsinOh ? evaluateForYongsin(col.c, col.j, yongsinOh) : null;
+            const yStyle: Record<YongsinRating, string> = {
+              favor: 'border-green-400 bg-green-50',
+              neutral: '',
+              caution: 'border-red-300 bg-red-50',
+            };
+            const extraCls = yEval && yEval.rating !== 'neutral' && !isActive && expandedIdx !== i
+              ? yStyle[yEval.rating] : '';
             return (
               <div key={i}
                 onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
-                className={`flex flex-col items-center w-[72px] py-2 px-1 rounded-lg border text-center flex-shrink-0 cursor-pointer transition-all ${isActive ? 'border-gray-900 bg-gray-50' : expandedIdx === i ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+                className={`flex flex-col items-center w-[72px] py-2 px-1 rounded-lg border text-center flex-shrink-0 cursor-pointer transition-all ${isActive ? 'border-gray-900 bg-gray-50' : expandedIdx === i ? 'border-blue-400 bg-blue-50' : extraCls || 'border-gray-200 bg-white hover:border-gray-300'}`}>
                 <div className="text-[11px] text-gray-500 font-medium mb-1">{col.label}</div>
                 <div className="text-[10px] text-gray-400">{cgSS}</div>
                 <div className={`text-[16px] font-bold my-0.5 ${EL_COLORS[cgOh] || ''}`}>{col.ck}{col.c}</div>
                 <div className={`text-[16px] font-bold my-0.5 ${EL_COLORS[jjOh] || ''}`}>{col.jk}{col.j}</div>
                 <div className="text-[10px] text-gray-400">{jjSS}</div>
                 <div className="text-[10px] text-gray-400">{us}</div>
+                {yEval && yEval.rating !== 'neutral' && (
+                  <div className={`text-[9px] font-semibold mt-0.5 ${yEval.rating === 'favor' ? 'text-green-600' : 'text-red-500'}`}>
+                    {yEval.rating === 'favor' ? '용신↑' : '용신↓'}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -310,6 +324,7 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
   }, []);
 
   const structure = buildStructureAnalysis(pillars);
+  const dayHapChung = todayFortune?.dayPillarHanja ? detectDayHapChung(pillars, todayFortune.dayPillarHanja) : [];
 
   const chongunText = mbtiGroup && chongunCache?.[mbtiGroup] ? chongunCache[mbtiGroup] : null;
   const ssReadingText = mbtiGroup && todayParts?.ss?.[mbtiGroup]?.[todayFortune?.ss || ''] || todayFortune?.ssReading || '';
@@ -395,6 +410,32 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
               </p>
             </div>
           )}
+
+          {/* 일진 ↔ 원국 합충: 오늘 기운과 내 사주의 상호작용 */}
+          {dayHapChung.length > 0 && (
+            <div className="border-t border-gray-100 pt-3 mb-3">
+              <div className="text-[11px] font-semibold text-gray-600 mb-1.5">오늘 기운과 내 사주의 만남</div>
+              <div className="space-y-1.5">
+                {dayHapChung.map((hc, i) => {
+                  const cls = hc.good === true
+                    ? 'border-green-300 bg-green-50 text-green-700'
+                    : hc.good === false
+                      ? 'border-red-300 bg-red-50 text-red-700'
+                      : 'border-gray-300 bg-gray-50 text-gray-600';
+                  const label = hc.type === '충' ? '충돌' : hc.type === '삼합' ? '삼합' : '친화';
+                  return (
+                    <div key={i} className="flex items-start gap-2 text-[12px]">
+                      <span className={`inline-block shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cls}`}>
+                        {label} · {hc.with}
+                      </span>
+                      <span className="text-gray-600 leading-snug">{hc.meaning}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {todayFortune.sinsal.length > 0 && (
             <div className="border-t border-gray-100 pt-3">
               {todayFortune.sinsal.map((s, i) => (
@@ -543,7 +584,14 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
             activeCheck={(col) => (col as unknown as YeonunEntry).year === sajuYear} />
           <div className="border-t border-gray-100 my-3" />
           <UnGrid title="월운" periodType="wolun" cols={woluns.map(x => ({ ...x, label: `${x.month}월` }))} ilgan={ilgan}
+            yongsinOh={structure?.yongsin?.primary}
             activeCheck={(col) => (col as unknown as WolunEntry).month === wolunActiveMonth} />
+          {structure?.yongsin && (
+            <div className="mt-2 pt-2 border-t border-gray-100 text-[11px] text-gray-500">
+              월운 배지: <span className="text-green-600 font-semibold">용신↑</span> 내 필요한 기운이 강해지는 달 ·
+              <span className="text-red-500 font-semibold ml-1">용신↓</span> 용신이 약해지는 달 (용신: <strong className={EL_COLORS[structure.yongsin.primary]}>{structure.yongsin.primary}</strong>)
+            </div>
+          )}
         </div>
       )}
 
