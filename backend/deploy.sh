@@ -26,6 +26,8 @@ pip3 install \
   requests==2.32.3 \
   beautifulsoup4==4.12.3 \
   redis \
+  boto3 \
+  botocore \
   -t lambda-build \
   --platform manylinux2014_x86_64 \
   --python-version 3.11 \
