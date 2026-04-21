@@ -44,7 +44,12 @@ function CollapsibleSection({ title, subtitle, children, defaultOpen = false }: 
           <h3 className="text-[14px] font-bold text-gray-900">{title}</h3>
           {subtitle && <p className="text-[11px] text-gray-400 mt-0.5">{subtitle}</p>}
         </div>
-        <span className={`text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}>⌄</span>
+        <svg
+          className={`text-gray-400 transition-transform shrink-0 ${open ? 'rotate-180' : ''}`}
+          width="16" height="16" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
       </button>
       {open && (
         <div className="px-5 pb-5 text-[13px] text-gray-600 leading-relaxed border-t border-gray-100 pt-4">
