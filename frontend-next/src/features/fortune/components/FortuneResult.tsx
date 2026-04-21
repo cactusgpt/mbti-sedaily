@@ -154,12 +154,24 @@ function renderMarkdown(text: string) {
 
 type CacheData = Record<MbtiGroup, string>;
 
+interface CategoryToneBuckets {
+  default?: string[];
+  favor?: string[];
+  caution?: string[];
+}
+
 interface TodayPartsCache {
   ss: Record<MbtiGroup, Record<string, string>>;
   us: Record<MbtiGroup, Record<string, string>>;
-  // 카테고리는 variant 배열. 기존 단일 string도 호환.
-  category: Record<string, Record<MbtiGroup, Record<string, string | string[]>>>;
+  // 카테고리는 톤 버킷 구조 또는 기존 array/string (하위 호환)
+  category: Record<string, Record<MbtiGroup, Record<string, string | string[] | CategoryToneBuckets>>>;
 }
+
+// 12운성 → 톤 버킷 매핑
+const US_TONE_BUCKET: Record<string, 'favor' | 'caution' | 'default'> = {
+  '장생': 'favor', '관대': 'favor', '건록': 'favor', '제왕': 'favor', '양': 'favor', '태': 'favor',
+  '쇠': 'caution', '병': 'caution', '사': 'caution', '묘': 'caution', '절': 'caution', '목욕': 'caution',
+};
 
 function UnGrid({ title, cols, ilgan, activeCheck }: {
   title: string;
@@ -260,8 +272,19 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
     const entry = mbtiGroup ? todayParts?.category?.[catLabel]?.[mbtiGroup]?.[ss] : undefined;
     if (!entry) return fallback;
     if (typeof entry === 'string') return entry;
-    if (entry.length === 0) return fallback;
-    return entry[dayOfYear % entry.length];
+    if (Array.isArray(entry)) {
+      if (entry.length === 0) return fallback;
+      return entry[dayOfYear % entry.length];
+    }
+    // 톤 버킷 구조: 오늘 12운성에 따라 favor/caution/default 선택
+    const us = todayFortune?.us || '';
+    const bucket = US_TONE_BUCKET[us] || 'default';
+    const buckets = entry as CategoryToneBuckets;
+    const arr = buckets[bucket] && buckets[bucket]!.length > 0
+      ? buckets[bucket]!
+      : (buckets.default && buckets.default.length > 0 ? buckets.default : []);
+    if (arr.length === 0) return fallback;
+    return arr[dayOfYear % arr.length];
   };
 
   return (
