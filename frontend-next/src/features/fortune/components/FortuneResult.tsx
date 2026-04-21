@@ -173,13 +173,15 @@ const US_TONE_BUCKET: Record<string, 'favor' | 'caution' | 'default'> = {
   '쇠': 'caution', '병': 'caution', '사': 'caution', '묘': 'caution', '절': 'caution', '목욕': 'caution',
 };
 
-function UnGrid({ title, cols, ilgan, activeCheck }: {
+function UnGrid({ title, cols, ilgan, activeCheck, periodType }: {
   title: string;
   cols: { c: string; j: string; ck: string; jk: string; label: string }[];
   ilgan: string;
   activeCheck?: (col: { c: string; j: string; ck: string; jk: string; label: string } & Record<string, unknown>) => boolean;
+  periodType?: 'daeun' | 'yeonun' | 'wolun';
 }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
+  const periodName = periodType === 'daeun' ? '10년' : periodType === 'yeonun' ? '1년' : periodType === 'wolun' ? '1개월' : '이 기간';
 
   return (
     <div className="mb-4">
@@ -210,13 +212,54 @@ function UnGrid({ title, cols, ilgan, activeCheck }: {
       </div>
       {expandedIdx !== null && (() => {
         const col = cols[expandedIdx];
+        const cgOh = CG_OH[col.c] || '';
+        const jjOh = JJ_OH[col.j] || '';
         const cgSS = sipsung(ilgan, col.c);
         const us = unsung(ilgan, col.j);
+        const hidden = (col.j && JJG[col.j]) || [];
+        const hiddenItems = hidden.map((h, i) => {
+          const weight = hidden.length === 1 ? '본기' : hidden.length === 2 ? (i === 0 ? '여기' : '본기') : (i === 0 ? '여기' : i === 1 ? '중기' : '본기');
+          return { hanja: h, ss: sipsung(ilgan, h), weight };
+        });
         return (
           <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200 text-[12px] text-gray-600 leading-relaxed animate-in fade-in">
-            <div className="font-semibold text-gray-800 mb-2">{col.label} — {col.ck}{col.c} {col.jk}{col.j}</div>
-            {cgSS && <p className="mb-2"><span className="font-medium text-gray-700">십성 [{cgSS}]</span> {SS_DETAIL[cgSS] || ''}</p>}
-            {us && <p><span className="font-medium text-gray-700">12운성 [{us}]</span> {US_DETAIL[us] || ''}</p>}
+            <div className="font-semibold text-gray-800 mb-2">
+              {col.label}
+              <span className="text-[11px] text-gray-400 ml-1.5">({periodName} 기간)</span>
+              <span className="ml-2">
+                <span className={EL_COLORS[cgOh]}>{col.ck}{col.c}</span>{' '}
+                <span className={EL_COLORS[jjOh]}>{col.jk}{col.j}</span>
+              </span>
+            </div>
+            {cgSS && (
+              <p className="mb-2">
+                <span className="font-medium text-gray-700">천간 십성 · {cgSS}</span>
+                <span className="text-[11px] text-gray-400 ml-1">({SS_MEANING[cgSS] || ''})</span>
+                <br />{SS_DETAIL[cgSS] || ''}
+              </p>
+            )}
+            {us && (
+              <p className="mb-2">
+                <span className="font-medium text-gray-700">12운성 · {us}</span>
+                <span className="text-[11px] text-gray-400 ml-1">({US_MEANING[us] || ''})</span>
+                <br />{US_DETAIL[us] || ''}
+              </p>
+            )}
+            {hiddenItems.length > 0 && (
+              <div className="border-t border-gray-200 pt-2 mt-2">
+                <div className="text-[11px] text-gray-500 mb-1">지지({col.j}) 속 숨은 기운:</div>
+                <div className="flex flex-wrap gap-1">
+                  {hiddenItems.map((h, i) => (
+                    <span key={i} className={`text-[11px] px-1.5 py-0.5 rounded border ${h.weight === '본기' ? 'border-gray-400 bg-white font-medium' : 'border-gray-200 text-gray-500'}`}>
+                      <span className="text-gray-400">{h.weight}</span>{' '}
+                      <span>{h.hanja}</span>{' '}
+                      <span className="text-gray-600">{h.ss}</span>
+                      <span className="text-gray-400 ml-0.5">· {SS_MEANING[h.ss] || ''}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
@@ -488,13 +531,13 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
       {/* 대운 · 연운 · 월운 */}
       {ilgan && daeuns.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4">
-          <UnGrid title="대운" cols={daeuns.map(x => ({ ...x, label: `${x.age}세` }))} ilgan={ilgan}
+          <UnGrid title="대운" periodType="daeun" cols={daeuns.map(x => ({ ...x, label: `${x.age}세` }))} ilgan={ilgan}
             activeCheck={(col) => currentAge >= (col as unknown as DaeunEntry).age && currentAge < (col as unknown as DaeunEntry).age + 10} />
           <div className="border-t border-gray-100 my-3" />
-          <UnGrid title="연운" cols={yeonuns.map(x => ({ ...x, label: `${x.year}` }))} ilgan={ilgan}
+          <UnGrid title="연운" periodType="yeonun" cols={yeonuns.map(x => ({ ...x, label: `${x.year}` }))} ilgan={ilgan}
             activeCheck={(col) => (col as unknown as YeonunEntry).year === sajuYear} />
           <div className="border-t border-gray-100 my-3" />
-          <UnGrid title="월운" cols={woluns.map(x => ({ ...x, label: `${x.month}월` }))} ilgan={ilgan}
+          <UnGrid title="월운" periodType="wolun" cols={woluns.map(x => ({ ...x, label: `${x.month}월` }))} ilgan={ilgan}
             activeCheck={(col) => (col as unknown as WolunEntry).month === wolunActiveMonth} />
         </div>
       )}
