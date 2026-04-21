@@ -998,6 +998,140 @@ export interface YongsinMonthEval {
   reason: string;
 }
 
+// ── 일일 개인화 인사이트 (원국 결핍 보충·합충 카테고리 영향) ──
+export interface ElementComplement {
+  lackingOh: string;      // 원국 결여 오행
+  dayBranch: string;      // 오늘 지지
+  hiddenGan: string;      // 보충해주는 지장간 한자
+  weight: '본기' | '중기' | '여기';
+  sipsung: string;        // 일간 기준 십성
+  strength: '강' | '보통' | '약';  // 보충 세기 (본기=강, 중기=보통, 여기=약)
+  desc: string;           // 사람 친화적 해석
+}
+
+export interface CategoryImpactNote {
+  category: string;       // '재물운', '건강운', '연애운', '직장운', '학업운'
+  note: string;           // 오늘 특이사항 해설
+  tone: 'positive' | 'negative' | 'neutral';
+}
+
+export interface DailyInsight {
+  complements: ElementComplement[];
+  categoryNotes: CategoryImpactNote[];
+}
+
+/** 오늘 일진 지지의 지장간이 원국 결여 오행을 보충하는지 분석 */
+function analyzeElementComplement(
+  ilgan: string,
+  dayJj: string,
+  lacking: string[],
+): ElementComplement[] {
+  if (!ilgan || !dayJj || lacking.length === 0) return [];
+  const hidden = JJG[dayJj] || [];
+  const weights: ('여기' | '중기' | '본기')[] =
+    hidden.length === 1 ? ['본기']
+    : hidden.length === 2 ? ['여기', '본기']
+    : ['여기', '중기', '본기'];
+  const strengthMap = { '본기': '강', '중기': '보통', '여기': '약' } as const;
+
+  const results: ElementComplement[] = [];
+  hidden.forEach((h, i) => {
+    const oh = CG_OH[h];
+    if (!lacking.includes(oh)) return;
+    const weight = weights[i];
+    const strength = strengthMap[weight];
+    const ss = sipsung(ilgan, h);
+    const domain =
+      ss === '정인' || ss === '편인' ? '학습·자기성찰' :
+      ss === '식신' || ss === '상관' ? '표현·창작' :
+      ss === '편재' || ss === '정재' ? '재물·실행' :
+      ss === '편관' || ss === '정관' ? '책임·성취' :
+      ss === '비견' || ss === '겁재' ? '관계·독립' : '활동';
+    results.push({
+      lackingOh: oh,
+      dayBranch: dayJj,
+      hiddenGan: h,
+      weight,
+      sipsung: ss,
+      strength,
+      desc: `원국에 없던 ${oh}(${ss}) 기운이 오늘 ${dayJj} 속 ${weight} ${h}로 ${strength}하게 보충됩니다. ${domain} 쪽이 평소보다 잘 풀릴 수 있어요.`,
+    });
+  });
+  return results;
+}
+
+/** 합충이 각 카테고리에 미치는 영향을 해설 */
+function analyzeCategoryImpact(dayHapChung: DayHapChungItem[]): CategoryImpactNote[] {
+  const notes: CategoryImpactNote[] = [];
+  // 주(柱)별 관여 카테고리 (전통적 주-영역 매핑)
+  const pillarToCategories: Record<string, string[]> = {
+    '시주': ['학업운'],          // 자녀·미래·실현 → 학업·자기계발
+    '일주': ['연애운', '건강운'], // 나·배우자궁 → 관계·몸
+    '월주': ['직장운', '학업운'], // 사회·직장 → 직장·배움
+    '년주': ['재물운'],          // 가정·뿌리 → 재물·기반
+  };
+
+  for (const hc of dayHapChung) {
+    const cats = pillarToCategories[hc.with] || [];
+    const isGood = hc.good === true;
+    for (const cat of cats) {
+      let note = '';
+      if (hc.type === '충') {
+        if (cat === '연애운' && hc.with === '일주') {
+          note = `오늘 일진이 배우자궁(일지 ${hc.chars[1]})과 충합니다. 연인과 사소한 갈등·감정 기복이 생기기 쉬우니 즉답을 피하고 한 템포 쉬어 대응하세요.`;
+        } else if (cat === '건강운' && hc.with === '일주') {
+          note = `일진이 일주 지지와 충하여 몸이 불안정할 수 있습니다. 평소 약한 부위에 신호가 올 수 있으니 무리하지 마세요.`;
+        } else if (cat === '직장운' && hc.with === '월주') {
+          note = `일진이 월주(직장궁)와 충합니다. 업무에 갑작스런 변수·일정 변경이 생길 수 있으니 우선순위를 유연하게 조정하세요.`;
+        } else if (cat === '학업운' && hc.with === '월주') {
+          note = `일진이 월주와 충하여 집중력이 흐트러지기 쉽습니다. 긴 학습보다 짧게 여러 번 나눠 접근하세요.`;
+        } else if (cat === '재물운' && hc.with === '년주') {
+          note = `일진이 년주(가정·뿌리)와 충합니다. 가족 관련 지출이나 갑작스러운 비용에 대비하세요.`;
+        } else {
+          note = `${hc.with}와 충하여 해당 영역에 변동·긴장이 있습니다.`;
+        }
+      } else if (hc.type === '천간합' || hc.type === '육합') {
+        if (cat === '연애운' && hc.with === '일주') {
+          note = `일진이 일주와 합을 이루어 연인·배우자와 유난히 마음이 잘 통합니다. 중요한 대화나 화해에 좋은 날.`;
+        } else if (cat === '직장운' && hc.with === '월주') {
+          note = `일진과 월주가 합하여 직장에서 협업·인간관계가 매끄럽게 풀립니다. 제안·미팅에 유리합니다.`;
+        } else if (cat === '학업운' && (hc.with === '월주' || hc.with === '시주')) {
+          note = `일진과 ${hc.with} 합으로 배움·창작에 집중력이 잘 모입니다.`;
+        } else if (cat === '재물운' && hc.with === '년주') {
+          note = `일진이 년주와 합하여 가족·기반과 관련된 작은 재물 기회가 생길 수 있습니다.`;
+        } else {
+          note = `${hc.with}와 합을 이루어 이 영역에 조화·협력의 기운이 강해집니다.`;
+        }
+      } else if (hc.type === '삼합') {
+        note = `오늘 일진이 원국과 삼합을 이루어 전반적인 흐름이 크게 움직입니다. ${cat}에서도 평소보다 확장된 기회·변화가 나타날 수 있습니다.`;
+      }
+      if (note) {
+        notes.push({
+          category: cat,
+          note,
+          tone: isGood ? 'positive' : hc.good === false ? 'negative' : 'neutral',
+        });
+      }
+    }
+  }
+  return notes;
+}
+
+/** 원국 + 오늘 일진을 종합해 개인화된 인사이트 생성 */
+export function generateDailyInsights(
+  ps: Pillar[],
+  structure: StructureAnalysis | null,
+  todayFortune: TodayFortuneResult | null,
+): DailyInsight {
+  if (!structure || !todayFortune) return { complements: [], categoryNotes: [] };
+  const ilgan = ps[1].c;
+  const dayJj = todayFortune.dayPillarHanja[1] || '';
+  const complements = analyzeElementComplement(ilgan, dayJj, structure.distribution.lacking);
+  const hapChung = detectDayHapChung(ps, todayFortune.dayPillarHanja);
+  const categoryNotes = analyzeCategoryImpact(hapChung);
+  return { complements, categoryNotes };
+}
+
 /** 특정 천간·지지가 용신 오행에게 어떤 영향을 주는지 평가.
  *  @param cg 천간 한자 (예: '甲')
  *  @param jj 지지 한자 (예: '子')

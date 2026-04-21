@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { isBeforeLichun, getSajuMonth } from '@fullstackfamily/manseryeok';
-import { CG_OH, JJ_OH, OH_HJ, JJG, sipsung, unsung, buildStructureAnalysis, detectDayHapChung, evaluateForYongsin, type Pillar, type ChongunResult, type TodayFortuneResult, type DaeunEntry, type YeonunEntry, type WolunEntry, type YongsinRating } from '../lib/engine';
+import { CG_OH, JJ_OH, OH_HJ, JJG, sipsung, unsung, buildStructureAnalysis, detectDayHapChung, evaluateForYongsin, generateDailyInsights, type Pillar, type ChongunResult, type TodayFortuneResult, type DaeunEntry, type YeonunEntry, type WolunEntry, type YongsinRating } from '../lib/engine';
 import { SajuTable } from './SajuTable';
 import { DailyCalendar } from './DailyCalendar';
 
@@ -325,6 +325,12 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
 
   const structure = buildStructureAnalysis(pillars);
   const dayHapChung = todayFortune?.dayPillarHanja ? detectDayHapChung(pillars, todayFortune.dayPillarHanja) : [];
+  const dailyInsights = generateDailyInsights(pillars, structure, todayFortune);
+  const categoryNoteMap: Record<string, { note: string; tone: string }[]> = {};
+  for (const n of dailyInsights.categoryNotes) {
+    if (!categoryNoteMap[n.category]) categoryNoteMap[n.category] = [];
+    categoryNoteMap[n.category].push({ note: n.note, tone: n.tone });
+  }
 
   const chongunText = mbtiGroup && chongunCache?.[mbtiGroup] ? chongunCache[mbtiGroup] : null;
   const ssReadingText = mbtiGroup && todayParts?.ss?.[mbtiGroup]?.[todayFortune?.ss || ''] || todayFortune?.ssReading || '';
@@ -411,6 +417,23 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
             </div>
           )}
 
+          {/* 원국 결핍 오행 ↔ 오늘 일진 지장간 보충 분석 */}
+          {dailyInsights.complements.length > 0 && (
+            <div className="border-t border-gray-100 pt-3 mb-3">
+              <div className="text-[11px] font-semibold text-gray-600 mb-1.5">원국 부족 기운 보충</div>
+              <div className="space-y-1.5">
+                {dailyInsights.complements.map((c, i) => (
+                  <div key={i} className="flex items-start gap-2 text-[12px]">
+                    <span className={`inline-block shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold border border-blue-300 bg-blue-50 ${EL_COLORS[c.lackingOh] || 'text-blue-700'}`}>
+                      {c.lackingOh} 보충
+                    </span>
+                    <span className="text-gray-600 leading-snug">{c.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* 일진 ↔ 원국 합충: 오늘 기운과 내 사주의 상호작용 */}
           {dayHapChung.length > 0 && (
             <div className="border-t border-gray-100 pt-3 mb-3">
@@ -470,6 +493,21 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
                     <p className="text-[12px] text-gray-500 leading-relaxed">
                       {getCategoryDesc(cat.label, todayFortune.ss, cat.desc)}
                     </p>
+                    {categoryNoteMap[cat.label] && categoryNoteMap[cat.label].length > 0 && (
+                      <div className="mt-1.5 space-y-1">
+                        {categoryNoteMap[cat.label].map((n, i) => {
+                          const cls = n.tone === 'positive' ? 'border-green-200 bg-green-50 text-green-700'
+                            : n.tone === 'negative' ? 'border-red-200 bg-red-50 text-red-700'
+                            : 'border-gray-200 bg-gray-50 text-gray-600';
+                          const label = n.tone === 'positive' ? '오늘 플러스' : n.tone === 'negative' ? '오늘 주의' : '오늘';
+                          return (
+                            <div key={i} className={`text-[11px] p-1.5 rounded border ${cls} leading-snug`}>
+                              <span className="font-semibold">{label}</span> · {n.note}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
