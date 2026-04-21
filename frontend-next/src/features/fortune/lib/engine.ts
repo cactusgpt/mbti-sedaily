@@ -1007,8 +1007,61 @@ export interface DayHapChungItem {
   type: '천간합' | '육합' | '충' | '삼합';
   with: string;           // 어느 자리와 상호작용 ('년주'·'월주'·'일주'·'시주')
   chars: string;          // 글자 조합 (예: '甲己')
-  meaning: string;        // 해석
+  headline: string;       // 한 줄 요약
+  meaning: string;        // 실생활 해석
   good: boolean | null;   // 긍정/부정/중립
+}
+
+/** 오늘 기운과 원국 각 주(柱) 사이의 상호작용을 실생활 영향으로 번역 */
+function translateDayPillarInteraction(
+  pillar: string,
+  type: '천간합' | '육합' | '충' | '삼합',
+): { headline: string; meaning: string } {
+  const CHUNG: Record<string, { h: string; m: string }> = {
+    '시주': {
+      h: '미래 계획의 재검토',
+      m: '오늘 기운이 자녀·말년·장기 목표 영역을 흔듭니다. 미뤄둔 계획이 흔들리거나 새 방향을 고민하게 될 수 있어요. 오늘 내린 장기 결정은 다음 주까지 다시 확인하세요.',
+    },
+    '일주': {
+      h: '나 자신·배우자 영역 긴장',
+      m: '오늘 기운이 나의 정체성·배우자궁과 충합니다. 연인·배우자와 사소한 감정 마찰이나 몸 컨디션 기복이 생기기 쉬우니, 즉답을 피하고 자극적인 대화는 내일로 미루세요.',
+    },
+    '월주': {
+      h: '직장·사회적 역할 변동',
+      m: '오늘 기운이 직장·사회·형제 영역을 흔듭니다. 업무 일정 변경, 동료와의 의견 차이, 가정 환경의 작은 변화가 올 수 있습니다. 우선순위를 유연하게 조정하세요.',
+    },
+    '년주': {
+      h: '뿌리·가족 영역 진동',
+      m: '오늘 기운이 조부모·부모·가문 영역과 충합니다. 가족 소식이나 세대 간 가치 차이가 부각될 수 있고, 갑작스러운 의무적 지출(경조사·가족 비용)이 발생할 수 있어요.',
+    },
+  };
+
+  const HAP: Record<string, { h: string; m: string }> = {
+    '시주': {
+      h: '미래 계획에 순풍',
+      m: '오늘 기운이 장기 목표·자녀 영역과 합을 이룹니다. 미뤄둔 계획을 다시 꺼내기 좋고, 앞날을 위한 투자·결정이 자연스럽게 연결돼요.',
+    },
+    '일주': {
+      h: '나와 배우자 관계 조화',
+      m: '오늘 기운이 나의 정체성·배우자궁과 합합니다. 연인·배우자와 유난히 마음이 잘 통하고, 본인 몸 상태도 안정적입니다. 중요한 대화나 화해에 좋은 날.',
+    },
+    '월주': {
+      h: '직장·사회 협력 플러스',
+      m: '오늘 기운과 월주가 합하여 직장에서 협업·인간관계가 매끄럽게 풀립니다. 제안·미팅·중요한 보고를 하기에 유리한 타이밍입니다.',
+    },
+    '년주': {
+      h: '가족·뿌리와의 연결',
+      m: '오늘 기운과 년주가 합하여 가족·가문 영역에 따뜻한 흐름. 부모나 오랜 친척과의 연락, 가족 기반의 작은 기회가 올 수 있어요.',
+    },
+  };
+
+  if (type === '충') return { headline: CHUNG[pillar]?.h || '변동', meaning: CHUNG[pillar]?.m || '해당 영역에 변동이 있습니다.' };
+  if (type === '삼합') return {
+    headline: '원국과 삼합 형성 — 큰 흐름',
+    meaning: '오늘의 기운이 원국의 지지 2개와 만나 삼합 국을 이룹니다. 평소보다 확장된 기회나 큰 방향 전환이 나타날 수 있어요.',
+  };
+  // 천간합 or 육합
+  return { headline: HAP[pillar]?.h || '조화', meaning: HAP[pillar]?.m || '해당 영역에 조화·협력의 기운이 강해집니다.' };
 }
 
 /** 일진(또는 특정 날짜의 갑자)과 원국 4주 사이의 합·충 관계 탐지.
@@ -1024,39 +1077,28 @@ export function detectDayHapChung(ps: Pillar[], dayHanja: string): DayHapChungIt
 
   for (let i = 0; i < ps.length; i++) {
     const p = ps[i];
-    // 천간합 (일진 천간 vs 원국 천간)
+    // 천간합
     if (p.c && CG_HAP[dCg] === p.c) {
+      const t = translateDayPillarInteraction(labels[i], '천간합');
       result.push({
-        type: '천간합',
-        with: labels[i],
-        chars: `${dCg}${p.c}`,
-        meaning: `오늘과 ${labels[i]} 천간이 합을 이루어 협력·결합의 기운이 강해집니다.`,
-        good: true,
+        type: '천간합', with: labels[i], chars: `${dCg}${p.c}`,
+        headline: t.headline, meaning: t.meaning, good: true,
       });
     }
     // 지지 육합
     if (p.j && JJ_YUKHAP[dJj] === p.j) {
+      const t = translateDayPillarInteraction(labels[i], '육합');
       result.push({
-        type: '육합',
-        with: labels[i],
-        chars: `${dJj}${p.j}`,
-        meaning: `오늘 지지와 ${labels[i]} 지지가 육합으로 조화·친밀의 관계가 형성됩니다.`,
-        good: true,
+        type: '육합', with: labels[i], chars: `${dJj}${p.j}`,
+        headline: t.headline, meaning: t.meaning, good: true,
       });
     }
     // 지지 충
     if (p.j && JJ_CHUNG[dJj] === p.j) {
-      const domain =
-        labels[i] === '년주' ? '가정·조부모·뿌리' :
-        labels[i] === '월주' ? '직장·사회·형제' :
-        labels[i] === '일주' ? '나 자신·배우자' :
-        labels[i] === '시주' ? '자녀·말년·실현' : '해당 영역';
+      const t = translateDayPillarInteraction(labels[i], '충');
       result.push({
-        type: '충',
-        with: labels[i],
-        chars: `${dJj}${p.j}`,
-        meaning: `오늘 지지가 ${labels[i]} 지지와 충돌합니다 — ${domain} 영역에 변동·긴장이 발생할 수 있으니 신중히 대응하세요.`,
-        good: false,
+        type: '충', with: labels[i], chars: `${dJj}${p.j}`,
+        headline: t.headline, meaning: t.meaning, good: false,
       });
     }
   }
@@ -1068,12 +1110,11 @@ export function detectDayHapChung(ps: Pillar[], dayHanja: string): DayHapChungIt
     if (!trio.includes(dJj)) continue;
     const others = trio.filter(x => x !== dJj);
     if (others.every(o => branches.includes(o))) {
+      const t = translateDayPillarInteraction('', '삼합');
       result.push({
-        type: '삼합',
-        with: '원국 전체',
-        chars: trio.join(''),
-        meaning: `오늘의 기운이 원국과 만나 ${el}국(局)을 이루어 큰 흐름의 변화가 일어날 수 있습니다.`,
-        good: true,
+        type: '삼합', with: '원국 전체', chars: trio.join(''),
+        headline: `${el}국 완성 — ${t.headline.replace('원국과 삼합 형성 — ', '')}`,
+        meaning: t.meaning, good: true,
       });
     }
   }

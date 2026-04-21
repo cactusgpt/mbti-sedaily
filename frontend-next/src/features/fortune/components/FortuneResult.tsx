@@ -438,20 +438,29 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
           {dayHapChung.length > 0 && (
             <div className="border-t border-gray-100 pt-3 mb-3">
               <div className="text-[11px] font-semibold text-gray-600 mb-1.5">오늘 기운과 내 사주의 만남</div>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {dayHapChung.map((hc, i) => {
-                  const cls = hc.good === true
-                    ? 'border-green-300 bg-green-50 text-green-700'
+                  const boxCls = hc.good === true
+                    ? 'border-green-200 bg-green-50'
                     : hc.good === false
-                      ? 'border-red-300 bg-red-50 text-red-700'
-                      : 'border-gray-300 bg-gray-50 text-gray-600';
+                      ? 'border-red-200 bg-red-50'
+                      : 'border-gray-200 bg-gray-50';
+                  const badgeCls = hc.good === true
+                    ? 'border-green-300 text-green-700 bg-white'
+                    : hc.good === false
+                      ? 'border-red-300 text-red-700 bg-white'
+                      : 'border-gray-300 text-gray-600 bg-white';
                   const label = hc.type === '충' ? '충돌' : hc.type === '삼합' ? '삼합' : '친화';
                   return (
-                    <div key={i} className="flex items-start gap-2 text-[12px]">
-                      <span className={`inline-block shrink-0 px-1.5 py-0.5 rounded text-[10px] font-semibold border ${cls}`}>
-                        {label} · {hc.with}
-                      </span>
-                      <span className="text-gray-600 leading-snug">{hc.meaning}</span>
+                    <div key={i} className={`p-2.5 rounded-lg border ${boxCls}`}>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${badgeCls}`}>
+                          {label} · {hc.with}
+                        </span>
+                        <span className="text-[11px] text-gray-400">{hc.chars}</span>
+                      </div>
+                      <div className="text-[12px] font-semibold text-gray-800 mb-0.5">{hc.headline}</div>
+                      <p className="text-[11px] text-gray-600 leading-snug">{hc.meaning}</p>
                     </div>
                   );
                 })}
