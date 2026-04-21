@@ -349,7 +349,10 @@ GENERAL_INSTRUCTIONS = """
 1. 서울경제신문의 AI 어시스턴트로서 경제/금융 뉴스에 대해 도움을 드려요
 2. 정확한 정보만 제공하고, 모르는 것은 모른다고 솔직히 말해요
 3. 주가 관련 질문은 반드시 get_stock_price 도구를 사용하세요. 장중에는 실시간 현재가, 장 마감 후에는 종가가 반환됩니다. 도구 없이 수치를 만들어내지 마세요
+   - get_stock_price가 실패(종목 미발견)하면, 즉시 search_news로 해당 기업·이슈 관련 최신 기사를 검색해 답변하세요.
+   - 비상장 기업(예: 삼성바이오에피스, OpenAI 등)은 search_news로 뉴스를 찾아 응답하세요.
 4. 시장 분석 요청 시, 먼저 get_market_index로 코스피/코스닥 지수를 조회하고, 뉴스에서 언급된 종목의 주가를 get_stock_price로 조회하여 실제 데이터 기반으로 분석해주세요
+4-2. 기업·인물·정책·이슈 등 뉴스성 질문은 search_news 도구로 관련 기사를 검색한 뒤 답변의 근거로 삼으세요. 결과가 없으면 "최근 관련 기사를 찾지 못했다"고 솔직히 언급하세요.
 5. 구체적인 수치, 종목명, 이슈를 포함하여 답변하세요. "변동성 확인 필요", "주목" 같은 모호한 표현은 피하세요
 6. 응답은 충분히 상세하게 (300~500자), 핵심 데이터와 근거를 포함해주세요
 7. 한국어로 자연스럽게 대화해요
@@ -411,6 +414,20 @@ def _get_tools() -> list:
                 },
                 "required": ["query"]
             }
+        },
+        {
+            "name": "search_news",
+            "description": "기업·인물·이슈 등 키워드로 서울경제 DB에서 최신 기사를 검색합니다. 주가가 없는 비상장 기업(예: 삼성바이오에피스, OpenAI 등)이나 일반 이슈·사건 관련 질문에 활용하세요. get_stock_price가 실패했을 때 자동으로 폴백으로 이 도구를 호출해 관련 소식을 찾아 답변하세요.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "검색 키워드 (예: '삼성바이오에피스', '엔비디아 AI 칩', '미국 금리')"
+                    }
+                },
+                "required": ["query"]
+            }
         }
     ]
 
@@ -437,7 +454,10 @@ def _execute_tool(tool_name: str, tool_input: dict) -> str:
                 "저가": stock_data.get("low", ""),
                 "거래량": stock_data.get("volume", ""),
             }, ensure_ascii=False)
-        return json.dumps({"error": f"'{query}' 종목을 찾을 수 없습니다."}, ensure_ascii=False)
+        return json.dumps({
+            "error": f"'{query}' 상장 종목을 찾을 수 없습니다.",
+            "hint": "비상장 기업이거나 정식 명칭이 다를 수 있습니다. search_news 도구로 관련 뉴스를 찾아 답변해 주세요."
+        }, ensure_ascii=False)
 
     elif tool_name == "get_market_index":
         query = tool_input.get("query", "")
@@ -452,6 +472,26 @@ def _execute_tool(tool_name: str, tool_input: dict) -> str:
                 "장상태": index_data["market_status"],
             }, ensure_ascii=False)
         return json.dumps({"error": f"'{query}' 지수를 찾을 수 없습니다."}, ensure_ascii=False)
+
+    elif tool_name == "search_news":
+        query = tool_input.get("query", "")
+        articles = search_related_articles(query, limit=5)
+        if not articles:
+            return json.dumps({
+                "found": 0,
+                "message": f"'{query}'에 대한 최근 기사가 DB에 없습니다. 알려진 일반 정보로 답변해 주세요."
+            }, ensure_ascii=False)
+        return json.dumps({
+            "found": len(articles),
+            "articles": [
+                {
+                    "title": a.get("title_ko", ""),
+                    "category": a.get("category", ""),
+                    "published_at": a.get("published_at", ""),
+                }
+                for a in articles
+            ]
+        }, ensure_ascii=False)
 
     return json.dumps({"error": f"Unknown tool: {tool_name}"}, ensure_ascii=False)
 
