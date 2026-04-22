@@ -509,9 +509,10 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
         >
           <div
             style={{
-              position: 'absolute', top: -20, right: -20,
-              width: 140, height: 140, borderRadius: '50%',
-              background: 'radial-gradient(circle, rgba(49,130,246,0.25) 0%, transparent 70%)',
+              position: 'absolute', top: -40, right: -40,
+              width: 220, height: 220, borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(49,130,246,0.55) 0%, rgba(49,130,246,0.2) 40%, transparent 75%)',
+              filter: 'blur(4px)',
             }}
           />
           <div className="relative">
