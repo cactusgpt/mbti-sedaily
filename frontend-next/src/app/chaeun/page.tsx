@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   buildStructureAnalysis,
   CG_OH,
@@ -100,6 +100,7 @@ const TYPE_COLORS: Record<string, { bg: string; color: string; solid: string }> 
 export default function ChaeunPage() {
   const [saju, setSaju] = useState<CurrentSaju | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const timelineScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     try {
@@ -108,6 +109,29 @@ export default function ChaeunPage() {
     } catch {}
     setLoaded(true);
   }, []);
+
+  // 파생 값 (saju 없으면 기본값)
+  const pillars = saju?.pillars ?? [];
+  const ilgan = saju?.ilgan ?? '';
+  const daeuns = saju?.daeuns ?? [];
+  const year = saju?.year ?? 0;
+
+  const structure = saju ? buildStructureAnalysis(pillars) : null;
+  const chaeseong = saju ? calculateChaeseongProfile(pillars) : null;
+  const diagnosis = structure?.singangyak && chaeseong ? diagnoseChaeun(structure.singangyak, chaeseong) : null;
+  const timeline = saju ? evaluateDaeunChaeun(daeuns, ilgan) : [];
+
+  const now = new Date();
+  const currentAge = year > 0 ? now.getFullYear() - year : 0;
+  const currentIdx = timeline.findIndex(s => currentAge >= s.age && currentAge < s.age + 10);
+
+  // 대운 타임라인: 현재 구간을 맨 왼쪽으로 자동 스크롤
+  useEffect(() => {
+    if (currentIdx < 0 || !timelineScrollRef.current) return;
+    // 카드 width 112 + gap 8 = 120px
+    const offset = currentIdx * 120;
+    timelineScrollRef.current.scrollTo({ left: offset, behavior: 'auto' });
+  }, [currentIdx]);
 
   if (!loaded) return null;
 
@@ -135,22 +159,15 @@ export default function ChaeunPage() {
     );
   }
 
-  const { pillars, ilgan, daeuns, year, month, day, gender } = saju;
-
-  const structure = buildStructureAnalysis(pillars);
-  const chaeseong = calculateChaeseongProfile(pillars);
-  const diagnosis = structure?.singangyak ? diagnoseChaeun(structure.singangyak, chaeseong) : null;
-  const timeline = evaluateDaeunChaeun(daeuns, ilgan);
-
-  const now = new Date();
-  const currentAge = now.getFullYear() - year;
-  const chaeOh = chaeseong.chaeOh;
+  // 이하는 saju 확정 상태
+  const { month, day, gender } = saju;
+  const chaeOh = chaeseong!.chaeOh;
   const chaeOhTextCls = EL_TEXT[chaeOh] || 'text-gray-700';
 
   // 편재/정재 비율 (0-100)
-  const total = chaeseong.totalCount || 1;
-  const pyeonPct = (chaeseong.pyeonJae / total) * 100;
-  const jeongPct = (chaeseong.jeongJae / total) * 100;
+  const total = chaeseong!.totalCount || 1;
+  const pyeonPct = (chaeseong!.pyeonJae / total) * 100;
+  const jeongPct = (chaeseong!.jeongJae / total) * 100;
 
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
@@ -198,12 +215,12 @@ export default function ChaeunPage() {
           <div className="grid grid-cols-2 gap-2 mb-4">
             <div className="rounded-xl p-3 text-center" style={{ background: '#F2F4F7' }}>
               <div className="text-[11px] text-gray-500 font-semibold mb-1">편재</div>
-              <div className="text-[22px] font-extrabold text-gray-900 leading-none">{chaeseong.pyeonJae}<span className="text-[12px] font-medium text-gray-400 ml-1">개</span></div>
+              <div className="text-[22px] font-extrabold text-gray-900 leading-none">{chaeseong!.pyeonJae}<span className="text-[12px] font-medium text-gray-400 ml-1">개</span></div>
               <div className="text-[10px] text-gray-400 mt-1">활동적 재물</div>
             </div>
             <div className="rounded-xl p-3 text-center" style={{ background: '#F2F4F7' }}>
               <div className="text-[11px] text-gray-500 font-semibold mb-1">정재</div>
-              <div className="text-[22px] font-extrabold text-gray-900 leading-none">{chaeseong.jeongJae}<span className="text-[12px] font-medium text-gray-400 ml-1">개</span></div>
+              <div className="text-[22px] font-extrabold text-gray-900 leading-none">{chaeseong!.jeongJae}<span className="text-[12px] font-medium text-gray-400 ml-1">개</span></div>
               <div className="text-[10px] text-gray-400 mt-1">안정된 재물</div>
             </div>
           </div>
@@ -212,13 +229,13 @@ export default function ChaeunPage() {
           <div className="mb-3">
             <div className="flex items-baseline justify-between mb-1.5">
               <span className="text-[12px] font-semibold text-gray-700">재성 강도</span>
-              <span className="text-[12px] text-gray-500">{chaeseong.strength}/100</span>
+              <span className="text-[12px] text-gray-500">{chaeseong!.strength}/100</span>
             </div>
             <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
               <div
                 className="h-full rounded-full"
                 style={{
-                  width: `${chaeseong.strength}%`,
+                  width: `${chaeseong!.strength}%`,
                   background: `linear-gradient(90deg, ${EL_SOLID[chaeOh] || '#5B8DF0'} 0%, ${EL_SOLID[chaeOh] || '#5B8DF0'}cc 100%)`,
                 }}
               />
@@ -230,14 +247,14 @@ export default function ChaeunPage() {
             <span
               className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold"
               style={{
-                background: chaeseong.hasRoot ? '#E8F5E5' : '#F2F4F7',
-                color: chaeseong.hasRoot ? '#2D7A1F' : '#6B7684',
+                background: chaeseong!.hasRoot ? '#E8F5E5' : '#F2F4F7',
+                color: chaeseong!.hasRoot ? '#2D7A1F' : '#6B7684',
               }}
             >
-              {chaeseong.hasRoot ? '뿌리 있음' : '뿌리 없음'}
+              {chaeseong!.hasRoot ? '뿌리 있음' : '뿌리 없음'}
             </span>
             <span className="text-gray-500">
-              지장간 재성 합산 {chaeseong.rootStrength}점
+              지장간 재성 합산 {chaeseong!.rootStrength}점
             </span>
           </div>
         </div>
@@ -258,9 +275,9 @@ export default function ChaeunPage() {
 
           // 보조 태그: 편재/정재 우세
           const dominTag =
-            chaeseong.dominantType === '편재' ? { text: '편재 우세', bg: '#FEE7E2', color: '#C33A1F' } :
-            chaeseong.dominantType === '정재' ? { text: '정재 우세', bg: '#E8F2FF', color: '#3182F6' } :
-            chaeseong.dominantType === '균형' ? { text: '편재·정재 균형', bg: '#ECFEFF', color: '#0E7490' } :
+            chaeseong!.dominantType === '편재' ? { text: '편재 우세', bg: '#FEE7E2', color: '#C33A1F' } :
+            chaeseong!.dominantType === '정재' ? { text: '정재 우세', bg: '#E8F2FF', color: '#3182F6' } :
+            chaeseong!.dominantType === '균형' ? { text: '편재·정재 균형', bg: '#ECFEFF', color: '#0E7490' } :
             { text: '재성 없음', bg: '#F2F4F7', color: '#6B7684' };
 
           return (
@@ -328,25 +345,25 @@ export default function ChaeunPage() {
         })()}
 
         {/* 3) 투자 성향 미터 */}
-        {chaeseong.totalCount > 0 && (
+        {chaeseong!.totalCount > 0 && (
           <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
             <div className="text-[14px] font-bold text-gray-900 mb-1">투자 성향 미터</div>
             <div className="text-[11px] text-gray-400 mb-4">편재 ↔ 정재 비율</div>
 
             <div className="flex items-center gap-2 text-[11px] font-semibold mb-2">
-              <span className="text-red-600">적극적 편재 {chaeseong.pyeonJae}</span>
+              <span className="text-red-600">적극적 편재 {chaeseong!.pyeonJae}</span>
               <div className="flex-1" />
-              <span className="text-blue-600">안정적 정재 {chaeseong.jeongJae}</span>
+              <span className="text-blue-600">안정적 정재 {chaeseong!.jeongJae}</span>
             </div>
             <div className="h-3 rounded-full overflow-hidden flex">
               <div style={{ width: `${pyeonPct}%`, background: '#EF4444' }} />
               <div style={{ width: `${jeongPct}%`, background: '#3B82F6' }} />
             </div>
             <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
-              {chaeseong.dominantType === '편재' && '활동적 재물(편재) 비중이 높아 기회 포착·확장에 유리하지만 변동폭이 큽니다.'}
-              {chaeseong.dominantType === '정재' && '안정적 재물(정재) 비중이 높아 꾸준한 축적·저축에 유리합니다.'}
-              {chaeseong.dominantType === '균형' && '편재·정재가 균형을 이뤄 공격과 수비를 오가는 포트폴리오가 어울립니다.'}
-              {chaeseong.dominantType === '없음' && '원국에 재성이 약해 인성·식상 경로의 우회 축적이 어울립니다.'}
+              {chaeseong!.dominantType === '편재' && '활동적 재물(편재) 비중이 높아 기회 포착·확장에 유리하지만 변동폭이 큽니다.'}
+              {chaeseong!.dominantType === '정재' && '안정적 재물(정재) 비중이 높아 꾸준한 축적·저축에 유리합니다.'}
+              {chaeseong!.dominantType === '균형' && '편재·정재가 균형을 이뤄 공격과 수비를 오가는 포트폴리오가 어울립니다.'}
+              {chaeseong!.dominantType === '없음' && '원국에 재성이 약해 인성·식상 경로의 우회 축적이 어울립니다.'}
             </p>
           </div>
         )}
@@ -357,7 +374,7 @@ export default function ChaeunPage() {
             <div className="text-[14px] font-bold text-gray-900 mb-1">대운 재물 타임라인</div>
             <div className="text-[11px] text-gray-400 mb-4">10년 주기로 보는 평생 재물 흐름</div>
 
-            <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
+            <div ref={timelineScrollRef} className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
               {timeline.map((seg, i) => {
                 const isCurrent = currentAge >= seg.age && currentAge < seg.age + 10;
                 const ratingStyle = seg.rating === 'strong'
