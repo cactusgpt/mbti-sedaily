@@ -420,7 +420,13 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
       {/* 재운 흐름 보기 배너 — 생년월일 입력 전에도 항상 노출 */}
       <button
         type="button"
-        onClick={() => { window.location.href = '/chaeun.html'; }}
+        onClick={() => {
+          // 메인에서 현재 활성 결과가 없으면 stale saju_current를 비워 /chaeun이 빈 상태로 열리게 한다
+          if (!result) {
+            try { localStorage.removeItem('saju_current'); } catch {}
+          }
+          window.location.href = '/chaeun.html';
+        }}
         className="w-full rounded-[16px] mt-6 relative overflow-hidden cursor-pointer border-none text-left"
         style={{
           background: 'linear-gradient(145deg, #1B2432 0%, #191F28 60%)',
