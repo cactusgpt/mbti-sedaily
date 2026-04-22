@@ -663,35 +663,59 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
 
           {/* 카테고리별 운세 — 점수 대신 정성 라벨 */}
           {todayFortune.categories && todayFortune.categories.length > 0 && (
-            <div className="border-t border-gray-100 pt-4 mt-4 space-y-4">
-              {todayFortune.categories.map((cat) => {
-                const label =
-                  cat.score >= 80 ? { text: '매우 유리', cls: 'bg-blue-100 text-blue-700 border-blue-200' } :
-                  cat.score >= 65 ? { text: '유리', cls: 'bg-green-100 text-green-700 border-green-200' } :
-                  cat.score >= 45 ? { text: '무난', cls: 'bg-gray-100 text-gray-600 border-gray-200' } :
-                  cat.score >= 30 ? { text: '주의', cls: 'bg-yellow-100 text-yellow-700 border-yellow-200' } :
-                                    { text: '강한 주의', cls: 'bg-red-100 text-red-700 border-red-200' };
+            <div className="border-t border-gray-100 mt-4">
+              {todayFortune.categories.map((cat, idx) => {
+                const tone =
+                  cat.score >= 80 ? { text: '매우 유리', bg: '#2D7A1F', color: '#fff' } :
+                  cat.score >= 65 ? { text: '유리', bg: '#E8F5E5', color: '#2D7A1F' } :
+                  cat.score >= 45 ? { text: '무난', bg: '#EDE9FE', color: '#6B7280' } :
+                  cat.score >= 30 ? { text: '주의', bg: '#FEF3C7', color: '#92400E' } :
+                                    { text: '강한 주의', bg: '#C33A1F', color: '#fff' };
                 return (
-                  <div key={cat.label}>
+                  <div
+                    key={cat.label}
+                    className={idx > 0 ? 'border-t border-gray-100 pt-4 mt-4' : 'pt-4'}
+                  >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-[13px] font-semibold text-gray-800">{cat.label}</span>
-                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${label.cls}`}>
-                        {label.text}
+                      <span className="text-[14px] font-bold text-gray-900">{cat.label}</span>
+                      <span
+                        className="inline-block rounded-full"
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          background: tone.bg,
+                          color: tone.color,
+                        }}
+                      >
+                        {tone.text}
                       </span>
                     </div>
-                    <p className="text-[12px] text-gray-500 leading-relaxed">
+                    <p className="text-[12px] text-gray-600 leading-relaxed">
                       {getCategoryDesc(cat.label, todayFortune.ss, cat.desc)}
                     </p>
                     {categoryNoteMap[cat.label] && categoryNoteMap[cat.label].length > 0 && (
-                      <div className="mt-1.5 space-y-1">
+                      <div className="mt-2.5 space-y-1.5">
                         {categoryNoteMap[cat.label].map((n, i) => {
-                          const cls = n.tone === 'positive' ? 'border-green-200 bg-green-50 text-green-700'
-                            : n.tone === 'negative' ? 'border-red-200 bg-red-50 text-red-700'
-                            : 'border-gray-200 bg-gray-50 text-gray-600';
-                          const label = n.tone === 'positive' ? '오늘 플러스' : n.tone === 'negative' ? '오늘 주의' : '오늘';
+                          const nc = n.tone === 'positive'
+                            ? { bg: '#E8F5E5', color: '#2D7A1F', icon: '✓' }
+                            : n.tone === 'negative'
+                              ? { bg: '#FEE7E2', color: '#C33A1F', icon: '!' }
+                              : { bg: '#F3F4F6', color: '#4E5968', icon: '·' };
+                          const lbl = n.tone === 'positive' ? '오늘 플러스' : n.tone === 'negative' ? '오늘 주의' : '오늘';
                           return (
-                            <div key={i} className={`text-[11px] p-1.5 rounded border ${cls} leading-snug`}>
-                              <span className="font-semibold">{label}</span> · {n.note}
+                            <div
+                              key={i}
+                              className="rounded-[10px]"
+                              style={{
+                                padding: '10px 12px',
+                                fontSize: 12,
+                                background: nc.bg,
+                                color: nc.color,
+                                lineHeight: 1.5,
+                              }}
+                            >
+                              <span style={{ fontWeight: 600 }}>{nc.icon} {lbl}:</span> {n.note}
                             </div>
                           );
                         })}
