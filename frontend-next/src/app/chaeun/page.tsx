@@ -98,6 +98,7 @@ const TYPE_COLORS: Record<string, { bg: string; color: string; solid: string }> 
 export default function ChaeunPage() {
   const [saju, setSaju] = useState<CurrentSaju | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
   const timelineScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -131,7 +132,7 @@ export default function ChaeunPage() {
     timelineScrollRef.current.scrollTo({ left: offset, behavior: 'auto' });
   }, [currentIdx]);
 
-  // SajuInputPanel → 계산 결과를 localStorage + 로컬 state에 반영
+  // SajuInputPanel → 계산 결과를 localStorage + 로컬 state에 반영 + 폼 자동 접힘
   const handleCalculated = (r: SajuCalcResult) => {
     setSaju({
       year: r.year, month: r.month, day: r.day, gender: r.gender,
@@ -139,6 +140,7 @@ export default function ChaeunPage() {
       pillars: r.pillars, ilgan: r.ilgan,
       correctedTime: r.correctedTime, daeuns: r.daeuns,
     });
+    setFormOpen(false);
   };
 
   // 폼 프리필 값 (현재 로드된 saju가 있으면 그 값으로)
@@ -184,30 +186,55 @@ export default function ChaeunPage() {
       </div>
 
       <div className="max-w-[480px] mx-auto px-3 sm:px-[14px] pt-4 pb-10">
-        {/* 입력 폼 + 저장된 만세력 (항상 최상단) */}
-        <SajuInputPanel initial={initialForm} onCalculated={handleCalculated} />
-
-        {/* 분석 섹션 — saju 있을 때만 */}
+        {/* saju 없으면: 입력 폼 + 저장 목록 */}
         {!saju && (
-          <div className="mt-4 p-6 text-center bg-white border border-gray-200 rounded-[16px]">
-            <p className="text-[13px] text-gray-500 leading-relaxed">
-              위에서 생년월일을 입력하거나 저장된 만세력을 선택하면<br />
-              아래에 재운 흐름 분석이 펼쳐져요.
-            </p>
-          </div>
+          <>
+            <SajuInputPanel initial={initialForm} onCalculated={handleCalculated} />
+            <div className="mt-4 p-6 text-center bg-white border border-gray-200 rounded-[16px]">
+              <p className="text-[13px] text-gray-500 leading-relaxed">
+                위에서 생년월일을 입력하거나 저장된 만세력을 선택하면<br />
+                아래에 재운 흐름 분석이 펼쳐져요.
+              </p>
+            </div>
+          </>
         )}
 
-        {saju && chaeseong && (<>
-        {/* 프로필 요약 */}
+        {/* saju 있고 폼 열림: 입력 폼만 노출 */}
+        {saju && formOpen && (
+          <>
+            <button
+              type="button"
+              onClick={() => setFormOpen(false)}
+              className="w-full mb-3 py-2.5 text-[13px] text-gray-500 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors border-none cursor-pointer"
+            >
+              입력 취소하고 돌아가기
+            </button>
+            <SajuInputPanel initial={initialForm} onCalculated={handleCalculated} />
+          </>
+        )}
+
+        {saju && !formOpen && chaeseong && (<>
+        {/* 프로필 요약 — 최상단, '다시 입력' 버튼 포함 */}
         <div className="bg-white border border-gray-200 rounded-[16px] p-4 mb-3">
-          <div className="text-[11px] text-gray-400 font-medium mb-1">대상</div>
-          <div className="text-[13px] font-bold text-gray-900">
-            {saju.year}년 {saju.month}월 {saju.day}일 · {saju.gender}
-          </div>
-          <div className="text-[11px] text-gray-500 mt-1">
-            일간 <span className={`font-bold ${EL_TEXT[CG_OH[ilgan] || ''] || ''}`}>{pillars[1]?.ck}{ilgan}</span>
-            <span className="ml-1">· {CG_OH[ilgan]}({OH_HJ[CG_OH[ilgan]] || ''})</span>
-            <span className="ml-2">· 재성 오행 <b className={chaeOhTextCls}>{chaeOh}({OH_HJ[chaeOh] || ''})</b></span>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] text-gray-400 font-medium mb-1">대상</div>
+              <div className="text-[13px] font-bold text-gray-900">
+                {saju.year}년 {saju.month}월 {saju.day}일 · {saju.gender}
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">
+                일간 <span className={`font-bold ${EL_TEXT[CG_OH[ilgan] || ''] || ''}`}>{pillars[1]?.ck}{ilgan}</span>
+                <span className="ml-1">· {CG_OH[ilgan]}({OH_HJ[CG_OH[ilgan]] || ''})</span>
+                <span className="ml-2">· 재성 오행 <b className={chaeOhTextCls}>{chaeOh}({OH_HJ[chaeOh] || ''})</b></span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFormOpen(true)}
+              className="shrink-0 border-none rounded-lg cursor-pointer px-3 py-1.5 text-[12px] font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+            >
+              다시 입력
+            </button>
           </div>
         </div>
 
