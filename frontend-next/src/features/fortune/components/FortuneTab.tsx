@@ -306,9 +306,10 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
               setSaveName(parsed ? `${parsed.y}.${parsed.m}.${parsed.d}` : '');
               setShowSaveModal(true);
             }}
-            className="w-full mt-4 mb-8 py-3 text-[14px] font-semibold bg-white border border-gray-200 rounded-xl text-gray-700 hover:bg-gray-50 transition-all"
+            className="w-full mt-4 mb-8 py-3.5 text-[14px] font-bold rounded-xl text-white transition-all"
+            style={{ background: '#5B8DF0' }}
           >
-            저장하기
+            만세력 저장하기
           </button>
         </>
       )}
