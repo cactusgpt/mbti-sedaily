@@ -159,31 +159,33 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
 
   return (
     <div className="-my-6 w-full" style={{ background: '#F8F9FA', minHeight: 'calc(100vh + 48px)' }}>
-      <div className="max-w-[480px] mx-auto">
-      {/* 흰색 헤더 블록 (오늘의 운세 + 성향 토글) */}
-      <div className="bg-white" style={{ padding: '20px 20px 18px' }}>
-        {/* 날짜 */}
-        <div className="text-[13px] text-gray-500 font-medium tracking-tight mb-1">{todayLabel}</div>
-        <h2 className="text-[26px] font-extrabold text-gray-900 tracking-[-0.04em] mb-5">오늘의 운세</h2>
+      {/* 흰색 헤더 블록 — 전폭 */}
+      <div className="bg-white w-full">
+        <div className="max-w-[480px] mx-auto" style={{ padding: '20px 20px 18px' }}>
+          {/* 날짜 */}
+          <div className="text-[13px] text-gray-500 font-medium tracking-tight mb-1">{todayLabel}</div>
+          <h2 className="text-[26px] font-extrabold text-gray-900 tracking-[-0.04em] mb-5">오늘의 운세</h2>
 
-        {/* MBTI 그룹 */}
-        <div className="flex gap-1.5">
-          {([
-            { id: 'NT' as const, name: '분석가' },
-            { id: 'NF' as const, name: '이야기꾼' },
-            { id: 'ST' as const, name: '실용주의자' },
-            { id: 'SF' as const, name: '공감러' },
-          ]).map(g => (
-            <button key={g.id} type="button" onClick={() => setMbtiGroup(g.id)}
-              className={`flex-1 py-2.5 text-[13px] rounded-full font-semibold tracking-[-0.02em] transition-colors ${
-                mbtiGroup === g.id ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:text-gray-700'
-              }`}>
-              {g.name}
-            </button>
-          ))}
+          {/* MBTI 그룹 */}
+          <div className="flex gap-1.5">
+            {([
+              { id: 'NT' as const, name: '분석가' },
+              { id: 'NF' as const, name: '이야기꾼' },
+              { id: 'ST' as const, name: '실용주의자' },
+              { id: 'SF' as const, name: '공감러' },
+            ]).map(g => (
+              <button key={g.id} type="button" onClick={() => setMbtiGroup(g.id)}
+                className={`flex-1 py-2.5 text-[13px] rounded-full font-semibold tracking-[-0.02em] transition-colors ${
+                  mbtiGroup === g.id ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:text-gray-700'
+                }`}>
+                {g.name}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
+      <div className="max-w-[480px] mx-auto">
       {/* 회색 콘텐츠 영역 */}
       <div style={{ padding: '14px 14px 40px' }}>
       {/* 입력 폼 — 결과가 있으면 접힘 */}
