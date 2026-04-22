@@ -402,40 +402,38 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
         );
       })()}
 
-      {/* 재운 흐름 보기 배너 */}
-      {result && (
-        <button
-          type="button"
-          className="w-full rounded-[16px] mt-6 relative overflow-hidden cursor-pointer border-none text-left"
+      {/* 재운 흐름 보기 배너 — 생년월일 입력 전에도 항상 노출 */}
+      <button
+        type="button"
+        className="w-full rounded-[16px] mt-6 relative overflow-hidden cursor-pointer border-none text-left"
+        style={{
+          background: 'linear-gradient(145deg, #1B2432 0%, #191F28 60%)',
+          padding: '20px 22px',
+          color: '#fff',
+        }}
+      >
+        <div
           style={{
-            background: 'linear-gradient(145deg, #1B2432 0%, #191F28 60%)',
-            padding: '20px 22px',
-            color: '#fff',
+            position: 'absolute', top: -40, right: -40,
+            width: 220, height: 220, borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(49,130,246,0.55) 0%, rgba(49,130,246,0.2) 40%, transparent 75%)',
+            filter: 'blur(4px)',
           }}
-        >
-          <div
-            style={{
-              position: 'absolute', top: -40, right: -40,
-              width: 220, height: 220, borderRadius: '50%',
-              background: 'radial-gradient(circle, rgba(49,130,246,0.55) 0%, rgba(49,130,246,0.2) 40%, transparent 75%)',
-              filter: 'blur(4px)',
-            }}
-          />
-          <div className="relative flex items-center justify-between gap-3">
-            <div>
-              <div style={{ fontSize: 11, color: '#8B95A1', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>
-                NEW
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.02em' }}>
-                재운 흐름 보기
-              </div>
+        />
+        <div className="relative flex items-center justify-between gap-3">
+          <div>
+            <div style={{ fontSize: 11, color: '#8B95A1', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>
+              NEW
             </div>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="9 18 15 12 9 6" />
-            </svg>
+            <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.02em' }}>
+              재운 흐름 보기
+            </div>
           </div>
-        </button>
-      )}
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="9 18 15 12 9 6" />
+          </svg>
+        </div>
+      </button>
       </div>
       </div>
     </div>
