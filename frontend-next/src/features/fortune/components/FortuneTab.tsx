@@ -232,12 +232,57 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
             운세 보러가기
           </button>
         </>
-      ) : (
-        <button onClick={() => setShowForm(true)}
-          className="w-full mb-4 py-2.5 text-[13px] text-gray-500 bg-gray-100 rounded-xl hover:bg-gray-200 transition-all">
-          다시 입력하기
-        </button>
-      )}
+      ) : result ? (() => {
+        const EL_BG: Record<string, string> = {
+          '목': 'bg-green-50 text-green-700',
+          '화': 'bg-red-50 text-red-600',
+          '토': 'bg-yellow-50 text-yellow-700',
+          '금': 'bg-gray-100 text-gray-700',
+          '수': 'bg-blue-50 text-blue-700',
+        };
+        const ilganOh = CG_OH[result.ilgan] || '';
+        const parsed = parseDateStr(birthdate);
+        const dateLabel = parsed ? `${parsed.y}년 ${parsed.m}월 ${parsed.d}일` : '';
+        const timeLabel = noTime || !timeInput ? '시간 모름' : timeInput;
+        const regionLabel = REGION_OPTIONS.find(r => r.value === region)?.label || '';
+
+        // 경도 보정 분 차이
+        let offsetLabel = '';
+        if (result.correctedTime && !noTime) {
+          const raw = timeInput.replace(/[^0-9]/g, '');
+          if (raw.length === 4) {
+            const inMin = parseInt(raw.slice(0, 2)) * 60 + parseInt(raw.slice(2, 4));
+            const outMin = result.correctedTime.hour * 60 + result.correctedTime.minute;
+            const diff = outMin - inMin;
+            if (diff !== 0) offsetLabel = ` (경도보정 ${diff > 0 ? '+' : ''}${diff}분)`;
+          }
+        }
+
+        const subtitle = [gender, regionLabel].filter(Boolean).join(' · ') + offsetLabel;
+
+        return (
+          <div className="bg-white border border-gray-200 rounded-[16px] p-4 mb-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-[10px] flex items-center justify-center font-serif text-[16px] font-bold shrink-0 ${EL_BG[ilganOh] || 'bg-gray-50 text-gray-400'}`}>
+                {result.ilgan || '—'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-bold text-gray-900 truncate">
+                  {dateLabel}{!noTime && timeInput && ` ${timeLabel}`}
+                </div>
+                <div className="text-[11px] text-gray-400 truncate">{subtitle}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowForm(true)}
+                className="shrink-0 border-none rounded-lg cursor-pointer px-3 py-1.5 text-[12px] font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+              >
+                다시 입력
+              </button>
+            </div>
+          </div>
+        );
+      })() : null}
 
       {error && <p className="mt-3 text-center text-[13px] text-red-500">{error}</p>}
 
