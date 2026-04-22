@@ -179,6 +179,36 @@ const US_TONE_BUCKET: Record<string, 'favor' | 'caution' | 'default'> = {
   '쇠': 'caution', '병': 'caution', '사': 'caution', '묘': 'caution', '절': 'caution', '목욕': 'caution',
 };
 
+// TODAY 헤드라인용 자연어 수식 (십성)
+const SS_FLOW: Record<string, string> = {
+  '비견': '나와 나란히 선 동료 같은 비견',
+  '겁재': '든든한 형제 같은 겁재',
+  '식신': '여유롭게 풀어내는 식신',
+  '상관': '재능이 빛나는 상관',
+  '편재': '활기차게 움직이는 편재',
+  '정재': '꾸준히 쌓아가는 정재',
+  '편관': '도전과 압박을 주는 편관',
+  '정관': '질서와 명예의 정관',
+  '편인': '영감이 번뜩이는 편인',
+  '정인': '학문과 지혜의 정인',
+};
+
+// TODAY 헤드라인용 자연어 수식 (12운성)
+const US_FLOW: Record<string, string> = {
+  '장생': '새롭게 출발하는 장생',
+  '목욕': '출렁이는 변화의 목욕',
+  '관대': '자신감이 차오르는 관대',
+  '건록': '실력이 꽃피는 건록',
+  '제왕': '기운이 가장 차오르는 제왕',
+  '쇠': '기운이 서서히 잦아드는 쇠',
+  '병': '잠시 쉬어가야 할 병',
+  '사': '정체를 겪는 사',
+  '묘': '내면을 돌아보는 묘',
+  '절': '매듭을 짓는 절',
+  '태': '조용히 잉태하는 태',
+  '양': '차분히 자라는 양',
+};
+
 type UnVariant = 'daeun' | 'yeonun' | 'wolun';
 
 interface UnCol { c: string; j: string; ck: string; jk: string; label: string }
@@ -418,9 +448,112 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
     return arr[dayOfYear % arr.length];
   };
 
+  const ilganOh = (oh || '금') as Ohaeng;
+  const ilganPhrase = `${pillars[1].ck || ''}${oh || ''}`;
+
   return (
     <div className="mt-8">
       <SajuTable pillars={pillars} ilgan={ilgan} />
+
+      {/* 일간 + 진태양시 */}
+      <div className="bg-white rounded-[16px] mb-3" style={{ padding: '16px 18px' }}>
+        <div className="flex gap-4">
+          <div className="flex-1 min-w-0">
+            <div style={{ fontSize: 11, color: V3_TOKENS.sub, fontWeight: 600, marginBottom: 6 }}>
+              일간
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span style={{ fontSize: 18, fontWeight: 800, color: OHAENG_SETS.default[ilganOh].text }}>
+                {pillars[1].ck || '—'}
+              </span>
+              {ilgan && (
+                <span
+                  className="font-serif"
+                  style={{ fontSize: 14, fontWeight: 700, color: OHAENG_SETS.default[ilganOh].text }}
+                >
+                  {ilgan}
+                </span>
+              )}
+              {oh && (
+                <span style={{ fontSize: 13, fontWeight: 700, color: OHAENG_SETS.default[ilganOh].text }}>
+                  · {oh}({OH_HJ[oh]})
+                </span>
+              )}
+            </div>
+          </div>
+          <div style={{ width: 1, background: '#F2F4F7' }} />
+          <div className="flex-1 min-w-0">
+            <div style={{ fontSize: 11, color: V3_TOKENS.sub, fontWeight: 600, marginBottom: 6 }}>
+              {correctedTime ? '진태양시' : '양력 출생'}
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: V3_TOKENS.ink, letterSpacing: '0.02em' }}>
+              {correctedTime
+                ? `${String(correctedTime.hour).padStart(2, '0')}:${String(correctedTime.minute).padStart(2, '0')}`
+                : `${year}.${String(month).padStart(2, '0')}.${String(day).padStart(2, '0')}`}
+            </div>
+            {correctedTime && (
+              <div style={{ fontSize: 10, color: V3_TOKENS.sub, marginTop: 2 }}>
+                경도 보정 적용
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* TODAY */}
+      {todayFortune && (
+        <div
+          className="rounded-[16px] mb-4 relative overflow-hidden"
+          style={{
+            background: 'linear-gradient(145deg, #1B2432 0%, #191F28 60%)',
+            padding: '24px 22px',
+            color: '#fff',
+          }}
+        >
+          <div
+            style={{
+              position: 'absolute', top: -20, right: -20,
+              width: 140, height: 140, borderRadius: '50%',
+              background: 'radial-gradient(circle, rgba(49,130,246,0.25) 0%, transparent 70%)',
+            }}
+          />
+          <div className="relative">
+            <div
+              style={{
+                fontSize: 11, color: '#8B95A1', fontWeight: 700,
+                letterSpacing: '0.1em', marginBottom: 10,
+              }}
+            >
+              TODAY
+            </div>
+            <div
+              className="mb-4"
+              style={{ fontSize: 15, fontWeight: 500, lineHeight: 1.65, letterSpacing: '-0.01em' }}
+            >
+              오늘은 <b>{todayFortune.dayPillar}</b>일이에요.
+              {ilganPhrase && <> 당신의 <b>{ilganPhrase}</b>에게</>} 오늘은{' '}
+              <b>{SS_FLOW[todayFortune.ss] || todayFortune.ss}</b>의 날, 그리고{' '}
+              <b>{US_FLOW[todayFortune.us] || todayFortune.us}</b>의 하루랍니다.
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { k: '일진', v: todayFortune.dayPillar },
+                { k: '십성', v: todayFortune.ss },
+                { k: '운성', v: todayFortune.us },
+              ].map((x, i) => (
+                <div
+                  key={i}
+                  className="rounded-xl"
+                  style={{ background: 'rgba(255,255,255,0.06)', padding: '10px 12px' }}
+                >
+                  <div style={{ fontSize: 10, color: '#8B95A1', marginBottom: 3 }}>{x.k}</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>{x.v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 기본 정보 */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4 text-[13px]">
