@@ -420,7 +420,7 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
       {/* 재운 흐름 보기 배너 — 생년월일 입력 전에도 항상 노출 */}
       <button
         type="button"
-        onClick={() => { window.location.href = '/chaeun/'; }}
+        onClick={() => { window.location.href = '/chaeun.html'; }}
         className="w-full rounded-[16px] mt-6 relative overflow-hidden cursor-pointer border-none text-left"
         style={{
           background: 'linear-gradient(145deg, #1B2432 0%, #191F28 60%)',
