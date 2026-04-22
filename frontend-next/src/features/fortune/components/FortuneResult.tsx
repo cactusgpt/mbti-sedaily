@@ -553,7 +553,7 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
       )}
 
 
-      {/* 오늘의 운세 — 상단 우선 배치 (일반 사용자 관심사) */}
+      {/* [섹션 1] 오늘의 운세 — 설명 */}
       {todayFortune && (
         <Section title="오늘의 운세">
           <p className="mb-3">
@@ -564,35 +564,11 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
             <span className="text-[11px] text-gray-400">({US_MEANING[todayFortune.us]})</span>입니다.
           </p>
           {ssReadingText && <p className="mb-3">{ssReadingText}</p>}
-          <p className={todayFortune.sinsal.length || todayFortune.hiddenSipsung?.length ? 'mb-3' : ''}>
+          <p className={todayFortune.sinsal.length ? 'mb-3' : ''}>
             12운성 <strong>{todayFortune.us}</strong>
             <span className="text-[11px] text-gray-400 ml-1">— {US_MEANING[todayFortune.us]}</span>
             <br />{usReadingText}
           </p>
-
-          {/* 일진 지지의 지장간별 십성 — 풀이 포함 */}
-          {todayFortune.hiddenSipsung && todayFortune.hiddenSipsung.length > 0 && (
-            <div className="border-t border-gray-100 pt-3 mb-3">
-              <div className="text-[11px] text-gray-500 mb-1.5">
-                천간({todayFortune.dayPillarHanja[0]})뿐 아니라 지지(<strong>{todayFortune.dayPillarHanja[1]}</strong>) 안에도 숨은 기운이 있어요:
-              </div>
-              <div className="space-y-1">
-                {todayFortune.hiddenSipsung.map((h, i) => (
-                  <div key={i} className="flex items-center gap-2 text-[12px]">
-                    <span className={`inline-block w-[40px] text-center px-1 py-0.5 rounded text-[10px] border ${h.weight === '본기' ? 'border-gray-400 bg-gray-50 font-semibold' : 'border-gray-200 text-gray-500'}`}>
-                      {h.weight}
-                    </span>
-                    <span className="text-gray-700 font-semibold w-[20px]">{h.hanja}</span>
-                    <span className="text-gray-600 w-[40px]">{h.ss}</span>
-                    <span className="text-[11px] text-gray-400">— {SS_MEANING[h.ss] || ''}</span>
-                  </div>
-                ))}
-              </div>
-              <p className="text-[11px] text-gray-400 mt-2">
-                <span className="font-semibold text-gray-500">본기</span>가 가장 강하고 <span className="font-semibold text-gray-500">여기</span>는 약한 보조 기운입니다.
-              </p>
-            </div>
-          )}
 
           {/* 원국 결핍 오행 ↔ 오늘 일진 지장간 보충 분석 */}
           {dailyInsights.complements.length > 0 && (
@@ -657,82 +633,106 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
               ))}
             </div>
           )}
+        </Section>
+      )}
 
-          {/* 카테고리별 운세 — 점수 대신 정성 라벨 */}
-          {todayFortune.categories && todayFortune.categories.length > 0 && (
-            <div className="border-t border-gray-100 mt-4">
-              {todayFortune.categories.map((cat, idx) => {
-                const tone =
-                  cat.score >= 80 ? { text: '매우 유리', bg: '#2D7A1F', color: '#fff' } :
-                  cat.score >= 65 ? { text: '유리', bg: '#E8F5E5', color: '#2D7A1F' } :
-                  cat.score >= 45 ? { text: '무난', bg: '#EDE9FE', color: '#6B7280' } :
-                  cat.score >= 30 ? { text: '주의', bg: '#FEF3C7', color: '#92400E' } :
-                                    { text: '강한 주의', bg: '#C33A1F', color: '#fff' };
-                return (
-                  <div
-                    key={cat.label}
-                    className={idx > 0 ? 'border-t border-gray-100 pt-4 mt-4' : 'pt-4'}
+      {/* [섹션 2] 지지 속 숨은 기운 */}
+      {todayFortune && todayFortune.hiddenSipsung && todayFortune.hiddenSipsung.length > 0 && (
+        <Section title="지지 속 숨은 기운">
+          <div className="text-[12px] text-gray-500 mb-3">
+            천간({todayFortune.dayPillarHanja[0]})뿐 아니라 지지(<strong className="text-gray-700">{todayFortune.dayPillarHanja[1]}</strong>) 안에도 숨은 기운이 있어요.
+          </div>
+          <div className="space-y-1.5">
+            {todayFortune.hiddenSipsung.map((h, i) => (
+              <div key={i} className="flex items-center gap-2 text-[12px]">
+                <span className={`inline-block w-[40px] text-center px-1 py-0.5 rounded text-[10px] border ${h.weight === '본기' ? 'border-gray-400 bg-gray-50 font-semibold' : 'border-gray-200 text-gray-500'}`}>
+                  {h.weight}
+                </span>
+                <span className="text-gray-700 font-semibold w-[20px]">{h.hanja}</span>
+                <span className="text-gray-600 w-[40px]">{h.ss}</span>
+                <span className="text-[11px] text-gray-400">— {SS_MEANING[h.ss] || ''}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] text-gray-400 mt-3">
+            <span className="font-semibold text-gray-500">본기</span>가 가장 강하고 <span className="font-semibold text-gray-500">여기</span>는 약한 보조 기운입니다.
+          </p>
+        </Section>
+      )}
+
+      {/* [섹션 3] 분야별 운세 */}
+      {todayFortune && todayFortune.categories && todayFortune.categories.length > 0 && (
+        <Section title="분야별 운세">
+          {todayFortune.categories.map((cat, idx) => {
+            const tone =
+              cat.score >= 80 ? { text: '매우 유리', bg: '#2D7A1F', color: '#fff' } :
+              cat.score >= 65 ? { text: '유리', bg: '#E8F5E5', color: '#2D7A1F' } :
+              cat.score >= 45 ? { text: '무난', bg: '#EDE9FE', color: '#6B7280' } :
+              cat.score >= 30 ? { text: '주의', bg: '#FEF3C7', color: '#92400E' } :
+                                { text: '강한 주의', bg: '#C33A1F', color: '#fff' };
+            return (
+              <div
+                key={cat.label}
+                className={idx > 0 ? 'border-t border-gray-100 pt-4 mt-4' : ''}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[14px] font-bold text-gray-900">{cat.label}</span>
+                  <span
+                    className="inline-block rounded-full"
+                    style={{
+                      padding: '4px 12px',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      background: tone.bg,
+                      color: tone.color,
+                    }}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[14px] font-bold text-gray-900">{cat.label}</span>
-                      <span
-                        className="inline-block rounded-full"
-                        style={{
-                          padding: '4px 12px',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          background: tone.bg,
-                          color: tone.color,
-                        }}
-                      >
-                        {tone.text}
-                      </span>
+                    {tone.text}
+                  </span>
+                </div>
+                <p className="text-[12px] text-gray-600 leading-relaxed">
+                  {getCategoryDesc(cat.label, todayFortune.ss, cat.desc)}
+                </p>
+                {(() => {
+                  // 카테고리 pill 톤과 매칭되는 노트만 노출
+                  const notes = categoryNoteMap[cat.label] || [];
+                  const visible = notes.filter(n => {
+                    if (n.tone === 'positive') return cat.score >= 45;  // 무난 이상
+                    if (n.tone === 'negative') return cat.score < 65;   // 무난 이하
+                    return true;
+                  });
+                  if (visible.length === 0) return null;
+                  return (
+                    <div className="mt-2.5 space-y-1.5">
+                      {visible.map((n, i) => {
+                        const nc = n.tone === 'positive'
+                          ? { bg: '#E8F5E5', color: '#2D7A1F', icon: '✓' }
+                          : n.tone === 'negative'
+                            ? { bg: '#FEE7E2', color: '#C33A1F', icon: '!' }
+                            : { bg: '#F3F4F6', color: '#4E5968', icon: '·' };
+                        const lbl = n.tone === 'positive' ? '오늘 플러스' : n.tone === 'negative' ? '오늘 주의' : '오늘';
+                        return (
+                          <div
+                            key={i}
+                            className="rounded-[10px]"
+                            style={{
+                              padding: '10px 12px',
+                              fontSize: 12,
+                              background: nc.bg,
+                              color: nc.color,
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            <span style={{ fontWeight: 600 }}>{nc.icon} {lbl}:</span> {n.note}
+                          </div>
+                        );
+                      })}
                     </div>
-                    <p className="text-[12px] text-gray-600 leading-relaxed">
-                      {getCategoryDesc(cat.label, todayFortune.ss, cat.desc)}
-                    </p>
-                    {(() => {
-                      // 카테고리 pill 톤과 매칭되는 노트만 노출
-                      const notes = categoryNoteMap[cat.label] || [];
-                      const visible = notes.filter(n => {
-                        if (n.tone === 'positive') return cat.score >= 45;  // 무난 이상
-                        if (n.tone === 'negative') return cat.score < 65;   // 무난 이하
-                        return true;
-                      });
-                      if (visible.length === 0) return null;
-                      return (
-                        <div className="mt-2.5 space-y-1.5">
-                          {visible.map((n, i) => {
-                            const nc = n.tone === 'positive'
-                              ? { bg: '#E8F5E5', color: '#2D7A1F', icon: '✓' }
-                              : n.tone === 'negative'
-                                ? { bg: '#FEE7E2', color: '#C33A1F', icon: '!' }
-                                : { bg: '#F3F4F6', color: '#4E5968', icon: '·' };
-                            const lbl = n.tone === 'positive' ? '오늘 플러스' : n.tone === 'negative' ? '오늘 주의' : '오늘';
-                            return (
-                              <div
-                                key={i}
-                                className="rounded-[10px]"
-                                style={{
-                                  padding: '10px 12px',
-                                  fontSize: 12,
-                                  background: nc.bg,
-                                  color: nc.color,
-                                  lineHeight: 1.5,
-                                }}
-                              >
-                                <span style={{ fontWeight: 600 }}>{nc.icon} {lbl}:</span> {n.note}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                  );
+                })()}
+              </div>
+            );
+          })}
         </Section>
       )}
 
