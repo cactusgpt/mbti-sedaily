@@ -189,7 +189,7 @@ export default function ChaeunPage() {
         {/* saju 없으면: 입력 폼 + 저장 목록 */}
         {!saju && (
           <>
-            <SajuInputPanel initial={initialForm} onCalculated={handleCalculated} />
+            <SajuInputPanel initial={initialForm} onCalculated={handleCalculated} submitLabel="재운 흐름 보기" />
             <div className="mt-4 p-6 text-center bg-white border border-gray-200 rounded-[16px]">
               <p className="text-[13px] text-gray-500 leading-relaxed">
                 위에서 생년월일을 입력하거나 저장된 만세력을 선택하면<br />
@@ -209,7 +209,7 @@ export default function ChaeunPage() {
             >
               입력 취소하고 돌아가기
             </button>
-            <SajuInputPanel initial={initialForm} onCalculated={handleCalculated} />
+            <SajuInputPanel initial={initialForm} onCalculated={handleCalculated} submitLabel="재운 흐름 보기" />
           </>
         )}
 

@@ -51,9 +51,11 @@ interface Props {
   };
   /** 계산 성공 시 호출 — 상위 페이지가 state 업데이트/렌더 트리거 */
   onCalculated?: (saju: SajuCalcResult) => void;
+  /** 제출 버튼 라벨 (기본 '운세 보러가기') */
+  submitLabel?: string;
 }
 
-export function SajuInputPanel({ initial, onCalculated }: Props) {
+export function SajuInputPanel({ initial, onCalculated, submitLabel = '운세 보러가기' }: Props) {
   const [birthdate, setBirthdate] = useState(initial?.birthdate ?? '');
   const [timeInput, setTimeInput] = useState(initial?.timeInput ?? '');
   const [noTime, setNoTime] = useState(initial?.noTime ?? false);
@@ -245,7 +247,7 @@ export function SajuInputPanel({ initial, onCalculated }: Props) {
         <button type="button" onClick={handleCalculate}
           className={`w-full py-3.5 text-[15px] font-semibold rounded-xl transition-all ${isDateValid ? 'bg-gray-900 text-white hover:bg-gray-800 cursor-pointer' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
           disabled={!isDateValid}>
-          운세 보러가기
+          {submitLabel}
         </button>
         {error && <p className="mt-3 text-center text-[13px] text-red-500">{error}</p>}
       </div>
