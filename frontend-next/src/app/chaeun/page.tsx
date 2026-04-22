@@ -5,6 +5,7 @@ import {
   buildStructureAnalysis,
   CG_OH,
   OH_HJ,
+  REGION_OPTIONS,
   type Pillar,
   type DaeunEntry,
 } from '@/features/fortune/lib/engine';
@@ -212,29 +213,51 @@ export default function ChaeunPage() {
         )}
 
         {saju && !formOpen && chaeseong && (<>
-        {/* 프로필 요약 — 최상단, '다시 입력' 버튼 포함 */}
-        <div className="bg-white border border-gray-200 rounded-[16px] p-4 mb-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex-1 min-w-0">
-              <div className="text-[11px] text-gray-400 font-medium mb-1">대상</div>
-              <div className="text-[13px] font-bold text-gray-900">
-                {saju.year}년 {saju.month}월 {saju.day}일 · {saju.gender}
-              </div>
-              <div className="text-[11px] text-gray-500 mt-1">
-                일간 <span className={`font-bold ${EL_TEXT[CG_OH[ilgan] || ''] || ''}`}>{pillars[1]?.ck}{ilgan}</span>
-                <span className="ml-1">· {CG_OH[ilgan]}({OH_HJ[CG_OH[ilgan]] || ''})</span>
-                <span className="ml-2">· 재성 오행 <b className={chaeOhTextCls}>{chaeOh}({OH_HJ[chaeOh] || ''})</b></span>
+        {/* 프로필 요약 — FortuneTab 컴팩트 카드 스타일로 통일 */}
+        {(() => {
+          const ilganOh = CG_OH[ilgan] || '';
+          const dateLabel = `${saju.year}년 ${saju.month}월 ${saju.day}일`;
+          const regionLabel = REGION_OPTIONS.find(r => r.value === saju.region)?.label || '보정 안함';
+          let offsetLabel = '';
+          if (saju.correctedTime && saju.timeInput) {
+            const raw = saju.timeInput.replace(/[^0-9]/g, '');
+            if (raw.length === 4) {
+              const inMin = parseInt(raw.slice(0, 2)) * 60 + parseInt(raw.slice(2, 4));
+              const outMin = saju.correctedTime.hour * 60 + saju.correctedTime.minute;
+              const diff = outMin - inMin;
+              if (diff !== 0) offsetLabel = ` (경도보정 ${diff > 0 ? '+' : ''}${diff}분)`;
+            }
+          }
+          const subtitle = [saju.gender, regionLabel].filter(Boolean).join(' · ') + offsetLabel;
+          return (
+            <div className="bg-white border border-gray-200 rounded-[16px] p-4 mb-3">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-9 h-9 rounded-[10px] flex items-center justify-center text-[16px] font-bold shrink-0"
+                  style={{
+                    background: EL_BG[ilganOh] || '#F2F4F7',
+                    color: EL_SOLID[ilganOh] || '#6B7684',
+                  }}
+                >
+                  {ilgan || '—'}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-bold text-gray-900 truncate">
+                    {dateLabel}{saju.timeInput && ` ${saju.timeInput}`}
+                  </div>
+                  <div className="text-[11px] text-gray-400 truncate">{subtitle}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFormOpen(true)}
+                  className="shrink-0 border-none rounded-lg cursor-pointer px-3 py-1.5 text-[12px] font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+                >
+                  다시 입력
+                </button>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setFormOpen(true)}
-              className="shrink-0 border-none rounded-lg cursor-pointer px-3 py-1.5 text-[12px] font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
-            >
-              다시 입력
-            </button>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* 1) 재성 프로파일 */}
         <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
