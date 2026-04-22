@@ -171,8 +171,8 @@ export function DailyCalendar({ ilgan }: Props) {
               }}
             >
               <div style={{ fontSize: 11, fontWeight: 700 }}>{day}</div>
-              <div style={{ fontSize: 8, opacity: 0.55, marginTop: 1 }}>{ganji}</div>
-              <div style={{ fontSize: 7, opacity: 0.55, marginTop: 1 }}>{subtitle}</div>
+              <div style={{ fontSize: 10, opacity: 0.65, marginTop: 2 }}>{ganji}</div>
+              <div style={{ fontSize: 9, opacity: 0.6, marginTop: 1 }}>{subtitle}</div>
             </button>
           );
         })}
