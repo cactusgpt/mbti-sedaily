@@ -385,12 +385,28 @@ export default function ChaeunPage() {
               </div>
 
               <div className="rounded-xl p-3 mb-2" style={{ background: '#F9FAFB' }}>
-                <div className="text-[11px] font-bold text-gray-700 mb-1">권장 태도</div>
-                <p className="text-[12px] text-gray-600 leading-relaxed">{diagnosis.attitude}</p>
+                <div className="text-[11px] font-bold text-gray-700 mb-2">권장 태도</div>
+                <ul className="space-y-1.5">
+                  {diagnosis.attitude.map((s, i) => (
+                    <li key={i} className="text-[12px] text-gray-700 leading-relaxed">· {s}</li>
+                  ))}
+                </ul>
               </div>
-              <div className="rounded-xl p-3" style={{ background: '#F9FAFB' }}>
-                <div className="text-[11px] font-bold text-gray-700 mb-1">투자 스타일</div>
-                <p className="text-[12px] text-gray-600 leading-relaxed">{diagnosis.investmentStyle}</p>
+              <div className="rounded-xl p-3 mb-2" style={{ background: '#F9FAFB' }}>
+                <div className="text-[11px] font-bold text-gray-700 mb-2">투자 스타일</div>
+                <ul className="space-y-1.5">
+                  {diagnosis.investmentStyle.map((s, i) => (
+                    <li key={i} className="text-[12px] text-gray-700 leading-relaxed">· {s}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-xl p-3" style={{ background: '#FEF7ED' }}>
+                <div className="text-[11px] font-bold text-orange-700 mb-2">피해야 할 행동</div>
+                <ul className="space-y-1.5">
+                  {diagnosis.avoid.map((s, i) => (
+                    <li key={i} className="text-[12px] text-orange-900 leading-relaxed">· {s}</li>
+                  ))}
+                </ul>
               </div>
             </div>
           );
