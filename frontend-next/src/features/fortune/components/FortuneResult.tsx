@@ -25,7 +25,7 @@ interface Props {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4">
+    <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-5 mb-4 break-words">
       <h3 className="text-[14px] font-bold text-gray-900 mb-3">{title}</h3>
       <div className="text-[13px] text-gray-600 leading-relaxed">{children}</div>
     </div>

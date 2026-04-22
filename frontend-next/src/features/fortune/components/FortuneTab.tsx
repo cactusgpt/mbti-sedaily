@@ -187,7 +187,7 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
 
       <div className="max-w-[480px] mx-auto">
       {/* 회색 콘텐츠 영역 */}
-      <div style={{ padding: '14px 14px 40px' }}>
+      <div className="px-3 sm:px-[14px] pt-[14px] pb-10">
       {/* 입력 폼 — 결과가 있으면 접힘 */}
       {showForm ? (
         <div className="bg-white border border-gray-200 rounded-[16px] p-5 mb-4">
@@ -320,8 +320,8 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
 
       {/* 저장 모달 */}
       {showSaveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20" onClick={() => setShowSaveModal(false)}>
-          <div className="bg-white rounded-2xl p-6 w-[320px] shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 p-4" onClick={() => setShowSaveModal(false)}>
+          <div className="bg-white rounded-2xl p-6 w-full max-w-[360px] shadow-xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-[15px] font-bold text-gray-900 mb-1">만세력 저장</h3>
             <p className="text-[12px] text-gray-400 mb-4">저장할 이름을 입력해주세요</p>
             <input type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
@@ -367,19 +367,21 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
                     </span>
                   )}
                   <div className="flex-1 min-w-0">
-                    <span className="text-[13px] font-semibold text-gray-900 mr-2">{item.name}</span>
-                    <span className="text-[11px] text-gray-400">
-                      {item.date.replace(/-/g, '.')} {item.time && `${item.time}`} · {item.gender}
-                    </span>
+                    <div className="truncate">
+                      <span className="text-[13px] font-semibold text-gray-900 mr-2">{item.name}</span>
+                      <span className="text-[11px] text-gray-400">
+                        {item.date.replace(/-/g, '.')} {item.time && `${item.time}`} · {item.gender}
+                      </span>
+                    </div>
                   </div>
                   {item.ilgan && (() => {
                     const hanja = item.ilgan.length >= 2 ? item.ilgan[1] : '';
                     const oh = CG_OH[hanja] || '';
                     const colorMap: Record<string, string> = { '목': 'text-green-600', '화': 'text-red-500', '토': 'text-yellow-600', '금': 'text-gray-500', '수': 'text-blue-600' };
-                    return <span className={`text-[13px] font-bold ml-2 ${colorMap[oh] || 'text-gray-600'}`}>{item.ilgan}</span>;
+                    return <span className={`shrink-0 text-[13px] font-bold ml-2 ${colorMap[oh] || 'text-gray-600'}`}>{item.ilgan}</span>;
                   })()}
                   <button onClick={e => { e.stopPropagation(); handleDelete(item.id); }}
-                    className="ml-2 w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-400 transition-colors text-[16px]">&times;</button>
+                    className="shrink-0 ml-2 w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-400 transition-colors text-[16px]">&times;</button>
                 </div>
               );
             })}
