@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { isBeforeLichun, getSajuMonth } from '@fullstackfamily/manseryeok';
 import { CG_OH, JJ_OH, OH_HJ, JJG, sipsung, unsung, buildStructureAnalysis, detectDayHapChung, evaluateForYongsin, generateDailyInsights, type Pillar, type ChongunResult, type TodayFortuneResult, type DaeunEntry, type YeonunEntry, type WolunEntry, type YongsinRating } from '../lib/engine';
+import { OHAENG_SETS, V3_TOKENS, type Ohaeng } from '../lib/ohaeng';
 import { SajuTable } from './SajuTable';
 import { DailyCalendar } from './DailyCalendar';
 
@@ -178,76 +179,125 @@ const US_TONE_BUCKET: Record<string, 'favor' | 'caution' | 'default'> = {
   '쇠': 'caution', '병': 'caution', '사': 'caution', '묘': 'caution', '절': 'caution', '목욕': 'caution',
 };
 
-function UnGrid({ title, cols, ilgan, activeCheck, periodType, yongsinOh }: {
+type UnVariant = 'daeun' | 'yeonun' | 'wolun';
+
+interface UnCol { c: string; j: string; ck: string; jk: string; label: string }
+
+function UnCard({ title, subtitle, cols, ilgan, activeCheck, variant, yongsinOh }: {
   title: string;
-  cols: { c: string; j: string; ck: string; jk: string; label: string }[];
+  subtitle?: string;
+  cols: UnCol[];
   ilgan: string;
-  activeCheck?: (col: { c: string; j: string; ck: string; jk: string; label: string } & Record<string, unknown>) => boolean;
-  periodType?: 'daeun' | 'yeonun' | 'wolun';
+  activeCheck?: (col: UnCol) => boolean;
+  variant: UnVariant;
   yongsinOh?: string;
 }) {
   const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-  const periodName = periodType === 'daeun' ? '10년' : periodType === 'yeonun' ? '1년' : periodType === 'wolun' ? '1개월' : '이 기간';
+  const periodName = variant === 'daeun' ? '10년' : variant === 'yeonun' ? '1년' : '1개월';
+
+  // 스크린샷 규격: 대운 넓게, 연운 중간, 월운 좁게
+  const tileWidth = variant === 'daeun' ? 62 : variant === 'yeonun' ? 58 : 52;
+  const charFont = variant === 'wolun' ? 14 : 16;
+  const showSipsung = variant !== 'wolun'; // 월운은 하단 십성 생략 (스크린샷 기준)
 
   return (
-    <div className="mb-4">
-      <div className="text-[12px] font-semibold text-gray-500 mb-2">{title}</div>
-      <div className="overflow-x-auto">
-        <div className="flex gap-2 min-w-max pb-2">
+    <div className="bg-white border border-gray-200 rounded-[16px] p-5 mb-4">
+      <div className="text-[14px] font-bold text-gray-900">{title}</div>
+      {subtitle && <div className="text-[11px] text-gray-400 mt-0.5 mb-3">{subtitle}</div>}
+      {!subtitle && <div className="mb-3" />}
+
+      <div className="overflow-x-auto -mx-1 px-1">
+        <div className="flex gap-2 min-w-max pb-1">
           {cols.map((col, i) => {
             const isActive = activeCheck ? activeCheck(col) : false;
-            const cgOh = CG_OH[col.c] || ''; const jjOh = JJ_OH[col.j] || '';
-            const cgSS = sipsung(ilgan, col.c);
-            const jjMain = col.j && JJG[col.j] ? JJG[col.j][JJG[col.j].length - 1] : null;
-            const jjSS = jjMain ? sipsung(ilgan, jjMain) : '';
-            const us = unsung(ilgan, col.j);
+            const isOpen = expandedIdx === i;
+            const cgOh = (CG_OH[col.c] || '금') as Ohaeng;
+            const jjOh = (JJ_OH[col.j] || '금') as Ohaeng;
+            const cgSS = ilgan ? sipsung(ilgan, col.c) : '';
             const yEval = yongsinOh ? evaluateForYongsin(col.c, col.j, yongsinOh) : null;
-            const yStyle: Record<YongsinRating, string> = {
-              favor: 'border-green-400 bg-green-50',
-              neutral: '',
-              caution: 'border-red-300 bg-red-50',
+            const rateColor: Record<YongsinRating, string> = {
+              favor: '#2D7A1F', neutral: V3_TOKENS.line, caution: '#C33A1F',
             };
-            const extraCls = yEval && yEval.rating !== 'neutral' && !isActive && expandedIdx !== i
-              ? yStyle[yEval.rating] : '';
+            const edgeColor = isActive || isOpen
+              ? V3_TOKENS.accent
+              : yEval && yEval.rating !== 'neutral'
+                ? rateColor[yEval.rating]
+                : V3_TOKENS.line;
+
             return (
-              <div key={i}
-                onClick={() => setExpandedIdx(expandedIdx === i ? null : i)}
-                className={`flex flex-col items-center w-[72px] py-2 px-1 rounded-lg border text-center flex-shrink-0 cursor-pointer transition-all ${isActive ? 'border-gray-900 bg-gray-50' : expandedIdx === i ? 'border-blue-400 bg-blue-50' : extraCls || 'border-gray-200 bg-white hover:border-gray-300'}`}>
-                <div className="text-[11px] text-gray-500 font-medium mb-1">{col.label}</div>
-                <div className="text-[10px] text-gray-400">{cgSS}</div>
-                <div className={`text-[16px] font-bold my-0.5 ${EL_COLORS[cgOh] || ''}`}>{col.ck}{col.c}</div>
-                <div className={`text-[16px] font-bold my-0.5 ${EL_COLORS[jjOh] || ''}`}>{col.jk}{col.j}</div>
-                <div className="text-[10px] text-gray-400">{jjSS}</div>
-                <div className="text-[10px] text-gray-400">{us}</div>
-                {yEval && yEval.rating !== 'neutral' && (
-                  <div className={`text-[9px] font-semibold mt-0.5 ${yEval.rating === 'favor' ? 'text-green-600' : 'text-red-500'}`}>
+              <button
+                key={i}
+                type="button"
+                onClick={() => setExpandedIdx(isOpen ? null : i)}
+                className="flex flex-col items-center rounded-[14px] cursor-pointer text-center flex-shrink-0"
+                style={{
+                  width: tileWidth,
+                  padding: variant === 'wolun' ? '6px 4px' : '10px 6px',
+                  background: isActive ? V3_TOKENS.ink : isOpen ? '#F3F7FF' : V3_TOKENS.panel,
+                  color: isActive ? '#fff' : V3_TOKENS.ink,
+                  border: `2px solid ${edgeColor}`,
+                  transition: 'all .15s',
+                }}
+              >
+                <div style={{ fontSize: 10, opacity: 0.7 }}>{col.label}</div>
+                <div
+                  className="rounded-md w-full my-1"
+                  style={{
+                    background: isActive ? 'rgba(255,255,255,0.08)' : OHAENG_SETS.default[cgOh].bg,
+                    color: isActive ? '#fff' : OHAENG_SETS.default[cgOh].text,
+                    fontSize: charFont, fontWeight: 800, padding: '3px 0',
+                  }}
+                >
+                  {col.c}
+                </div>
+                <div
+                  className="rounded-md w-full"
+                  style={{
+                    background: isActive ? 'rgba(255,255,255,0.08)' : OHAENG_SETS.default[jjOh].bg,
+                    color: isActive ? '#fff' : OHAENG_SETS.default[jjOh].text,
+                    fontSize: charFont, fontWeight: 800, padding: '3px 0',
+                  }}
+                >
+                  {col.j}
+                </div>
+                {showSipsung && cgSS && (
+                  <div style={{ fontSize: 9, opacity: 0.7, marginTop: 3 }}>{cgSS}</div>
+                )}
+                {yEval && yEval.rating !== 'neutral' && !isActive && (
+                  <div
+                    style={{
+                      fontSize: 9, fontWeight: 700, marginTop: 2,
+                      color: yEval.rating === 'favor' ? '#2D7A1F' : '#C33A1F',
+                    }}
+                  >
                     {yEval.rating === 'favor' ? '용신↑' : '용신↓'}
                   </div>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
       </div>
+
       {expandedIdx !== null && (() => {
         const col = cols[expandedIdx];
-        const cgOh = CG_OH[col.c] || '';
-        const jjOh = JJ_OH[col.j] || '';
-        const cgSS = sipsung(ilgan, col.c);
-        const us = unsung(ilgan, col.j);
+        const cgOh = (CG_OH[col.c] || '금') as Ohaeng;
+        const jjOh = (JJ_OH[col.j] || '금') as Ohaeng;
+        const cgSS = ilgan ? sipsung(ilgan, col.c) : '';
+        const us = ilgan ? unsung(ilgan, col.j) : '';
         const hidden = (col.j && JJG[col.j]) || [];
         const hiddenItems = hidden.map((h, i) => {
           const weight = hidden.length === 1 ? '본기' : hidden.length === 2 ? (i === 0 ? '여기' : '본기') : (i === 0 ? '여기' : i === 1 ? '중기' : '본기');
           return { hanja: h, ss: sipsung(ilgan, h), weight };
         });
         return (
-          <div className="mt-2 p-3 bg-gray-50 rounded-lg border border-gray-200 text-[12px] text-gray-600 leading-relaxed animate-in fade-in">
+          <div className="mt-3 p-3.5 rounded-xl text-[12px] text-gray-600 leading-relaxed" style={{ background: V3_TOKENS.panel }}>
             <div className="font-semibold text-gray-800 mb-2">
               {col.label}
               <span className="text-[11px] text-gray-400 ml-1.5">({periodName} 기간)</span>
               <span className="ml-2">
-                <span className={EL_COLORS[cgOh]}>{col.ck}{col.c}</span>{' '}
-                <span className={EL_COLORS[jjOh]}>{col.jk}{col.j}</span>
+                <span style={{ color: OHAENG_SETS.default[cgOh].text }}>{col.ck}{col.c}</span>{' '}
+                <span style={{ color: OHAENG_SETS.default[jjOh].text }}>{col.jk}{col.j}</span>
               </span>
             </div>
             {cgSS && (
@@ -279,6 +329,18 @@ function UnGrid({ title, cols, ilgan, activeCheck, periodType, yongsinOh }: {
                 </div>
               </div>
             )}
+            {variant === 'wolun' && yongsinOh && (() => {
+              const y = evaluateForYongsin(col.c, col.j, yongsinOh);
+              if (y.rating === 'neutral') return null;
+              return (
+                <div className="border-t border-gray-200 pt-2 mt-2">
+                  <span className={y.rating === 'favor' ? 'text-green-600 font-semibold' : 'text-red-500 font-semibold'}>
+                    {y.rating === 'favor' ? '✓ 용신 작용' : '! 기신 작용'}
+                  </span>
+                  <span className="text-gray-500 ml-1.5">{y.reason}</span>
+                </div>
+              );
+            })()}
           </div>
         );
       })()}
@@ -621,102 +683,204 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
         </Section>
       )}
 
-      {/* 대운 · 연운 · 월운 */}
+      {/* 대운 */}
       {ilgan && daeuns.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4">
-          <UnGrid title="대운" periodType="daeun" cols={daeuns.map(x => ({ ...x, label: `${x.age}세` }))} ilgan={ilgan}
-            activeCheck={(col) => currentAge >= (col as unknown as DaeunEntry).age && currentAge < (col as unknown as DaeunEntry).age + 10} />
-          <div className="border-t border-gray-100 my-3" />
-          <UnGrid title="연운" periodType="yeonun" cols={yeonuns.map(x => ({ ...x, label: `${x.year}` }))} ilgan={ilgan}
-            activeCheck={(col) => (col as unknown as YeonunEntry).year === sajuYear} />
-          <div className="border-t border-gray-100 my-3" />
-          <UnGrid title="월운" periodType="wolun" cols={woluns.map(x => ({ ...x, label: `${x.month}월` }))} ilgan={ilgan}
+        <UnCard
+          title="대운"
+          subtitle="10년 주기로 보는 큰 흐름"
+          variant="daeun"
+          cols={daeuns.map(x => ({ ...x, label: `${x.age}세` }))}
+          ilgan={ilgan}
+          activeCheck={col => {
+            const age = (col as unknown as DaeunEntry).age;
+            return currentAge >= age && currentAge < age + 10;
+          }}
+        />
+      )}
+
+      {/* 연운 */}
+      {ilgan && yeonuns.length > 0 && (
+        <UnCard
+          title="연운"
+          variant="yeonun"
+          cols={yeonuns.map(x => ({ ...x, label: `${x.year}` }))}
+          ilgan={ilgan}
+          activeCheck={col => (col as unknown as YeonunEntry).year === sajuYear}
+        />
+      )}
+
+      {/* 월운 */}
+      {ilgan && woluns.length > 0 && (
+        <>
+          <UnCard
+            title="월운"
+            variant="wolun"
+            cols={woluns.map(x => ({ ...x, label: `${String(x.month).padStart(2, '0')}월` }))}
+            ilgan={ilgan}
             yongsinOh={structure?.yongsin?.primary}
-            activeCheck={(col) => (col as unknown as WolunEntry).month === wolunActiveMonth} />
+            activeCheck={col => (col as unknown as WolunEntry).month === wolunActiveMonth}
+          />
           {structure?.yongsin && (
-            <div className="mt-2 pt-2 border-t border-gray-100 text-[11px] text-gray-500">
-              월운 배지: <span className="text-green-600 font-semibold">용신↑</span> 내 필요한 기운이 강해지는 달 ·
-              <span className="text-red-500 font-semibold ml-1">용신↓</span> 용신이 약해지는 달 (용신: <strong className={EL_COLORS[structure.yongsin.primary]}>{structure.yongsin.primary}</strong>)
+            <div className="-mt-3 mb-4 px-5 text-[11px] text-gray-500">
+              <span className="text-green-600 font-semibold">용신↑</span> 내 필요한 기운이 강해지는 달 ·
+              <span className="text-red-500 font-semibold ml-1">용신↓</span> 용신이 약해지는 달
+              (용신: <strong className={EL_COLORS[structure.yongsin.primary]}>{structure.yongsin.primary}</strong>)
             </div>
           )}
-        </div>
+        </>
       )}
 
       {/* 일진 달력 */}
       {ilgan && <DailyCalendar ilgan={ilgan} />}
 
-      {/* 사주 구조 진단 (팔자 전체 기반) — 접힘 */}
+      {/* 사주 구조 진단 — V3 디자인 */}
       {structure && (
         <CollapsibleSection
           title="사주 구조 진단"
-          subtitle="팔자 8글자 전체 구조 · 명리 용어 포함 (전문 분석)"
+          subtitle="오행 균형 · 신강/신약 · 격국 · 용신 · 관계"
         >
-          {/* 오행 분포 */}
-          <div className="mb-4">
-            <div className="text-[12px] font-semibold text-gray-700 mb-1.5">기운의 균형 <span className="text-[11px] font-normal text-gray-400">(오행 분포)</span></div>
-            <div className="grid grid-cols-5 gap-1.5">
-              {([
-                { o: '목', meaning: '성장·학문' },
-                { o: '화', meaning: '열정·표현' },
-                { o: '토', meaning: '안정·관계' },
-                { o: '금', meaning: '원칙·결단' },
-                { o: '수', meaning: '지혜·소통' },
-              ] as const).map(({ o, meaning }) => {
-                const n = structure.distribution.counts[o];
-                const isExcess = structure.distribution.excess.includes(o);
-                const isLacking = structure.distribution.lacking.includes(o);
-                return (
-                  <div key={o} className={`text-center p-1.5 rounded border ${isExcess ? 'border-red-300 bg-red-50' : isLacking ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
-                    <div className={`font-bold text-[13px] ${EL_COLORS[o]}`}>{o}</div>
-                    <div className="text-[10px] text-gray-400 leading-tight">{meaning}</div>
-                    <div className="text-[11px] text-gray-700 mt-0.5">{n}개</div>
-                    {isExcess && <div className="text-[9px] text-red-500 font-semibold">많음</div>}
-                    {isLacking && <div className="text-[9px] text-blue-500 font-semibold">없음</div>}
+          {/* 오행 균형 — bar chart */}
+          <div className="mb-6">
+            <div className="text-[13px] font-bold text-gray-900 mb-3">오행 균형</div>
+            {(() => {
+              const oh = OHAENG_SETS.default;
+              const entries = (['목', '화', '토', '금', '수'] as const).map(o => ({
+                o,
+                n: structure.distribution.counts[o],
+              }));
+              const maxCount = Math.max(2, ...entries.map(e => e.n));
+              const maxH = 70;
+              const statusLabel = (n: number) =>
+                n === 0 ? '없음' : n === 1 ? '적음' : n === 2 ? '적정' : '많음';
+              return (
+                <div>
+                  <div className="flex gap-2 items-end px-1" style={{ height: maxH + 18 }}>
+                    {entries.map(({ o, n }) => {
+                      const h = n === 0 ? 4 : Math.max(12, (n / maxCount) * maxH);
+                      return (
+                        <div key={o} className="flex-1 flex flex-col items-center gap-1">
+                          <div style={{ fontSize: 11, fontWeight: 700, color: oh[o].text, minHeight: 14 }}>
+                            {n > 0 ? n : ' '}
+                          </div>
+                          <div
+                            className="w-full rounded-md"
+                            style={{
+                              height: h,
+                              background: oh[o].bg,
+                              border: `1px solid ${oh[o].border}`,
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
+                  <div className="flex gap-2 px-1 mt-2">
+                    {entries.map(({ o, n }) => (
+                      <div key={o} className="flex-1 flex flex-col items-center gap-0.5">
+                        <div style={{ fontSize: 13, fontWeight: 700, color: oh[o].text }}>{o}</div>
+                        <div style={{ fontSize: 10, color: V3_TOKENS.sub }}>{statusLabel(n)}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* 신강/신약 */}
           {structure.singangyak && (() => {
             const lv = structure.singangyak.level;
-            const plain =
-              lv === '극신강' ? { text: '내 기운이 아주 강한 편이에요', tone: 'text-red-500' } :
-              lv === '신강' ? { text: '내 기운이 강한 편이에요', tone: 'text-red-400' } :
-              lv === '중화' ? { text: '내 기운이 적절히 균형 잡혀 있어요', tone: 'text-gray-700' } :
-              lv === '신약' ? { text: '내 기운이 약한 편이에요', tone: 'text-blue-500' } :
-                              { text: '내 기운이 매우 약한 편이에요', tone: 'text-blue-600' };
+            const label =
+              lv === '극신강' ? '극신강 경향' :
+              lv === '신강' ? '신강 경향' :
+              lv === '중화' ? '중화' :
+              lv === '신약' ? '신약 경향' : '극신약 경향';
+            const toneBg = lv.includes('강')
+              ? { bg: '#FEE7E2', text: '#C33A1F' }
+              : lv === '중화'
+                ? { bg: '#E8F5E5', text: '#2D7A1F' }
+                : { bg: '#E8F2FF', text: '#3182F6' };
+            const desc =
+              lv === '극신강' ? '일간이 과하게 강한 구조. 세력·인성이 모두 힘을 실어주어 조절이 필요한 형국.'
+              : lv === '신강' ? '일간이 강한 편. 월지·일지·세력 중 다수가 일간을 받쳐주는 구조.'
+              : lv === '중화' ? '일간의 세력과 주변 기운이 적절히 균형 잡힌 구조.'
+              : lv === '신약' ? '월지와 세력이 일간을 충분히 도와주지 못하는 형국. 다만 득지 여부에 따라 극단적 약은 아닐 수 있음.'
+              : '월지·일지·세력이 모두 일간을 돕지 않는 형국. 도움 기운을 적극적으로 구해야 하는 구조.';
             return (
-              <div className="mb-4">
-                <div className="text-[12px] font-semibold text-gray-700 mb-1">내 기운의 세기 <span className="text-[11px] font-normal text-gray-400">(신강/신약)</span></div>
-                <div className="text-[13px] mb-2">
-                  <strong className={plain.tone}>{plain.text}</strong>
-                  <span className="text-[11px] text-gray-400 ml-1.5">({lv})</span>
+              <div className="mb-6">
+                <div className="inline-flex items-center mb-3">
+                  <span
+                    className="inline-block rounded-full"
+                    style={{
+                      padding: '6px 14px',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      background: toneBg.bg,
+                      color: toneBg.text,
+                    }}
+                  >
+                    {label}
+                  </span>
                 </div>
-                <div className="space-y-1 text-[11px]">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`inline-block w-[52px] text-center py-0.5 rounded border text-[10px] ${structure.singangyak.deukryeong ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-300 text-gray-500'}`}>
-                      {structure.singangyak.deukryeong ? '득령 ✓' : '실령'}
-                    </span>
-                    <span className="text-gray-500">월지(태어난 달)가 {structure.singangyak.deukryeong ? '나를 도움' : '나를 돕지 않음'}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className={`inline-block w-[52px] text-center py-0.5 rounded border text-[10px] ${structure.singangyak.deukji ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-300 text-gray-500'}`}>
-                      {structure.singangyak.deukji ? '득지 ✓' : '실지'}
-                    </span>
-                    <span className="text-gray-500">일지(배우자 자리)가 {structure.singangyak.deukji ? '나를 도움' : '나를 돕지 않음'}</span>
-                  </div>
-                  <div className="flex items-start gap-1.5">
-                    <span className="inline-block w-[52px] text-center py-0.5 rounded border border-gray-300 text-gray-600 text-[10px] shrink-0">득세 {structure.singangyak.deukse}/5</span>
-                    <div className="flex flex-wrap gap-1">
-                      {structure.singangyak.supports.map((s, i) => (
-                        <span key={i} className={`px-1.5 py-0.5 rounded text-[10px] border ${s.helps ? 'border-green-200 bg-green-50 text-green-700' : 'border-gray-200 text-gray-400'}`}>
-                          {s.position} {s.char}{s.helps ? ' ✓' : ''}
-                        </span>
-                      ))}
+                <p className="text-[12px] text-gray-600 leading-relaxed mb-3">{desc}</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    {
+                      name: '득령',
+                      ok: structure.singangyak.deukryeong,
+                      okNote: '월지가 일간을 도움',
+                      noNote: '절기가 일간에 돕지 않음',
+                    },
+                    {
+                      name: '득지',
+                      ok: structure.singangyak.deukji,
+                      okNote: '일지가 일간의 뿌리',
+                      noNote: '일지가 일간을 돕지 않음',
+                    },
+                    {
+                      name: '득세',
+                      ok: structure.singangyak.deukse >= 3,
+                      okNote: `세력 ${structure.singangyak.deukse}/5 — 우호적`,
+                      noNote: `세력 ${structure.singangyak.deukse}/5 — 부족`,
+                    },
+                  ].map((c, i) => (
+                    <div
+                      key={i}
+                      className="rounded-xl text-center"
+                      style={{ background: V3_TOKENS.panel, padding: '14px 10px' }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 22,
+                          fontWeight: 800,
+                          color: c.ok ? '#2D7A1F' : '#C33A1F',
+                          lineHeight: 1,
+                        }}
+                      >
+                        {c.ok ? '○' : '×'}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: V3_TOKENS.ink,
+                          marginTop: 8,
+                        }}
+                      >
+                        {c.name}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 10,
+                          color: V3_TOKENS.sub,
+                          marginTop: 4,
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        {c.ok ? c.okNote : c.noNote}
+                      </div>
                     </div>
-                  </div>
+                  ))}
                 </div>
               </div>
             );
@@ -724,63 +888,144 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
 
           {/* 격국 */}
           {structure.gyeokguk && (
-            <div className="mb-4">
-              <div className="text-[12px] font-semibold text-gray-700 mb-1">타고난 기질 <span className="text-[11px] font-normal text-gray-400">(격국)</span></div>
-              <div className="text-[13px]">
-                <strong>{structure.gyeokguk.name.replace(/\([^)]+\)/g, '')}</strong>
-                <p className="text-[12px] text-gray-600 mt-0.5">{structure.gyeokguk.description}</p>
+            <div className="mb-6">
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: V3_TOKENS.accent,
+                  marginBottom: 4,
+                }}
+              >
+                격국 (格局)
               </div>
+              <div
+                style={{
+                  fontSize: 15,
+                  fontWeight: 800,
+                  color: V3_TOKENS.ink,
+                  marginBottom: 6,
+                }}
+              >
+                {structure.gyeokguk.name.replace(/\([^)]+\)/g, '').trim()}
+              </div>
+              <p className="text-[12px] text-gray-600 leading-relaxed">
+                {structure.gyeokguk.description}
+              </p>
             </div>
           )}
 
           {/* 용신 */}
-          {structure.yongsin && (
-            <div className="mb-4">
-              <div className="text-[12px] font-semibold text-gray-700 mb-1">내게 필요한 기운 <span className="text-[11px] font-normal text-gray-400">(용신)</span></div>
-              <div className="text-[13px]">
-                <span>주 기운: </span>
-                <strong className={EL_COLORS[structure.yongsin.primary]}>{structure.yongsin.primary}</strong>
-                <span className="text-[11px] text-gray-500 ml-1">— {structure.yongsin.role}, {structure.yongsin.action}</span>
-                {structure.yongsin.supportElements.length > 0 && (
-                  <span className="ml-3">
-                    보조:
-                    {structure.yongsin.supportElements.map(e => <strong key={e} className={`${EL_COLORS[e]} ml-1`}>{e}</strong>)}
-                  </span>
-                )}
-                <p className="text-[12px] text-gray-600 mt-1">{structure.yongsin.description}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">선택 근거: {structure.yongsin.basis}</p>
+          {structure.yongsin && (() => {
+            const yOh = structure.yongsin.primary as Ohaeng;
+            const oh = OHAENG_SETS.default;
+            return (
+              <div className="mb-6">
+                <div
+                  className="rounded-[14px]"
+                  style={{ background: oh[yOh].bg, padding: '14px 16px' }}
+                >
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: oh[yOh].text,
+                      marginBottom: 10,
+                    }}
+                  >
+                    용신 (用神)
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <div
+                      className="rounded-lg"
+                      style={{
+                        padding: '7px 14px',
+                        background: oh[yOh].solid,
+                        color: '#fff',
+                        fontSize: 13,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {structure.yongsin.primary}(
+                      <span style={{ fontSize: 11 }}>{OH_HJ[structure.yongsin.primary] || ''}</span>
+                      ) · {structure.yongsin.role}
+                    </div>
+                    {structure.yongsin.supportElements.map(e => {
+                      const sOh = e as Ohaeng;
+                      return (
+                        <div
+                          key={e}
+                          className="rounded-lg bg-white"
+                          style={{
+                            padding: '7px 14px',
+                            color: oh[sOh].text,
+                            fontSize: 13,
+                            fontWeight: 700,
+                            border: `1px solid ${oh[sOh].border}`,
+                          }}
+                        >
+                          보조 · {e}(
+                          <span style={{ fontSize: 11 }}>{OH_HJ[e] || ''}</span>
+                          ) · 비겁
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                <p className="text-[12px] text-gray-600 leading-relaxed mt-2.5 px-1">
+                  {structure.yongsin.description}
+                </p>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
-          {/* 합·충 */}
+          {/* 지지 관계 (합·충) */}
           {structure.hapChung.length > 0 && (
             <div>
-              <div className="text-[12px] font-semibold text-gray-700 mb-1">내 사주 속 관계 <span className="text-[11px] font-normal text-gray-400">(합·충)</span></div>
-              <p className="text-[11px] text-gray-500 mb-2">합 = 친화·연결, 충 = 부딪침·변동이 일어나는 자리 조합</p>
-              <div className="space-y-2">
+              <div className="text-[13px] font-bold text-gray-900 mb-3">지지 관계</div>
+              <div className="space-y-3">
                 {structure.hapChung.map((hc, i) => {
                   const isChung = hc.type === '지지충';
-                  const cls = isChung
-                    ? 'border-red-200 bg-red-50'
-                    : 'border-green-200 bg-green-50';
-                  const badgeCls = isChung
-                    ? 'border-red-300 text-red-700 bg-white'
-                    : 'border-green-300 text-green-700 bg-white';
-                  const plainType = isChung ? '충돌' : hc.type === '지지삼합' ? '삼합' : '친화';
-                  const posText = hc.positions.length > 0 ? hc.positions.join(' ↔ ') : '원국 전체';
+                  const pillBg = isChung ? '#FEE7E2' : '#E8F2FF';
+                  const pillText = isChung ? '#C33A1F' : '#3182F6';
+                  const shortType = hc.type === '지지충'
+                    ? '충'
+                    : hc.type === '지지삼합'
+                      ? '삼합'
+                      : hc.type === '지지육합'
+                        ? '육합'
+                        : '천간합';
                   return (
-                    <div key={i} className={`p-2.5 rounded-lg border ${cls}`}>
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold border ${badgeCls}`}>
-                          {plainType}
-                        </span>
-                        <span className="text-[11px] text-gray-500">
-                          {posText} <span className="text-gray-400">({hc.chars})</span>
+                    <div key={i} className="flex items-start gap-3">
+                      <div style={{ width: 42, flexShrink: 0 }}>
+                        <span
+                          className="inline-block rounded-full text-center w-full"
+                          style={{
+                            padding: '4px 0',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            background: pillBg,
+                            color: pillText,
+                          }}
+                        >
+                          {shortType}
                         </span>
                       </div>
-                      <div className="text-[12px] font-semibold text-gray-800 mb-0.5">{hc.headline}</div>
-                      <p className="text-[11px] text-gray-600 leading-snug">{hc.meaning}</p>
+                      <div className="flex-1 min-w-0">
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: V3_TOKENS.ink,
+                            marginBottom: 3,
+                          }}
+                        >
+                          {hc.headline}
+                        </div>
+                        <div style={{ fontSize: 12, color: V3_TOKENS.sub, lineHeight: 1.55 }}>
+                          {hc.meaning}
+                        </div>
+                      </div>
                     </div>
                   );
                 })}

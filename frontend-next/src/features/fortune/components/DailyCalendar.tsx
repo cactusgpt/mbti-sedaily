@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { getGapja, CG_OH, JJ_OH, JJG, sipsung, unsung } from '../lib/engine';
+import { V3_TOKENS } from '../lib/ohaeng';
 
 const EL_COLORS: Record<string, string> = {
   '목': 'text-green-600', '화': 'text-red-500', '토': 'text-yellow-600',
@@ -9,16 +10,9 @@ const EL_COLORS: Record<string, string> = {
 };
 
 const SS_MEANING: Record<string, string> = {
-  '비견': '동료·경쟁자',
-  '겁재': '경쟁·지출',
-  '식신': '표현·여유',
-  '상관': '재능·비판',
-  '편재': '활동적 재물',
-  '정재': '성실한 재물',
-  '편관': '압박·도전',
-  '정관': '명예·규율',
-  '편인': '직관·영감',
-  '정인': '학문·지혜',
+  '비견': '동료·경쟁자', '겁재': '경쟁·지출', '식신': '표현·여유', '상관': '재능·비판',
+  '편재': '활동적 재물', '정재': '성실한 재물', '편관': '압박·도전', '정관': '명예·규율',
+  '편인': '직관·영감', '정인': '학문·지혜',
 };
 
 const US_MEANING: Record<string, string> = {
@@ -42,15 +36,18 @@ interface DayInfo {
 
 export function DailyCalendar({ ilgan }: Props) {
   const now = new Date();
-  const [viewY, setViewY] = useState(now.getFullYear());
-  const [viewM, setViewM] = useState(now.getMonth() + 1);
-  const [showUs, setShowUs] = useState(false);  // false: 십성 / true: 12운성
+  const todayY = now.getFullYear();
+  const todayM = now.getMonth() + 1;
+  const todayD = now.getDate();
+  const [viewY, setViewY] = useState(todayY);
+  const [viewM, setViewM] = useState(todayM);
+  const [mode, setMode] = useState<'sipsung' | 'unseong'>('sipsung');
   const [selectedDay, setSelectedDay] = useState<DayInfo | null>(null);
 
   const calData = useMemo(() => {
     const daysInMonth = new Date(viewY, viewM, 0).getDate();
     const firstDow = new Date(viewY, viewM - 1, 1).getDay();
-    const todayStr = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+    const todayStr = `${todayY}-${todayM}-${todayD}`;
     const days: DayInfo[] = [];
 
     for (let d = 1; d <= daysInMonth; d++) {
@@ -73,7 +70,7 @@ export function DailyCalendar({ ilgan }: Props) {
       });
     }
     return { days, firstDow, daysInMonth };
-  }, [viewY, viewM, now.getFullYear(), now.getMonth(), now.getDate(), ilgan]);
+  }, [viewY, viewM, todayY, todayM, todayD, ilgan]);
 
   const prevMonth = () => {
     if (viewM === 1) { setViewM(12); setViewY(viewY - 1); }
@@ -83,85 +80,110 @@ export function DailyCalendar({ ilgan }: Props) {
     if (viewM === 12) { setViewM(1); setViewY(viewY + 1); }
     else setViewM(viewM + 1);
   };
-  const goToday = () => {
-    setViewY(now.getFullYear());
-    setViewM(now.getMonth() + 1);
-  };
-  const isCurrentMonth = viewY === now.getFullYear() && viewM === now.getMonth() + 1;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-[14px] font-bold text-gray-900">{viewY}년 {viewM}월 일진</h3>
-        <div className="flex items-center gap-1">
-          {!isCurrentMonth && (
-            <button onClick={goToday} className="px-2 py-1 text-[11px] text-gray-500 hover:text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors">
-              오늘
-            </button>
-          )}
-          <button onClick={prevMonth} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">&lsaquo;</button>
-          <button onClick={nextMonth} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">&rsaquo;</button>
+    <div className="bg-white border border-gray-200 rounded-[16px] p-5 mb-4">
+      {/* 헤더: 타이틀 + 토글 pill */}
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex-1 min-w-0">
+          <div className="text-[14px] font-bold text-gray-900">일진 달력</div>
+          <div className="text-[11px] text-gray-400 mt-0.5">{viewY}년 {viewM}월</div>
+        </div>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={() => setMode('sipsung')}
+            className="cursor-pointer border-none rounded-lg"
+            style={{
+              padding: '5px 10px', fontSize: 10, fontWeight: 700,
+              background: mode === 'sipsung' ? V3_TOKENS.ink : V3_TOKENS.page,
+              color: mode === 'sipsung' ? '#fff' : V3_TOKENS.ink,
+            }}
+          >
+            십성
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('unseong')}
+            className="cursor-pointer border-none rounded-lg"
+            style={{
+              padding: '5px 10px', fontSize: 10, fontWeight: 700,
+              background: mode === 'unseong' ? V3_TOKENS.ink : V3_TOKENS.page,
+              color: mode === 'unseong' ? '#fff' : V3_TOKENS.ink,
+            }}
+          >
+            운성
+          </button>
         </div>
       </div>
 
-      {/* 표시 토글 */}
-      <div className="flex gap-1 mb-3">
-        <button onClick={() => setShowUs(false)}
-          className={`px-2.5 py-1 text-[11px] rounded transition-colors ${!showUs ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:text-gray-700'}`}>
-          십성 보기
-        </button>
-        <button onClick={() => setShowUs(true)}
-          className={`px-2.5 py-1 text-[11px] rounded transition-colors ${showUs ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:text-gray-700'}`}>
-          12운성 보기
-        </button>
+      {/* 월 네비 */}
+      <div className="flex items-center justify-between mb-2.5">
+        <button
+          type="button"
+          onClick={prevMonth}
+          className="w-7 h-7 flex items-center justify-center rounded-lg border-none cursor-pointer"
+          style={{ background: V3_TOKENS.panel, color: V3_TOKENS.sub, fontSize: 14 }}
+          aria-label="이전 달"
+        >‹</button>
+        <div className="text-[13px] font-bold text-gray-900">{viewY}년 {viewM}월</div>
+        <button
+          type="button"
+          onClick={nextMonth}
+          className="w-7 h-7 flex items-center justify-center rounded-lg border-none cursor-pointer"
+          style={{ background: V3_TOKENS.panel, color: V3_TOKENS.sub, fontSize: 14 }}
+          aria-label="다음 달"
+        >›</button>
       </div>
 
-      {/* 요일 헤더 */}
-      <div className="grid grid-cols-7 mb-1">
-        {DOWS.map((d, i) => (
-          <div key={d} className={`text-center text-[11px] font-medium py-1 ${i === 0 ? 'text-red-400' : i === 6 ? 'text-blue-400' : 'text-gray-400'}`}>
-            {d}
+      {/* 요일 + 날짜 그리드 */}
+      <div className="grid grid-cols-7 gap-1">
+        {DOWS.map((w, i) => (
+          <div
+            key={w}
+            className="text-center font-semibold"
+            style={{
+              fontSize: 10,
+              color: i === 0 ? '#C33A1F' : V3_TOKENS.sub,
+              padding: '6px 0',
+            }}
+          >
+            {w}
           </div>
         ))}
-      </div>
-
-      {/* 날짜 그리드 */}
-      <div className="grid grid-cols-7 gap-0.5">
         {Array.from({ length: calData.firstDow }).map((_, i) => (
-          <div key={`empty-${i}`} className="py-1.5" />
+          <div key={`e-${i}`} />
         ))}
-        {calData.days.map((info) => {
-          const { day, dow, ganji, ss, us, isToday } = info;
-          const subtitle = showUs ? us : ss;
+        {calData.days.map(info => {
+          const { day, ganji, ss, us, isToday } = info;
+          const subtitle = mode === 'sipsung' ? ss : us;
           return (
             <button
               key={day}
               type="button"
               onClick={() => setSelectedDay(info)}
-              className={`py-1.5 text-center rounded-lg transition-colors cursor-pointer ${isToday ? 'bg-gray-900 text-white' : 'hover:bg-gray-100'}`}>
-              <div className={`text-[12px] font-medium ${isToday ? 'text-white' : dow === 0 ? 'text-red-400' : dow === 6 ? 'text-blue-400' : 'text-gray-700'}`}>
-                {day}
-              </div>
-              <div className={`text-[11px] font-bold ${isToday ? 'text-gray-300' : 'text-gray-500'}`}>
-                {ganji}
-              </div>
-              {subtitle && (
-                <div className={`text-[9px] ${isToday ? 'text-gray-400' : 'text-gray-400'}`}>
-                  {subtitle}
-                </div>
-              )}
+              className="rounded-[10px] flex flex-col items-center justify-center cursor-pointer border-none"
+              style={{
+                aspectRatio: '1 / 1',
+                background: isToday ? V3_TOKENS.ink : V3_TOKENS.panel,
+                color: isToday ? '#fff' : V3_TOKENS.ink,
+                padding: 2,
+              }}
+            >
+              <div style={{ fontSize: 11, fontWeight: 700 }}>{day}</div>
+              <div style={{ fontSize: 8, opacity: 0.55, marginTop: 1 }}>{ganji}</div>
+              <div style={{ fontSize: 7, opacity: 0.55, marginTop: 1 }}>{subtitle}</div>
             </button>
           );
         })}
       </div>
 
-      {/* 선택된 날짜 상세 모달 */}
+      {/* 선택 상세 모달 (기존 로직 유지) */}
       {selectedDay && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-4"
           onClick={() => setSelectedDay(null)}>
           <div
-            className="bg-white rounded-2xl p-5 w-full max-w-[420px] animate-in fade-in slide-in-from-bottom-4"
+            className="bg-white rounded-2xl p-5 w-full max-w-[420px]"
             onClick={e => e.stopPropagation()}>
             <div className="flex items-start justify-between mb-3">
               <div>
@@ -175,7 +197,6 @@ export function DailyCalendar({ ilgan }: Props) {
               </div>
               <button onClick={() => setSelectedDay(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
             </div>
-
             {selectedDay.ss && (
               <div className="mb-3">
                 <div className="text-[11px] font-semibold text-gray-500 mb-0.5">십성</div>
