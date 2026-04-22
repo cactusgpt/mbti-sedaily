@@ -414,6 +414,7 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
           color: '#fff',
         }}
       >
+        {/* 우상단 블루 글로우 */}
         <div
           style={{
             position: 'absolute', top: -40, right: -40,
@@ -422,6 +423,30 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
             filter: 'blur(4px)',
           }}
         />
+        {/* 배경 sin 파형 — 흐름 은유 */}
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 400 80"
+          preserveAspectRatio="none"
+          style={{
+            position: 'absolute', left: 0, right: 0, bottom: 0,
+            width: '100%', height: 80,
+            pointerEvents: 'none',
+          }}
+        >
+          <path
+            d="M 0 50 Q 50 20, 100 50 T 200 50 T 300 50 T 400 50"
+            fill="none"
+            stroke="rgba(96,165,250,0.25)"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M 0 60 Q 50 35, 100 60 T 200 60 T 300 60 T 400 60"
+            fill="none"
+            stroke="rgba(96,165,250,0.15)"
+            strokeWidth="1.2"
+          />
+        </svg>
         <div className="relative flex items-center justify-between gap-3">
           <div>
             <div style={{ fontSize: 11, color: '#8B95A1', fontWeight: 700, letterSpacing: '0.1em', marginBottom: 4 }}>
