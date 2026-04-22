@@ -134,11 +134,22 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
       const yeonuns = il ? calcYeonun() : [];
       const woluns = il ? calcWolun() : [];
 
-      setResult({
+      const newResult = {
         pillars: ps, ilgan: il, year: y, month: m, day: d, gender: g,
         chongun, todayFortune, daeuns, yeonuns, woluns,
         correctedTime: s.isTimeCorrected && s.correctedTime ? s.correctedTime : undefined,
-      });
+      };
+      setResult(newResult);
+      try {
+        localStorage.setItem('saju_current', JSON.stringify({
+          year: y, month: m, day: d, gender: g,
+          timeInput: isNoTime ? '' : timeStr,
+          region: reg,
+          pillars: ps, ilgan: il,
+          correctedTime: newResult.correctedTime,
+          daeuns,
+        }));
+      } catch {}
       setError('');
     } catch (err) {
       setError('계산 오류: ' + (err instanceof Error ? err.message : String(err)));
@@ -409,6 +420,7 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
       {/* 재운 흐름 보기 배너 — 생년월일 입력 전에도 항상 노출 */}
       <button
         type="button"
+        onClick={() => { window.location.href = '/chaeun/'; }}
         className="w-full rounded-[16px] mt-6 relative overflow-hidden cursor-pointer border-none text-left"
         style={{
           background: 'linear-gradient(145deg, #1B2432 0%, #191F28 60%)',
