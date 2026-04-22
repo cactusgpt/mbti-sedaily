@@ -335,29 +335,52 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
       )}
 
       {/* 저장 목록 */}
-      {savedList.length > 0 && (
+      {savedList.length > 0 && (() => {
+        // 현재 로드된 엔트리 매칭 (날짜+성별+시간+도시 일치)
+        const parsedNow = parseDateStr(birthdate);
+        const currentSavedId = result && parsedNow ? savedList.find(it => {
+          const parts = it.date.split('-').map(Number);
+          return parts[0] === parsedNow.y && parts[1] === parsedNow.m && parts[2] === parsedNow.d
+            && it.gender === gender
+            && (it.time || '') === (noTime ? '' : timeInput)
+            && (it.region || '') === (region || '');
+        })?.id ?? null : null;
+
+        return (
         <div className="mt-8">
           <h3 className="text-[13px] font-semibold text-gray-800 mb-3">저장된 만세력</h3>
           <div className="space-y-2">
-            {(savedExpanded ? savedList : savedList.slice(0, 3)).map(item => (
-              <div key={item.id} onClick={() => handleLoad(item)}
-                className="flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-xl cursor-pointer hover:border-gray-300 hover:bg-gray-50 transition-all">
-                <div className="flex-1 min-w-0">
-                  <span className="text-[13px] font-semibold text-gray-900 mr-2">{item.name}</span>
-                  <span className="text-[11px] text-gray-400">
-                    {item.date.replace(/-/g, '.')} {item.time && `${item.time}`} · {item.gender}
-                  </span>
+            {(savedExpanded ? savedList : savedList.slice(0, 3)).map(item => {
+              const isCurrent = item.id === currentSavedId;
+              return (
+                <div key={item.id} onClick={() => handleLoad(item)}
+                  className={`flex items-center justify-between px-4 py-3 bg-white rounded-xl cursor-pointer transition-all ${
+                    isCurrent
+                      ? 'border-2 border-green-500 bg-green-50/50'
+                      : 'border border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  }`}>
+                  {isCurrent && (
+                    <span className="shrink-0 mr-2 inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-600 text-white">
+                      현재
+                    </span>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <span className="text-[13px] font-semibold text-gray-900 mr-2">{item.name}</span>
+                    <span className="text-[11px] text-gray-400">
+                      {item.date.replace(/-/g, '.')} {item.time && `${item.time}`} · {item.gender}
+                    </span>
+                  </div>
+                  {item.ilgan && (() => {
+                    const hanja = item.ilgan.length >= 2 ? item.ilgan[1] : '';
+                    const oh = CG_OH[hanja] || '';
+                    const colorMap: Record<string, string> = { '목': 'text-green-600', '화': 'text-red-500', '토': 'text-yellow-600', '금': 'text-gray-500', '수': 'text-blue-600' };
+                    return <span className={`text-[13px] font-bold ml-2 ${colorMap[oh] || 'text-gray-600'}`}>{item.ilgan}</span>;
+                  })()}
+                  <button onClick={e => { e.stopPropagation(); handleDelete(item.id); }}
+                    className="ml-2 w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-400 transition-colors text-[16px]">&times;</button>
                 </div>
-                {item.ilgan && (() => {
-                  const hanja = item.ilgan.length >= 2 ? item.ilgan[1] : '';
-                  const oh = CG_OH[hanja] || '';
-                  const colorMap: Record<string, string> = { '목': 'text-green-600', '화': 'text-red-500', '토': 'text-yellow-600', '금': 'text-gray-500', '수': 'text-blue-600' };
-                  return <span className={`text-[13px] font-bold ml-2 ${colorMap[oh] || 'text-gray-600'}`}>{item.ilgan}</span>;
-                })()}
-                <button onClick={e => { e.stopPropagation(); handleDelete(item.id); }}
-                  className="ml-2 w-6 h-6 flex items-center justify-center text-gray-300 hover:text-red-400 transition-colors text-[16px]">&times;</button>
-              </div>
-            ))}
+              );
+            })}
           </div>
           {savedList.length > 3 && (
             <button
@@ -376,7 +399,8 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
             </button>
           )}
         </div>
-      )}
+        );
+      })()}
       </div>
       </div>
     </div>
