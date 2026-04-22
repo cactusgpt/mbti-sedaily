@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import {
   buildStructureAnalysis,
   CG_OH,
@@ -42,6 +41,53 @@ const EL_SOLID: Record<string, string> = {
   '목': '#2D7A1F', '화': '#C33A1F', '토': '#A97C1F', '금': '#4E5968', '수': '#3182F6',
 };
 
+const MAIN_TABS = [
+  { id: 'question', name: '오늘의 질문' },
+  { id: 'feed', name: '뉴스피드' },
+  { id: 'community', name: '커뮤니티' },
+  { id: 'archive', name: '내 서랍' },
+  { id: 'dna', name: '나의 DNA' },
+  { id: 'fortune', name: '오늘의 운세' },
+];
+
+function goToMain(tab?: string) {
+  window.location.href = tab ? `/?tab=${tab}` : '/';
+}
+
+function TopNav({ activeId }: { activeId?: string }) {
+  return (
+    <header className="sticky top-0 bg-white z-[100] border-b border-gray-100">
+      <div className="max-w-[1200px] mx-auto px-4 sm:px-6">
+        <div className="flex items-center h-[56px] gap-6 sm:gap-10">
+          <button
+            type="button"
+            onClick={() => goToMain()}
+            className="text-[20px] font-bold text-gray-900 tracking-tight flex-shrink-0 border-none bg-transparent cursor-pointer"
+          >
+            AI LENS
+          </button>
+          <nav className="flex items-center gap-0.5 flex-1 overflow-x-auto scrollbar-hide">
+            {MAIN_TABS.map(t => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => goToMain(t.id)}
+                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
+                  activeId === t.id
+                    ? 'bg-gray-100 text-gray-900'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                {t.name}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </div>
+    </header>
+  );
+}
+
 const TYPE_COLORS: Record<string, { bg: string; color: string; solid: string }> = {
   '관리형':   { bg: '#E8F5E5', color: '#2D7A1F', solid: '#2D7A1F' },
   '확장형':   { bg: '#E8F2FF', color: '#3182F6', solid: '#3182F6' },
@@ -52,7 +98,6 @@ const TYPE_COLORS: Record<string, { bg: string; color: string; solid: string }> 
 };
 
 export default function ChaeunPage() {
-  const router = useRouter();
   const [saju, setSaju] = useState<CurrentSaju | null>(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -68,20 +113,23 @@ export default function ChaeunPage() {
 
   if (!saju) {
     return (
-      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center p-6">
-        <div className="max-w-[400px] w-full bg-white rounded-[20px] p-8 text-center">
-          <div className="text-[18px] font-bold text-gray-900 mb-2">아직 사주 정보가 없어요</div>
-          <p className="text-[13px] text-gray-500 mb-6 leading-relaxed">
-            재운 흐름을 분석하려면 먼저 생년월일을 입력하거나 저장된 만세력을 불러와 주세요.
-          </p>
-          <button
-            type="button"
-            onClick={() => router.push('/')}
-            className="w-full py-3.5 text-[14px] font-bold rounded-xl text-white"
-            style={{ background: '#5B8DF0' }}
-          >
-            사주 입력하러 가기
-          </button>
+      <div className="min-h-screen bg-[#F8F9FA] flex flex-col">
+        <TopNav activeId="fortune" />
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="max-w-[400px] w-full bg-white rounded-[20px] p-8 text-center">
+            <div className="text-[18px] font-bold text-gray-900 mb-2">아직 사주 정보가 없어요</div>
+            <p className="text-[13px] text-gray-500 mb-6 leading-relaxed">
+              재운 흐름을 분석하려면 먼저 생년월일을 입력하거나 저장된 만세력을 불러와 주세요.
+            </p>
+            <button
+              type="button"
+              onClick={() => goToMain('fortune')}
+              className="w-full py-3.5 text-[14px] font-bold rounded-xl text-white"
+              style={{ background: '#5B8DF0' }}
+            >
+              사주 입력하러 가기
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -106,14 +154,16 @@ export default function ChaeunPage() {
 
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
-      {/* 헤더 */}
+      <TopNav activeId="fortune" />
+
+      {/* 페이지 타이틀 + 뒤로가기 */}
       <div className="bg-white w-full border-b border-gray-100">
-        <div className="max-w-[480px] mx-auto px-5 py-4 flex items-center gap-3">
+        <div className="max-w-[480px] mx-auto px-4 py-4 flex items-center gap-3">
           <button
             type="button"
-            onClick={() => router.back()}
-            className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100"
-            aria-label="뒤로"
+            onClick={() => goToMain('fortune')}
+            className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-100 border-none bg-transparent cursor-pointer"
+            aria-label="운세 탭으로 돌아가기"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4E5968" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="15 18 9 12 15 6" />
