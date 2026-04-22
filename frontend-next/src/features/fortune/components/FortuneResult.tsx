@@ -555,21 +555,6 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
         </div>
       )}
 
-      {/* 기본 정보 */}
-      <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4 text-[13px]">
-        <div className="flex justify-between py-1"><span className="text-gray-400">양력</span><span>{year}년 {month}월 {day}일</span></div>
-        <div className="flex justify-between py-1"><span className="text-gray-400">성별</span><span>{gender}</span></div>
-        {correctedTime && <div className="flex justify-between py-1"><span className="text-gray-400">보정시간</span><span>{correctedTime.hour}시 {correctedTime.minute}분</span></div>}
-        {ilgan && (
-          <>
-            <div className="border-t border-gray-100 my-2" />
-            <div className="flex justify-between py-1">
-              <span className="text-gray-400">일간</span>
-              <span><strong className={EL_COLORS[oh]}>{pillars[1].ck}{ilgan}</strong> {oh}({OH_HJ[oh]})</span>
-            </div>
-          </>
-        )}
-      </div>
 
       {/* 오늘의 운세 — 상단 우선 배치 (일반 사용자 관심사) */}
       {todayFortune && (
