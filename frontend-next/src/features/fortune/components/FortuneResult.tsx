@@ -193,6 +193,21 @@ const SS_FLOW: Record<string, string> = {
   '정인': '학문과 지혜의 정인',
 };
 
+// 십성 → 오늘 흐름이 두드러지는 주 영역 매핑
+// (정인일인데 재물운만 주의 뜨는 '맥락 단절' 문제를 줄이기 위해 상단에 요약 노출)
+const SS_DOMAIN_MAP: Record<string, { primary: string; theme: string }> = {
+  '비견': { primary: '관계·활동', theme: '동료·경쟁 기운이 도는 날' },
+  '겁재': { primary: '관계·지출', theme: '형제·동료 기운과 함께 지출 주의가 있는 날' },
+  '식신': { primary: '학업·여가', theme: '여유롭게 풀어내는 표현의 흐름' },
+  '상관': { primary: '학업·창의', theme: '재능과 표현력이 빛나는 흐름' },
+  '편재': { primary: '재물', theme: '활동적으로 움직이는 재물 기운' },
+  '정재': { primary: '재물', theme: '꾸준히 쌓아가는 재물 기운' },
+  '편관': { primary: '직장', theme: '책임과 도전이 주어지는 흐름' },
+  '정관': { primary: '직장', theme: '질서와 명예가 드러나는 흐름' },
+  '편인': { primary: '학업', theme: '직관과 영감으로 배우는 흐름' },
+  '정인': { primary: '학업', theme: '학문과 지혜가 무르익는 흐름' },
+};
+
 // TODAY 헤드라인용 자연어 수식 (12운성)
 const US_FLOW: Record<string, string> = {
   '장생': '새롭게 출발하는 장생',
@@ -675,6 +690,29 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
       {/* [섹션 3] 분야별 운세 */}
       {todayFortune && todayFortune.categories && todayFortune.categories.length > 0 && (
         <Section title="분야별 운세">
+          {/* 십성 → 주 영역 테마 요약 (정인일 = 학업 등 맥락 연결) */}
+          {(() => {
+            const domain = SS_DOMAIN_MAP[todayFortune.ss];
+            if (!domain) return null;
+            return (
+              <div
+                className="rounded-[10px] mb-4"
+                style={{
+                  padding: '10px 14px',
+                  background: '#EFF4FF',
+                  borderLeft: '3px solid #3B82F6',
+                }}
+              >
+                <div style={{ fontSize: 11, color: '#3B82F6', fontWeight: 700, marginBottom: 2 }}>
+                  오늘의 흐름
+                </div>
+                <div style={{ fontSize: 12, color: '#1E3A8A', lineHeight: 1.55 }}>
+                  <b>{todayFortune.ss}({domain.primary})</b> 중심의 하루입니다. {domain.theme}이라,
+                  아래 카테고리 중 <b>{domain.primary}</b> 영역이 먼저 두드러지고 나머지는 이 흐름 안에서 해석하시면 됩니다.
+                </div>
+              </div>
+            );
+          })()}
           {todayFortune.categories.map((cat, idx) => {
             const tone =
               cat.score >= 80 ? { text: '매우 유리', bg: '#2D7A1F', color: '#fff' } :
@@ -870,7 +908,8 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
       {/* 연운 */}
       {ilgan && yeonuns.length > 0 && (
         <UnCard
-          title="연운"
+          title="세운"
+          subtitle="1년 단위로 바뀌는 그해의 흐름"
           variant="yeonun"
           cols={yeonuns.map(x => ({ ...x, label: `${x.year}` }))}
           ilgan={ilgan}
@@ -883,6 +922,7 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
         <>
           <UnCard
             title="월운"
+            subtitle="한 달 단위의 세부 흐름"
             variant="wolun"
             cols={woluns.map(x => ({ ...x, label: `${String(x.month).padStart(2, '0')}월` }))}
             ilgan={ilgan}
@@ -907,6 +947,7 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
         <CollapsibleSection
           title="사주 구조 진단"
           subtitle="오행 균형 · 신강/신약 · 격국 · 용신 · 관계"
+          defaultOpen
         >
           {/* 오행 균형 — bar chart */}
           <div className="mb-6">
