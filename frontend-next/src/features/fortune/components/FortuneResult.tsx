@@ -638,26 +638,37 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
 
       {/* [섹션 2] 지지 속 숨은 기운 */}
       {todayFortune && todayFortune.hiddenSipsung && todayFortune.hiddenSipsung.length > 0 && (
-        <Section title="지지 속 숨은 기운">
-          <div className="text-[12px] text-gray-500 mb-3">
-            천간({todayFortune.dayPillarHanja[0]})뿐 아니라 지지(<strong className="text-gray-700">{todayFortune.dayPillarHanja[1]}</strong>) 안에도 숨은 기운이 있어요.
+        <div className="bg-white border border-gray-200 rounded-xl p-5 mb-4">
+          <h3 className="text-[14px] font-bold text-gray-900">지지 속 숨은 기운</h3>
+          <div className="text-[11px] text-gray-400 mt-0.5 mb-4">
+            지지 {todayFortune.dayPillarHanja[1]} · 지장간
           </div>
-          <div className="space-y-1.5">
+          <p className="text-[12px] text-gray-500 leading-relaxed mb-4">
+            천간({todayFortune.dayPillarHanja[0]})뿐 아니라 지지({todayFortune.dayPillarHanja[1]}) 안에도 숨은 기운이 있어요.
+          </p>
+          <div className="space-y-4">
             {todayFortune.hiddenSipsung.map((h, i) => (
-              <div key={i} className="flex items-center gap-2 text-[12px]">
-                <span className={`inline-block w-[40px] text-center px-1 py-0.5 rounded text-[10px] border ${h.weight === '본기' ? 'border-gray-400 bg-gray-50 font-semibold' : 'border-gray-200 text-gray-500'}`}>
-                  {h.weight}
-                </span>
-                <span className="text-gray-700 font-semibold w-[20px]">{h.hanja}</span>
-                <span className="text-gray-600 w-[40px]">{h.ss}</span>
-                <span className="text-[11px] text-gray-400">— {SS_MEANING[h.ss] || ''}</span>
+              <div key={i} className="flex items-center gap-3">
+                <div
+                  className="shrink-0 w-7 rounded-md bg-gray-100 py-1.5 text-center text-[11px] font-semibold text-gray-500"
+                  style={{ lineHeight: 1.25 }}
+                >
+                  {h.weight.split('').map((c, idx) => <div key={idx}>{c}</div>)}
+                </div>
+                <div className={`shrink-0 w-7 text-center text-[24px] font-bold ${EL_COLORS[CG_OH[h.hanja] || ''] || 'text-gray-800'}`}>
+                  {h.hanja}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-bold text-blue-600 mb-0.5">{h.ss}</div>
+                  <div className="text-[12px] text-gray-500 leading-snug">{SS_MEANING[h.ss] || ''}</div>
+                </div>
               </div>
             ))}
           </div>
-          <p className="text-[11px] text-gray-400 mt-3">
+          <p className="text-[11px] text-gray-400 mt-5 leading-relaxed">
             <span className="font-semibold text-gray-500">본기</span>가 가장 강하고 <span className="font-semibold text-gray-500">여기</span>는 약한 보조 기운입니다.
           </p>
-        </Section>
+        </div>
       )}
 
       {/* [섹션 3] 분야별 운세 */}
