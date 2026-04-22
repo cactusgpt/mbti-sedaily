@@ -153,9 +153,22 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
     setShowForm(false);
   }, [birthdate, timeInput, noTime, gender, region, parseDateStr, doCalculate]);
 
+  const today = new Date();
+  const todayLabel = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
+
   return (
     <div className="max-w-[480px] mx-auto">
-      <h2 className="text-[22px] font-bold text-gray-900 mb-6">오늘의 운세</h2>
+      {/* 헤더 */}
+      <div className="flex items-center justify-between mb-1">
+        <div className="text-[13px] text-gray-500 font-medium tracking-tight">{todayLabel}</div>
+        <div className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 text-[13px]">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </div>
+      </div>
+      <h2 className="text-[26px] font-extrabold text-gray-900 tracking-[-0.04em] mb-5">오늘의 운세</h2>
 
       {/* MBTI 그룹 */}
       <div className="flex gap-1.5 mb-5">
@@ -165,8 +178,8 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
           { id: 'ST' as const, name: '실용주의자' },
           { id: 'SF' as const, name: '공감러' },
         ]).map(g => (
-          <button key={g.id} onClick={() => setMbtiGroup(g.id)}
-            className={`px-3 py-1.5 text-[12px] rounded-full transition-all ${
+          <button key={g.id} type="button" onClick={() => setMbtiGroup(g.id)}
+            className={`flex-1 py-2.5 text-[13px] rounded-full font-semibold tracking-[-0.02em] transition-colors ${
               mbtiGroup === g.id ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-500 hover:text-gray-700'
             }`}>
             {g.name}
