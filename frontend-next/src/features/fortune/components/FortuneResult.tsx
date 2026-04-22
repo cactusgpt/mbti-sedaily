@@ -263,28 +263,26 @@ function UnCard({ title, subtitle, cols, ilgan, activeCheck, variant, yongsinOh 
                 style={{
                   width: tileWidth,
                   padding: variant === 'wolun' ? '6px 4px' : '10px 6px',
-                  background: isActive ? V3_TOKENS.ink : isOpen ? '#F3F7FF' : V3_TOKENS.panel,
-                  color: isActive ? '#fff' : V3_TOKENS.ink,
+                  background: isOpen ? '#F3F7FF' : V3_TOKENS.panel,
+                  color: V3_TOKENS.ink,
                   border: `2px solid ${edgeColor}`,
                   transition: 'all .15s',
                 }}
               >
                 <div style={{ fontSize: 10, opacity: 0.7 }}>{col.label}</div>
                 <div
-                  className="rounded-md w-full my-1"
+                  className="w-full my-1"
                   style={{
-                    background: isActive ? 'rgba(255,255,255,0.08)' : OHAENG_SETS.default[cgOh].bg,
-                    color: isActive ? '#fff' : OHAENG_SETS.default[cgOh].text,
+                    color: OHAENG_SETS.default[cgOh].text,
                     fontSize: charFont, fontWeight: 800, padding: '3px 0',
                   }}
                 >
                   {col.c}
                 </div>
                 <div
-                  className="rounded-md w-full"
+                  className="w-full"
                   style={{
-                    background: isActive ? 'rgba(255,255,255,0.08)' : OHAENG_SETS.default[jjOh].bg,
-                    color: isActive ? '#fff' : OHAENG_SETS.default[jjOh].text,
+                    color: OHAENG_SETS.default[jjOh].text,
                     fontSize: charFont, fontWeight: 800, padding: '3px 0',
                   }}
                 >
@@ -293,7 +291,7 @@ function UnCard({ title, subtitle, cols, ilgan, activeCheck, variant, yongsinOh 
                 {showSipsung && cgSS && (
                   <div style={{ fontSize: 9, opacity: 0.7, marginTop: 3 }}>{cgSS}</div>
                 )}
-                {yEval && yEval.rating !== 'neutral' && !isActive && (
+                {yEval && yEval.rating !== 'neutral' && (
                   <div
                     style={{
                       fontSize: 9, fontWeight: 700, marginTop: 2,
