@@ -713,15 +713,23 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
                     return true;
                   });
                   if (visible.length === 0) return null;
+                  const isMild = cat.score >= 45 && cat.score < 65; // 무난 구간
                   return (
                     <div className="mt-2.5 space-y-1.5">
                       {visible.map((n, i) => {
+                        const isMildNegative = n.tone === 'negative' && isMild;
                         const nc = n.tone === 'positive'
                           ? { bg: '#E8F5E5', color: '#2D7A1F', icon: '✓' }
                           : n.tone === 'negative'
-                            ? { bg: '#FEE7E2', color: '#C33A1F', icon: '!' }
+                            ? (isMildNegative
+                                ? { bg: '#FEF3C7', color: '#92400E', icon: 'i' }
+                                : { bg: '#FEE7E2', color: '#C33A1F', icon: '!' })
                             : { bg: '#F3F4F6', color: '#4E5968', icon: '·' };
-                        const lbl = n.tone === 'positive' ? '오늘 플러스' : n.tone === 'negative' ? '오늘 주의' : '오늘';
+                        const lbl = n.tone === 'positive'
+                          ? '오늘 플러스'
+                          : n.tone === 'negative'
+                            ? (isMild ? '오늘 참고' : '오늘 주의')
+                            : '오늘';
                         return (
                           <div
                             key={i}
