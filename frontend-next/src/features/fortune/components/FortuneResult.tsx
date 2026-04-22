@@ -468,7 +468,6 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
               </span>
               {ilgan && (
                 <span
-                  className="font-serif"
                   style={{ fontSize: 14, fontWeight: 700, color: OHAENG_SETS.default[ilganOh].text }}
                 >
                   {ilgan}
@@ -694,33 +693,43 @@ export function FortuneResult({ data, mbtiGroup }: Props) {
                     <p className="text-[12px] text-gray-600 leading-relaxed">
                       {getCategoryDesc(cat.label, todayFortune.ss, cat.desc)}
                     </p>
-                    {categoryNoteMap[cat.label] && categoryNoteMap[cat.label].length > 0 && (
-                      <div className="mt-2.5 space-y-1.5">
-                        {categoryNoteMap[cat.label].map((n, i) => {
-                          const nc = n.tone === 'positive'
-                            ? { bg: '#E8F5E5', color: '#2D7A1F', icon: '✓' }
-                            : n.tone === 'negative'
-                              ? { bg: '#FEE7E2', color: '#C33A1F', icon: '!' }
-                              : { bg: '#F3F4F6', color: '#4E5968', icon: '·' };
-                          const lbl = n.tone === 'positive' ? '오늘 플러스' : n.tone === 'negative' ? '오늘 주의' : '오늘';
-                          return (
-                            <div
-                              key={i}
-                              className="rounded-[10px]"
-                              style={{
-                                padding: '10px 12px',
-                                fontSize: 12,
-                                background: nc.bg,
-                                color: nc.color,
-                                lineHeight: 1.5,
-                              }}
-                            >
-                              <span style={{ fontWeight: 600 }}>{nc.icon} {lbl}:</span> {n.note}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                    {(() => {
+                      // 카테고리 pill 톤과 매칭되는 노트만 노출
+                      const notes = categoryNoteMap[cat.label] || [];
+                      const visible = notes.filter(n => {
+                        if (n.tone === 'positive') return cat.score >= 45;  // 무난 이상
+                        if (n.tone === 'negative') return cat.score < 65;   // 무난 이하
+                        return true;
+                      });
+                      if (visible.length === 0) return null;
+                      return (
+                        <div className="mt-2.5 space-y-1.5">
+                          {visible.map((n, i) => {
+                            const nc = n.tone === 'positive'
+                              ? { bg: '#E8F5E5', color: '#2D7A1F', icon: '✓' }
+                              : n.tone === 'negative'
+                                ? { bg: '#FEE7E2', color: '#C33A1F', icon: '!' }
+                                : { bg: '#F3F4F6', color: '#4E5968', icon: '·' };
+                            const lbl = n.tone === 'positive' ? '오늘 플러스' : n.tone === 'negative' ? '오늘 주의' : '오늘';
+                            return (
+                              <div
+                                key={i}
+                                className="rounded-[10px]"
+                                style={{
+                                  padding: '10px 12px',
+                                  fontSize: 12,
+                                  background: nc.bg,
+                                  color: nc.color,
+                                  lineHeight: 1.5,
+                                }}
+                              >
+                                <span style={{ fontWeight: 600 }}>{nc.icon} {lbl}:</span> {n.note}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}

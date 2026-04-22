@@ -273,7 +273,7 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
         return (
           <div className="bg-white border border-gray-200 rounded-[16px] p-4 mb-4">
             <div className="flex items-center gap-3">
-              <div className={`w-9 h-9 rounded-[10px] flex items-center justify-center font-serif text-[16px] font-bold shrink-0 ${EL_BG[ilganOh] || 'bg-gray-50 text-gray-400'}`}>
+              <div className={`w-9 h-9 rounded-[10px] flex items-center justify-center text-[16px] font-bold shrink-0 ${EL_BG[ilganOh] || 'bg-gray-50 text-gray-400'}`}>
                 {result.ilgan || '—'}
               </div>
               <div className="flex-1 min-w-0">
