@@ -240,24 +240,26 @@ export default function ChaeunPage() {
 
         {/* 1) 재성 프로파일 */}
         <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
-          <div className="text-[14px] font-bold text-gray-900 mb-1">재성 프로파일</div>
-          <div className="text-[11px] text-gray-400 mb-4">편재·정재 개수와 강도</div>
+          <div className="text-[14px] font-bold text-gray-900 mb-1">나의 &apos;돈 그릇&apos; 구조</div>
+          <div className="text-[11px] text-gray-500 mb-4 leading-relaxed">
+            사주 속 <b>재성(財星)</b> = 돈·재물을 다루는 기운이에요. 그릇이 클수록 돈을 직접 운용하기 좋고, 작으면 전문성·지식으로 우회하는 편이 잘 맞아요.
+          </div>
 
-          <div className="grid grid-cols-2 gap-2 mb-4">
+          <div className="grid grid-cols-2 gap-2 mb-5">
             <div className="rounded-xl p-3 text-center" style={{ background: '#F2F4F7' }}>
               <div className="text-[11px] text-gray-500 font-semibold mb-1">편재</div>
               <div className="text-[22px] font-extrabold text-gray-900 leading-none">{chaeseong!.pyeonJae}<span className="text-[12px] font-medium text-gray-400 ml-1">개</span></div>
-              <div className="text-[10px] text-gray-400 mt-1">활동적 재물</div>
+              <div className="text-[10px] text-gray-500 mt-1.5 leading-tight">활동적 재물<br /><span className="text-gray-400">사업·투자·유동 자금</span></div>
             </div>
             <div className="rounded-xl p-3 text-center" style={{ background: '#F2F4F7' }}>
               <div className="text-[11px] text-gray-500 font-semibold mb-1">정재</div>
               <div className="text-[22px] font-extrabold text-gray-900 leading-none">{chaeseong!.jeongJae}<span className="text-[12px] font-medium text-gray-400 ml-1">개</span></div>
-              <div className="text-[10px] text-gray-400 mt-1">안정된 재물</div>
+              <div className="text-[10px] text-gray-500 mt-1.5 leading-tight">안정된 재물<br /><span className="text-gray-400">월급·저축·고정 자산</span></div>
             </div>
           </div>
 
           {/* 강도 게이지 */}
-          <div className="mb-3">
+          <div className="mb-2">
             <div className="flex items-baseline justify-between mb-1.5">
               <span className="text-[12px] font-semibold text-gray-700">재성 강도</span>
               <span className="text-[12px] text-gray-500">{chaeseong!.strength}/100</span>
@@ -271,12 +273,15 @@ export default function ChaeunPage() {
                 }}
               />
             </div>
+            <div className="text-[10px] text-gray-400 mt-1.5">
+              재물 기운이 평소 얼마나 강하게 작용하는지 (원국 재성 개수 + 숨은 뿌리 합산)
+            </div>
           </div>
 
           {/* 뿌리 유무 */}
-          <div className="flex items-center gap-2 text-[12px] text-gray-600">
+          <div className="flex items-start gap-2 text-[12px] text-gray-600 mt-3">
             <span
-              className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold"
+              className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0"
               style={{
                 background: chaeseong!.hasRoot ? '#E8F5E5' : '#F2F4F7',
                 color: chaeseong!.hasRoot ? '#2D7A1F' : '#6B7684',
@@ -284,9 +289,25 @@ export default function ChaeunPage() {
             >
               {chaeseong!.hasRoot ? '뿌리 있음' : '뿌리 없음'}
             </span>
-            <span className="text-gray-500">
-              지장간 재성 합산 {chaeseong!.rootStrength}점
+            <span className="text-gray-500 leading-snug">
+              {chaeseong!.hasRoot
+                ? `지지(지지 글자) 안쪽에도 재물 기운이 받쳐주고 있어요 (합산 ${chaeseong!.rootStrength}점).`
+                : '지지(지지 글자) 안쪽에서도 재물 기운을 찾기 어려운 구조예요.'}
             </span>
+          </div>
+
+          {/* 플레인 요약 */}
+          <div className="rounded-xl mt-4 p-3" style={{ background: '#EFF4FF', borderLeft: '3px solid #3B82F6' }}>
+            <div className="text-[11px] font-bold text-blue-700 mb-1">한 줄 요약</div>
+            <div className="text-[12px] text-blue-900 leading-relaxed">
+              {chaeseong!.strength === 0
+                ? '원국에 재성이 보이지 않는 구조예요. 돈을 직접 다루기보다 지식·전문성(인성)이나 창작·서비스(식상)를 통해 우회해서 쌓는 흐름이 잘 맞아요.'
+                : chaeseong!.strength < 30
+                  ? '재물 기운이 약한 편이에요. 기회가 왔을 때 움직이는 타입이라 평소 준비와 네트워크 관리가 중요해요.'
+                  : chaeseong!.strength < 60
+                    ? '재물 기운이 적당히 받쳐주는 구조예요. 꾸준히 쌓는 방식이 가장 잘 어울려요.'
+                    : '재물 기운이 풍부한 구조예요. 직접 자산을 운용하거나 다양한 소득 채널을 동시에 다루기 좋아요.'}
+            </div>
           </div>
         </div>
 
