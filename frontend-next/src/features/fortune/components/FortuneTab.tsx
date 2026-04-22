@@ -157,7 +157,7 @@ export function FortuneTab({ selectedGroup, onMbtiChange }: FortuneTabProps = {}
   const todayLabel = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
 
   return (
-    <div className="max-w-[480px] mx-auto -my-6" style={{ background: '#F2F4F7', minHeight: 'calc(100vh + 48px)' }}>
+    <div className="max-w-[480px] mx-auto -my-6" style={{ background: '#F6F7F9', minHeight: 'calc(100vh + 48px)' }}>
       {/* 흰색 헤더 블록 (오늘의 운세 + 성향 토글) */}
       <div className="bg-white" style={{ padding: '20px 20px 18px' }}>
         {/* 날짜 */}
