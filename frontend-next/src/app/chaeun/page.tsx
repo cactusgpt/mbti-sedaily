@@ -12,10 +12,8 @@ import {
   calculateChaeseongProfile,
   diagnoseChaeun,
   evaluateDaeunChaeun,
-  type ChaeseongProfile,
-  type ChaeunDiagnosis,
-  type ChaeunDaeunSegment,
 } from '@/features/fortune/lib/engine-chaeun';
+import { SajuInputPanel, type SajuCalcResult } from '@/features/fortune/components/SajuInputPanel';
 
 interface CurrentSaju {
   year: number;
@@ -133,41 +131,33 @@ export default function ChaeunPage() {
     timelineScrollRef.current.scrollTo({ left: offset, behavior: 'auto' });
   }, [currentIdx]);
 
+  // SajuInputPanel → 계산 결과를 localStorage + 로컬 state에 반영
+  const handleCalculated = (r: SajuCalcResult) => {
+    setSaju({
+      year: r.year, month: r.month, day: r.day, gender: r.gender,
+      timeInput: r.timeInput, region: r.region,
+      pillars: r.pillars, ilgan: r.ilgan,
+      correctedTime: r.correctedTime, daeuns: r.daeuns,
+    });
+  };
+
+  // 폼 프리필 값 (현재 로드된 saju가 있으면 그 값으로)
+  const initialForm = saju ? {
+    birthdate: `${saju.year} / ${String(saju.month).padStart(2, '0')} / ${String(saju.day).padStart(2, '0')}`,
+    timeInput: saju.timeInput,
+    noTime: !saju.timeInput,
+    gender: saju.gender as '남' | '여',
+    region: saju.region,
+  } : undefined;
+
   if (!loaded) return null;
 
-  if (!saju) {
-    return (
-      <div className="min-h-screen bg-[#F8F9FA] flex flex-col">
-        <TopNav activeId="fortune" />
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="max-w-[400px] w-full bg-white rounded-[20px] p-8 text-center">
-            <div className="text-[18px] font-bold text-gray-900 mb-2">아직 사주 정보가 없어요</div>
-            <p className="text-[13px] text-gray-500 mb-6 leading-relaxed">
-              재운 흐름을 분석하려면 먼저 생년월일을 입력하거나 저장된 만세력을 불러와 주세요.
-            </p>
-            <button
-              type="button"
-              onClick={() => goToMain('fortune')}
-              className="w-full py-3.5 text-[14px] font-bold rounded-xl text-white"
-              style={{ background: '#5B8DF0' }}
-            >
-              사주 입력하러 가기
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // 이하는 saju 확정 상태
-  const { month, day, gender } = saju;
-  const chaeOh = chaeseong!.chaeOh;
+  // 편재/정재 비율 (saju 있을 때만 의미)
+  const chaeOh = chaeseong?.chaeOh ?? '';
   const chaeOhTextCls = EL_TEXT[chaeOh] || 'text-gray-700';
-
-  // 편재/정재 비율 (0-100)
-  const total = chaeseong!.totalCount || 1;
-  const pyeonPct = (chaeseong!.pyeonJae / total) * 100;
-  const jeongPct = (chaeseong!.jeongJae / total) * 100;
+  const total = chaeseong ? (chaeseong.totalCount || 1) : 1;
+  const pyeonPct = chaeseong ? (chaeseong.pyeonJae / total) * 100 : 0;
+  const jeongPct = chaeseong ? (chaeseong.jeongJae / total) * 100 : 0;
 
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
@@ -194,11 +184,25 @@ export default function ChaeunPage() {
       </div>
 
       <div className="max-w-[480px] mx-auto px-3 sm:px-[14px] pt-4 pb-10">
+        {/* 입력 폼 + 저장된 만세력 (항상 최상단) */}
+        <SajuInputPanel initial={initialForm} onCalculated={handleCalculated} />
+
+        {/* 분석 섹션 — saju 있을 때만 */}
+        {!saju && (
+          <div className="mt-4 p-6 text-center bg-white border border-gray-200 rounded-[16px]">
+            <p className="text-[13px] text-gray-500 leading-relaxed">
+              위에서 생년월일을 입력하거나 저장된 만세력을 선택하면<br />
+              아래에 재운 흐름 분석이 펼쳐져요.
+            </p>
+          </div>
+        )}
+
+        {saju && chaeseong && (<>
         {/* 프로필 요약 */}
         <div className="bg-white border border-gray-200 rounded-[16px] p-4 mb-3">
           <div className="text-[11px] text-gray-400 font-medium mb-1">대상</div>
           <div className="text-[13px] font-bold text-gray-900">
-            {year}년 {month}월 {day}일 · {gender}
+            {saju.year}년 {saju.month}월 {saju.day}일 · {saju.gender}
           </div>
           <div className="text-[11px] text-gray-500 mt-1">
             일간 <span className={`font-bold ${EL_TEXT[CG_OH[ilgan] || ''] || ''}`}>{pillars[1]?.ck}{ilgan}</span>
@@ -428,6 +432,7 @@ export default function ChaeunPage() {
             AI 기반 개인 재운 전략 · 세운/월운 재물 세분화 · 재테크 유형 추천 매트릭스.
           </div>
         </div>
+        </>)}
       </div>
     </div>
   );
