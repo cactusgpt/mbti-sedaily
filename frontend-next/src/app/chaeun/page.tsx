@@ -45,6 +45,8 @@ const EL_SOLID: Record<string, string> = {
 const TYPE_COLORS: Record<string, { bg: string; color: string; solid: string }> = {
   '관리형':   { bg: '#E8F5E5', color: '#2D7A1F', solid: '#2D7A1F' },
   '확장형':   { bg: '#E8F2FF', color: '#3182F6', solid: '#3182F6' },
+  '균형형':   { bg: '#ECFEFF', color: '#0E7490', solid: '#0891B2' },
+  '기회형':   { bg: '#FFF7ED', color: '#9A3412', solid: '#EA580C' },
   '재다신약': { bg: '#FEF3C7', color: '#92400E', solid: '#B45309' },
   '우회축적': { bg: '#EDE9FE', color: '#5B21B6', solid: '#7C3AED' },
 };
@@ -190,22 +192,56 @@ export default function ChaeunPage() {
           </div>
         </div>
 
-        {/* 2) 4분면 진단 */}
+        {/* 2) 6타입 진단 */}
         {diagnosis && (() => {
           const tc = TYPE_COLORS[diagnosis.type];
+
+          // 보조 태그: 신강/중화/신약
+          const sgyLevel = structure?.singangyak?.level;
+          const bodyTag =
+            sgyLevel === '극신강' ? { text: '극신강', bg: '#FEE7E2', color: '#C33A1F' } :
+            sgyLevel === '신강' ? { text: '신강', bg: '#FEE7E2', color: '#C33A1F' } :
+            sgyLevel === '중화' ? { text: '중화', bg: '#E8F5E5', color: '#2D7A1F' } :
+            sgyLevel === '신약' ? { text: '신약', bg: '#E8F2FF', color: '#3182F6' } :
+            sgyLevel === '극신약' ? { text: '극신약', bg: '#E8F2FF', color: '#3182F6' } :
+            null;
+
+          // 보조 태그: 편재/정재 우세
+          const dominTag =
+            chaeseong.dominantType === '편재' ? { text: '편재 우세', bg: '#FEE7E2', color: '#C33A1F' } :
+            chaeseong.dominantType === '정재' ? { text: '정재 우세', bg: '#E8F2FF', color: '#3182F6' } :
+            chaeseong.dominantType === '균형' ? { text: '편재·정재 균형', bg: '#ECFEFF', color: '#0E7490' } :
+            { text: '재성 없음', bg: '#F2F4F7', color: '#6B7684' };
+
           return (
             <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
-              <div className="text-[14px] font-bold text-gray-900 mb-1">4분면 진단</div>
-              <div className="text-[11px] text-gray-400 mb-4">신강약 × 재성강약</div>
+              <div className="text-[14px] font-bold text-gray-900 mb-1">유형 진단</div>
+              <div className="text-[11px] text-gray-400 mb-4">신강/중화/신약 × 재성 강약 6타입</div>
 
               <div className="mb-4">
-                <span
-                  className="inline-block rounded-full px-3 py-1 text-[12px] font-bold"
-                  style={{ background: tc.solid, color: '#fff' }}
-                >
-                  {diagnosis.type}
-                </span>
-                <p className="text-[13px] font-semibold text-gray-800 mt-3 leading-relaxed">
+                <div className="flex items-center flex-wrap gap-1.5 mb-3">
+                  <span
+                    className="inline-block rounded-full px-3 py-1 text-[12px] font-bold"
+                    style={{ background: tc.solid, color: '#fff' }}
+                  >
+                    {diagnosis.type}
+                  </span>
+                  {bodyTag && (
+                    <span
+                      className="inline-block rounded-full px-2 py-0.5 text-[10px] font-bold"
+                      style={{ background: bodyTag.bg, color: bodyTag.color }}
+                    >
+                      {bodyTag.text}
+                    </span>
+                  )}
+                  <span
+                    className="inline-block rounded-full px-2 py-0.5 text-[10px] font-bold"
+                    style={{ background: dominTag.bg, color: dominTag.color }}
+                  >
+                    {dominTag.text}
+                  </span>
+                </div>
+                <p className="text-[13px] font-semibold text-gray-800 leading-relaxed">
                   {diagnosis.headline}
                 </p>
               </div>

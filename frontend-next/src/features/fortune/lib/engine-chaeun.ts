@@ -87,8 +87,8 @@ export function calculateChaeseongProfile(ps: Pillar[]): ChaeseongProfile {
   return { pyeonJae, jeongJae, totalCount, strength, hasRoot, rootStrength, dominantType, chaeOh };
 }
 
-// ── 4분면 진단 ──
-export type ChaeunType = '관리형' | '확장형' | '재다신약' | '우회축적';
+// ── 6타입 진단 (신강/중화/신약 × 재강/재약) ──
+export type ChaeunType = '관리형' | '확장형' | '균형형' | '기회형' | '재다신약' | '우회축적';
 export interface ChaeunDiagnosis {
   type: ChaeunType;
   headline: string;
@@ -129,6 +129,36 @@ const CHAEUN_DIAGNOSES: Record<ChaeunType, Omit<ChaeunDiagnosis, 'type'>> = {
     attitude: '평소에 준비, 기회 올 때 과감히. 관계와 신용에 투자.',
     investmentStyle: '성장주·사업 재투자·신규 수익 채널 개발 중심',
   },
+  '균형형': {
+    headline: '중화된 바탕 위에 재성이 넉넉한 구조 · 공수 양면 자유',
+    strengths: [
+      '일간의 세력이 치우치지 않아 상황 따라 유연하게 대응 가능',
+      '재성이 받쳐주어 공격(확장)과 수비(관리)를 자유롭게 전환',
+      '단기 변동에도 흔들리지 않는 정서·재정 안정감',
+    ],
+    cautions: [
+      '특화 포인트가 약해 임팩트가 작을 수 있음 — 선택과 집중 필요',
+      '균형이 오히려 판단을 미루게 하는 함정',
+      '리스크 회피 성향이 지나치면 성장 기회 놓침',
+    ],
+    attitude: '균형을 유지하되 분기별로 공격 포인트 하나는 설정.',
+    investmentStyle: '코어(안정)+위성(공격) 하이브리드, 리밸런싱 주기 엄격 유지',
+  },
+  '기회형': {
+    headline: '중화된 구조지만 재성이 약함 · 외부 기회가 재운의 핵심',
+    strengths: [
+      '감정 기복이 적어 침착하게 기회를 판단 가능',
+      '사람·정보 관계에 기반한 수익 설계에 유리',
+      '실수가 적고 장기적으로 누적 가능한 신뢰 자산 보유',
+    ],
+    cautions: [
+      '먼저 움직이지 않으면 기회가 그냥 지나감',
+      '안전주의가 지나쳐 작은 기회까지 놓칠 수 있음',
+      '재성이 약해 꾸준한 소득 채널 구축이 중요',
+    ],
+    attitude: '때를 기다리되, 왔을 때는 주저하지 않고 움직이기.',
+    investmentStyle: '부지런한 정보 수집 + 여유 자금은 보수 자산으로 방어',
+  },
   '재다신약': {
     headline: '돈은 많이 보이나 감당이 어려운 구조',
     strengths: [
@@ -162,13 +192,21 @@ const CHAEUN_DIAGNOSES: Record<ChaeunType, Omit<ChaeunDiagnosis, 'type'>> = {
 };
 
 export function diagnoseChaeun(sgy: SinGangYakResult, chaeseong: ChaeseongProfile): ChaeunDiagnosis {
-  const strong = sgy.level === '극신강' || sgy.level === '신강';
+  // 신강약을 3단계로 분리: 신강(극신강+신강) / 중화 / 신약(신약+극신약)
+  const bodyLevel: 'strong' | 'medium' | 'weak' =
+    sgy.level === '극신강' || sgy.level === '신강' ? 'strong'
+    : sgy.level === '중화' ? 'medium'
+    : 'weak';
   const chaeStrong = chaeseong.strength >= 40;
+
   let type: ChaeunType;
-  if (strong && chaeStrong) type = '관리형';
-  else if (strong && !chaeStrong) type = '확장형';
-  else if (!strong && chaeStrong) type = '재다신약';
+  if (bodyLevel === 'strong' && chaeStrong) type = '관리형';
+  else if (bodyLevel === 'strong' && !chaeStrong) type = '확장형';
+  else if (bodyLevel === 'medium' && chaeStrong) type = '균형형';
+  else if (bodyLevel === 'medium' && !chaeStrong) type = '기회형';
+  else if (bodyLevel === 'weak' && chaeStrong) type = '재다신약';
   else type = '우회축적';
+
   return { type, ...CHAEUN_DIAGNOSES[type] };
 }
 
