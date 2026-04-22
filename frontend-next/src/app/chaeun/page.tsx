@@ -189,12 +189,10 @@ export default function ChaeunPage() {
         {/* saju 없으면: 안내 + 입력 폼 + 저장 목록 */}
         {!saju && (
           <>
-            <div className="mb-4 p-4 text-center rounded-[14px]" style={{ background: '#EFF4FF', borderLeft: '3px solid #3B82F6' }}>
-              <p className="text-[13px] text-blue-900 leading-relaxed">
-                아래에서 <b>생년월일을 입력</b>하거나 <b>저장된 만세력을 선택</b>하면<br />
-                재운 흐름 분석이 펼쳐져요.
-              </p>
-            </div>
+            <p className="mb-4 text-center text-[13px] text-gray-500 leading-relaxed">
+              아래에서 생년월일을 입력하거나 저장된 만세력을 선택하면<br />
+              재운 흐름 분석이 펼쳐져요.
+            </p>
             <SajuInputPanel initial={initialForm} onCalculated={handleCalculated} submitLabel="재운 흐름 보기" />
           </>
         )}
