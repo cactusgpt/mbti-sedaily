@@ -44,15 +44,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from clients.embedding_client import EmbeddingClient
 from clients.s3_xml_client import S3Article, S3XMLClient
 from config.constants import CORS_HEADERS
 from core.decorators import lambda_handler as handler_decorator
 from core.response import success_response
 
+from v2.clients.embedding_v2_client import EmbeddingV2Client
 from v2.clients.pgvector_v2_client import PgVectorV2Client
 from v2.clients.s3_article_v2_client import S3ArticleV2Client
 
@@ -143,7 +144,7 @@ def _build_metadata(article: S3Article) -> Dict[str, Any]:
 def _is_zero_vector(embedding: List[float], tol: float = 1e-9) -> bool:
     """True when every component is within ``tol`` of zero.
 
-    ``EmbeddingClient.embed_text`` returns an all-zero vector when the
+    ``EmbeddingV2Client.embed_text`` returns an all-zero vector when the
     Bedrock call fails (see its except block). Storing those in pgvector
     would poison cosine-distance ranking — NaN distances on zero-
     magnitude vectors (the same trap documented in the test fixture
@@ -159,7 +160,7 @@ async def _process_one(
     article: S3Article,
     *,
     s3_xml: S3XMLClient,
-    embedder: EmbeddingClient,
+    embedder: EmbeddingV2Client,
     pg: PgVectorV2Client,
     s3_v2: S3ArticleV2Client,
     embed_semaphore: asyncio.Semaphore,
@@ -220,7 +221,9 @@ async def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     logger.info(f"Collector run started for date={date_str}")
 
     s3_xml = S3XMLClient()
-    embedder = EmbeddingClient()
+    embedder = EmbeddingV2Client(
+        endpoint_url=os.getenv("BEDROCK_RUNTIME_ENDPOINT_URL", "")
+    )
     pg = PgVectorV2Client()
     s3_v2 = S3ArticleV2Client()
 

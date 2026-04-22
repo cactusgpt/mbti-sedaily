@@ -306,7 +306,7 @@ def _invoke_with_mocked_upstream(
     with patch(
         "v2.handlers.core1_collector.S3XMLClient"
     ) as MockXML, patch(
-        "v2.handlers.core1_collector.EmbeddingClient"
+        "v2.handlers.core1_collector.EmbeddingV2Client"
     ) as MockEmb:
         MockXML.return_value.get_articles_by_date = AsyncMock(
             return_value=articles
