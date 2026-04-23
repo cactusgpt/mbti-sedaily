@@ -356,14 +356,43 @@ export default function ChaeunPage() {
                   <p className="text-[12px] text-slate-900 leading-relaxed">{periodChaeun.flowNarrative}</p>
                 </div>
               )}
-              <div className="space-y-2.5">
+              <div className="relative pl-6">
+                {/* 시간 흐름 세로선 (올해 amber → 이번 달 sky → 오늘 slate) */}
+                <div
+                  className="absolute w-[2px] rounded-full"
+                  style={{
+                    left: 8,
+                    top: 18,
+                    bottom: 18,
+                    background: 'linear-gradient(to bottom, #FCD34D 0%, #7DD3FC 50%, #0F172A 100%)',
+                  }}
+                />
+                <div className="space-y-3">
                 {rows.map((r, i) => {
                   const rowStyle = ROW_BG[r.label] || ROW_BG['오늘'];
+                  const dotColor = r.label === '올해' ? '#F59E0B' : r.label === '이번 달' ? '#0EA5E9' : '#0F172A';
+                  const isNow = r.label === '오늘';
                   return (
+                  <div key={i} className="relative">
+                    {/* 타임라인 노드 */}
+                    <div
+                      className="absolute rounded-full border-[3px] border-white"
+                      style={{
+                        left: -22,
+                        top: 14,
+                        width: isNow ? 16 : 12,
+                        height: isNow ? 16 : 12,
+                        background: dotColor,
+                        boxShadow: `0 0 0 1.5px ${dotColor}${isNow ? '' : '66'}`,
+                      }}
+                    />
                   <div
-                    key={i}
                     className="rounded-xl p-3.5"
-                    style={{ background: rowStyle.bg, border: `1px solid ${rowStyle.border}` }}
+                    style={{
+                      background: rowStyle.bg,
+                      border: `${isNow ? 2 : 1}px solid ${isNow ? '#0F172A' : rowStyle.border}`,
+                      boxShadow: isNow ? '0 6px 16px rgba(15, 23, 42, 0.12)' : 'none',
+                    }}
                   >
                     <div className="flex items-baseline justify-between mb-2">
                       <div className="flex items-baseline gap-2 min-w-0">
@@ -426,8 +455,10 @@ export default function ChaeunPage() {
                       </div>
                     )}
                   </div>
+                  </div>
                   );
                 })}
+                </div>
               </div>
             </div>
           );
