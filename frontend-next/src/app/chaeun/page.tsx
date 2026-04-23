@@ -533,23 +533,26 @@ export default function ChaeunPage() {
                 </div>
               </details>
 
-              {/* 주 경로 기반 한 줄 요약 */}
-              <div className="rounded-xl p-3 mb-2 bg-slate-50 border-l-[3px] border-slate-900">
-                <div className="text-[11px] font-bold mb-1 text-slate-900">
-                  주 경로: {dom.label} ({dom.key})
-                </div>
-                <div className="text-[12px] leading-relaxed text-slate-700">
-                  {wealthPaths.fallback
-                    ? '전반적으로 재물 기운이 모두 약한 편이에요. 당장의 수익보다 내공·경험을 쌓는 시기로 보고 긴 호흡을 가져가시면 좋아요.'
-                    : dom.key === '재성'
-                      ? '돈을 직접 다루는 힘이 가장 강한 구조예요. 사업·투자·영업 등 주도적으로 자산을 운용하는 쪽이 잘 맞아요.'
-                      : dom.key === '인성'
-                        ? '실력·전문성이 그대로 수익이 되는 구조예요. 학문·자격·강의·컨설팅처럼 지식을 보수로 바꾸는 채널을 키우세요.'
-                        : dom.key === '식상'
-                          ? '표현·창작·서비스로 가치를 만들어내는 구조예요. 콘텐츠·프리랜스·퍼스널 브랜드 쪽이 잘 풀려요.'
-                          : dom.key === '관성'
-                            ? '직장·조직·지위에서 안정 수익이 오는 구조예요. 회사·공직·전문직 트랙에서 꾸준히 쌓아가는 게 어울려요.'
-                            : '동료·네트워크와의 협업이 돈으로 이어지는 구조예요. 공동 사업·협업 프로젝트·커뮤니티 기반 수익이 잘 맞아요.'}
+              {/* 주 경로 기반 한 줄 요약 — 흐름 요약과 동일한 직선 스타일 */}
+              <div className="flex gap-3 mb-2">
+                <div className="w-[3px] rounded-full bg-slate-900 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] font-bold text-slate-500 mb-0.5 tracking-tight">
+                    주 경로: {dom.label} ({dom.key})
+                  </div>
+                  <p className="text-[12px] leading-relaxed text-slate-900">
+                    {wealthPaths.fallback
+                      ? '전반적으로 재물 기운이 모두 약한 편이에요. 당장의 수익보다 내공·경험을 쌓는 시기로 보고 긴 호흡을 가져가시면 좋아요.'
+                      : dom.key === '재성'
+                        ? '돈을 직접 다루는 힘이 가장 강한 구조예요. 사업·투자·영업 등 주도적으로 자산을 운용하는 쪽이 잘 맞아요.'
+                        : dom.key === '인성'
+                          ? '실력·전문성이 그대로 수익이 되는 구조예요. 학문·자격·강의·컨설팅처럼 지식을 보수로 바꾸는 채널을 키우세요.'
+                          : dom.key === '식상'
+                            ? '표현·창작·서비스로 가치를 만들어내는 구조예요. 콘텐츠·프리랜스·퍼스널 브랜드 쪽이 잘 풀려요.'
+                            : dom.key === '관성'
+                              ? '직장·조직·지위에서 안정 수익이 오는 구조예요. 회사·공직·전문직 트랙에서 꾸준히 쌓아가는 게 어울려요.'
+                              : '동료·네트워크와의 협업이 돈으로 이어지는 구조예요. 공동 사업·협업 프로젝트·커뮤니티 기반 수익이 잘 맞아요.'}
+                  </p>
                 </div>
               </div>
 
