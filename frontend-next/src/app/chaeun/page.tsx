@@ -851,15 +851,6 @@ export default function ChaeunPage() {
         )}
 
         {/* 다음 스프린트 안내 */}
-        <div
-          className="rounded-[12px] mt-6"
-          style={{ background: '#EFF4FF', padding: '12px 14px', borderLeft: '3px solid #3B82F6' }}
-        >
-          <div className="text-[11px] font-bold text-blue-700 mb-1">다음 업데이트 예정</div>
-          <div className="text-[11px] text-blue-900 leading-relaxed">
-            AI 기반 개인 재운 전략 · 세운/월운 재물 세분화 · 재테크 유형 추천 매트릭스.
-          </div>
-        </div>
         </>)}
       </div>
     </div>
