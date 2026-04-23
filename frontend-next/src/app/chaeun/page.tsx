@@ -441,7 +441,7 @@ export default function ChaeunPage() {
                 </div>
               </div>
 
-              <div className="rounded-xl p-3 mb-2" style={{ background: '#F9FAFB' }}>
+              <div className="border-t border-gray-100 pt-4 mb-4">
                 <div className="text-[11px] font-bold text-gray-700 mb-2">권장 태도</div>
                 <ul className="space-y-1.5">
                   {diagnosis.attitude.map((s, i) => (
@@ -449,7 +449,7 @@ export default function ChaeunPage() {
                   ))}
                 </ul>
               </div>
-              <div className="rounded-xl p-3 mb-2" style={{ background: '#F9FAFB' }}>
+              <div className="border-t border-gray-100 pt-4 mb-4">
                 <div className="text-[11px] font-bold text-gray-700 mb-2">투자 스타일</div>
                 <ul className="space-y-1.5">
                   {diagnosis.investmentStyle.map((s, i) => (
