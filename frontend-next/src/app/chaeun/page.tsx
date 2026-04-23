@@ -351,9 +351,12 @@ export default function ChaeunPage() {
                 올해(세운) · 이번 달(월운) · 오늘(일진) 간지가 내 일간에게 가져오는 재운 영향이에요.
               </div>
               {periodChaeun.flowNarrative && (
-                <div className="rounded-lg px-3 py-2.5 mb-4 bg-slate-50 border-l-[3px] border-slate-900">
-                  <div className="text-[10px] font-bold text-slate-500 mb-0.5 tracking-tight">흐름 요약</div>
-                  <p className="text-[12px] text-slate-900 leading-relaxed">{periodChaeun.flowNarrative}</p>
+                <div className="flex gap-3 mb-4">
+                  <div className="w-[3px] rounded-full bg-slate-900 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-bold text-slate-500 mb-0.5 tracking-tight">흐름 요약</div>
+                    <p className="text-[12px] text-slate-900 leading-relaxed">{periodChaeun.flowNarrative}</p>
+                  </div>
                 </div>
               )}
               <div className="relative pl-6">
