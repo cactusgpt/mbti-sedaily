@@ -6,6 +6,9 @@ import {
   CG_OH,
   JJG,
   sipsung,
+  calcYeonun,
+  calcWolun,
+  getGapja,
   type Pillar,
   type DaeunEntry,
   type SinGangYakResult,
@@ -66,6 +69,127 @@ function countOhInChart(ps: Pillar[], targetOh: string, excludeDayGan: boolean):
     });
   }
   return { count, root };
+}
+
+// ── 시기별 재운 (세운/월운/일진) ──
+// 특정 시기의 간지(천간+지지)가 일간에게 어떤 재운 영향을 주는지 평가
+
+const SS_TO_PATH: Record<string, WealthPathKey> = {
+  '비견': '비겁', '겁재': '비겁',
+  '식신': '식상', '상관': '식상',
+  '편재': '재성', '정재': '재성',
+  '편관': '관성', '정관': '관성',
+  '편인': '인성', '정인': '인성',
+};
+
+const PATH_SHORT: Record<WealthPathKey, string> = {
+  '재성': '재성',
+  '인성': '인성',
+  '식상': '식상',
+  '관성': '관성',
+  '비겁': '비겁',
+};
+
+export interface PeriodChaeunInfo {
+  ganji: string;         // 한글 읽기 (예: '병오')
+  ganjiHanja: string;    // 한자 (예: '丙午')
+  cgSS: string;          // 천간 십성
+  jjSS: string;          // 지지 본기 십성
+  categories: WealthPathKey[];  // 영향 경로 (중복 없음)
+  themeLine: string;     // '재성 · 식상' 같은 요약
+  note: string;          // 친화적 한 줄 해석
+}
+
+function buildPeriodNote(categories: WealthPathKey[]): string {
+  if (categories.length === 0) return '이번 시기는 특별한 재운 변수가 도드라지지 않는 안정 구간이에요.';
+  const has = (k: WealthPathKey) => categories.includes(k);
+
+  if (has('재성') && has('관성')) return '재성과 관성이 함께 들어와 직장·지위 기반의 수익이 확장되기 좋아요.';
+  if (has('재성') && has('식상')) return '식상·재성이 같이 와서 창작·서비스로 수익이 생기기 좋은 시기예요.';
+  if (has('재성') && has('비겁')) return '재성과 비겁이 만나 경쟁·협업 속에서 수익 기회가 만들어지는 시기예요.';
+  if (has('재성') && has('인성')) return '재성이 오지만 인성도 받쳐줘서 실력 기반의 안정적 수익이 가능한 시기예요.';
+  if (has('재성')) return '새로운 수익 채널을 시도하기 좋은 시기예요. 다만 기복이 있을 수 있으니 여유 자금을 유지하세요.';
+
+  if (has('관성') && has('인성')) return '관성·인성이 함께 와서 직장·전문성 트랙이 돋보이는 시기예요.';
+  if (has('관성')) return '직장·책임·공식 활동에서 기회가 커지는 시기예요.';
+
+  if (has('인성') && has('식상')) return '학습·자격(인성)과 표현·창작(식상)이 동시에 활성화돼 전문성을 콘텐츠로 푸는 흐름이 좋아요.';
+  if (has('인성')) return '단기 수익보다 학습·자격·전문성 투자에 집중하면 장기적으로 수익 기반이 단단해져요.';
+
+  if (has('식상')) return '창작·표현·서비스가 빛을 발하는 시기예요. 퍼스널 브랜드·콘텐츠를 키우기 좋아요.';
+
+  if (has('비겁')) return '협업·네트워크·공동 프로젝트가 유리한 시기예요. 다만 지출 관리는 조금 더 꼼꼼히.';
+  return '—';
+}
+
+export function evaluatePeriodChaeun(
+  ilgan: string,
+  periodCg: string,
+  periodJj: string,
+  periodCk: string,
+  periodJk: string,
+): PeriodChaeunInfo {
+  const cgSS = periodCg && ilgan ? sipsung(ilgan, periodCg) : '';
+  const jjArr = periodJj ? (JJG[periodJj] || []) : [];
+  const jjMain = jjArr[jjArr.length - 1] || '';
+  const jjSS = jjMain && ilgan ? sipsung(ilgan, jjMain) : '';
+
+  const categories: WealthPathKey[] = [];
+  if (cgSS && SS_TO_PATH[cgSS]) categories.push(SS_TO_PATH[cgSS]);
+  if (jjSS && SS_TO_PATH[jjSS] && !categories.includes(SS_TO_PATH[jjSS])) {
+    categories.push(SS_TO_PATH[jjSS]);
+  }
+
+  const themeLine = categories.map(c => PATH_SHORT[c]).join(' · ') || '—';
+  const note = buildPeriodNote(categories);
+
+  return {
+    ganji: `${periodCk || ''}${periodJk || ''}`,
+    ganjiHanja: `${periodCg || ''}${periodJj || ''}`,
+    cgSS, jjSS, categories, themeLine, note,
+  };
+}
+
+export interface CurrentPeriodChaeun {
+  yeonun: (PeriodChaeunInfo & { year: number }) | null;
+  wolun: (PeriodChaeunInfo & { month: number }) | null;
+  iljin: (PeriodChaeunInfo & { dateLabel: string }) | null;
+}
+
+/** 오늘 기준 올해 세운 · 이번 달 월운 · 오늘 일진의 재운 영향 평가 */
+export function computeCurrentPeriodChaeun(ilgan: string): CurrentPeriodChaeun {
+  if (!ilgan) return { yeonun: null, wolun: null, iljin: null };
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth() + 1;
+  const d = now.getDate();
+
+  // 세운
+  const yeonuns = calcYeonun();
+  const yr = yeonuns.find(v => v.year === y);
+  const yeonun = yr
+    ? { ...evaluatePeriodChaeun(ilgan, yr.c, yr.j, yr.ck, yr.jk), year: yr.year }
+    : null;
+
+  // 월운
+  const woluns = calcWolun();
+  const mo = woluns.find(v => v.month === m);
+  const wolun = mo
+    ? { ...evaluatePeriodChaeun(ilgan, mo.c, mo.j, mo.ck, mo.jk), month: mo.month }
+    : null;
+
+  // 일진
+  let iljin: CurrentPeriodChaeun['iljin'] = null;
+  try {
+    const g = getGapja(y, m, d);
+    const dateLabel = `${y}.${String(m).padStart(2, '0')}.${String(d).padStart(2, '0')}`;
+    iljin = {
+      ...evaluatePeriodChaeun(ilgan, g.dayPillarHanja[0], g.dayPillarHanja[1], g.dayPillar[0], g.dayPillar[1]),
+      dateLabel,
+    };
+  } catch {}
+
+  return { yeonun, wolun, iljin };
 }
 
 export function calculateWealthPaths(ps: Pillar[]): WealthPathsResult | null {
