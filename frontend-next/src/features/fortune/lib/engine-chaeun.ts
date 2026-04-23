@@ -338,11 +338,122 @@ export interface CurrentPeriodChaeun {
   yeonun: (PeriodChaeunInfo & { year: number }) | null;
   wolun: (PeriodChaeunInfo & { month: number }) | null;
   iljin: (PeriodChaeunInfo & { dateLabel: string }) | null;
+  flowNarrative: string;  // 세 시기 흐름 연결 서사
+}
+
+// ── 시기별 흐름 연결 서사 (세운 → 월운 → 일진) ──
+
+function phraseForPeriod(categories: WealthPathKey[], scope: 'year' | 'month' | 'day'): string {
+  if (categories.length === 0) {
+    return scope === 'year' ? '특별한 변수 없는 안정 흐름'
+      : scope === 'month' ? '별다른 변수 없이 지나가고'
+      : '평온한 날';
+  }
+  const has = (k: WealthPathKey) => categories.includes(k);
+
+  // 주요 조합 먼저 체크
+  if (has('재성') && has('관성')) {
+    return scope === 'year' ? '직장 재물이 크게 확장되는 흐름'
+      : scope === 'month' ? '공식 책임·재물이 함께 얹히고'
+      : '직장·수익이 동시에 돋보이는 날';
+  }
+  if (has('재성') && has('식상')) {
+    return scope === 'year' ? '창작·서비스가 수익으로 이어지는 흐름'
+      : scope === 'month' ? '창작·수익 기운이 겹치고'
+      : '창작·수익 연결이 활성화되는 날';
+  }
+  if (has('재성') && has('비겁')) {
+    return scope === 'year' ? '경쟁·협업 속 재물 기회가 열린 흐름'
+      : scope === 'month' ? '경쟁 구도와 재물이 겹치고'
+      : '동료와 함께 재물 기회가 생기는 날';
+  }
+  if (has('재성') && has('인성')) {
+    return scope === 'year' ? '실력 기반 안정 수익이 쌓이는 흐름'
+      : scope === 'month' ? '학습·수익이 함께 얹히고'
+      : '전문성으로 수익이 나는 날';
+  }
+  if (has('재성')) {
+    return scope === 'year' ? '재성이 열린 흐름'
+      : scope === 'month' ? '재물 기회가 겹치고'
+      : '재물 기운이 활성화되는 날';
+  }
+
+  if (has('관성') && has('인성')) {
+    return scope === 'year' ? '직장·전문성 트랙이 돋보이는 흐름'
+      : scope === 'month' ? '공식·학습 기운이 함께 얹히고'
+      : '조직·전문성이 빛나는 날';
+  }
+  if (has('관성') && has('식상')) {
+    return scope === 'year' ? '조직 내 창의 역할이 커지는 흐름'
+      : scope === 'month' ? '공식 업무와 표현이 겹치고'
+      : '조직 안에서 아이디어가 풀리는 날';
+  }
+  if (has('관성') && has('비겁')) {
+    return scope === 'year' ? '조직·동료 관계가 도드라지는 흐름'
+      : scope === 'month' ? '경쟁과 책임이 겹치고'
+      : '협업과 책임이 같이 오는 날';
+  }
+  if (has('관성')) {
+    return scope === 'year' ? '직장·책임이 커진 구도'
+      : scope === 'month' ? '공식 책임이 겹치고'
+      : '공적 활동이 돋보이는 날';
+  }
+
+  if (has('인성') && has('식상')) {
+    return scope === 'year' ? '전문성을 콘텐츠로 푸는 흐름'
+      : scope === 'month' ? '학습·표현 기운이 함께 얹히고'
+      : '배움과 창작이 같이 풀리는 날';
+  }
+  if (has('인성') && has('비겁')) {
+    return scope === 'year' ? '동료와 함께 성장하는 흐름'
+      : scope === 'month' ? '학습·네트워크가 겹치고'
+      : '스터디·커뮤니티가 활발한 날';
+  }
+  if (has('인성')) {
+    return scope === 'year' ? '실력·학습 기반이 쌓이는 바탕'
+      : scope === 'month' ? '학습·전문성이 얹히고'
+      : '배움·정리에 유리한 날';
+  }
+
+  if (has('식상') && has('비겁')) {
+    return scope === 'year' ? '팀 창작·공동 프로젝트가 유리한 흐름'
+      : scope === 'month' ? '공동 창작 기운이 겹치고'
+      : '함께 만드는 콘텐츠가 잘 풀리는 날';
+  }
+  if (has('식상')) {
+    return scope === 'year' ? '창작·표현이 풀리는 흐름'
+      : scope === 'month' ? '창작 기운이 얹히고'
+      : '창작·표현이 열리는 날';
+  }
+
+  if (has('비겁')) {
+    return scope === 'year' ? '동료·경쟁이 도드라지는 흐름'
+      : scope === 'month' ? '경쟁 구도가 겹치고'
+      : '협업·만남이 좋은 날';
+  }
+
+  return scope === 'year' ? '평온한 흐름' : scope === 'month' ? '무난하게 지나가고' : '평범한 날';
+}
+
+/** 세운·월운·일진 세 시기를 하나의 서사로 엮는다 */
+function buildFlowNarrative(
+  y: PeriodChaeunInfo | null,
+  m: PeriodChaeunInfo | null,
+  d: PeriodChaeunInfo | null,
+): string {
+  const parts: string[] = [];
+  if (y) parts.push(`올해 ${phraseForPeriod(y.categories, 'year')}`);
+  if (m) parts.push(`이번 달은 ${phraseForPeriod(m.categories, 'month')}`);
+  if (d) parts.push(`오늘은 ${phraseForPeriod(d.categories, 'day')}이에요`);
+  if (parts.length === 0) return '';
+  if (parts.length === 1) return `${parts[0]}이에요.`;
+  // 자연 접속어: "X에서, Y, Z"
+  return `${parts[0]}에서, ${parts.slice(1).join(', ')}.`;
 }
 
 /** 오늘 기준 올해 세운 · 이번 달 월운 · 오늘 일진의 재운 영향 평가 */
 export function computeCurrentPeriodChaeun(ilgan: string, pillars: Pillar[] = []): CurrentPeriodChaeun {
-  if (!ilgan) return { yeonun: null, wolun: null, iljin: null };
+  if (!ilgan) return { yeonun: null, wolun: null, iljin: null, flowNarrative: '' };
   const now = new Date();
   const y = now.getFullYear();
   const m = now.getMonth() + 1;
@@ -373,7 +484,9 @@ export function computeCurrentPeriodChaeun(ilgan: string, pillars: Pillar[] = []
     };
   } catch {}
 
-  return { yeonun, wolun, iljin };
+  const flowNarrative = buildFlowNarrative(yeonun, wolun, iljin);
+
+  return { yeonun, wolun, iljin, flowNarrative };
 }
 
 export function calculateWealthPaths(ps: Pillar[]): WealthPathsResult | null {

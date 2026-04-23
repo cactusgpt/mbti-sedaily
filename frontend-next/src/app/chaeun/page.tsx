@@ -320,9 +320,15 @@ export default function ChaeunPage() {
           return (
             <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
               <div className="text-[14px] font-bold text-gray-900 mb-1">시기별 재운 흐름</div>
-              <div className="text-[11px] text-gray-500 mb-4 leading-relaxed">
+              <div className="text-[11px] text-gray-500 mb-3 leading-relaxed">
                 올해(세운) · 이번 달(월운) · 오늘(일진) 간지가 내 일간에게 가져오는 재운 영향이에요.
               </div>
+              {periodChaeun.flowNarrative && (
+                <div className="rounded-lg px-3 py-2.5 mb-4 bg-slate-50 border-l-[3px] border-slate-900">
+                  <div className="text-[10px] font-bold text-slate-500 mb-0.5 tracking-tight">흐름 요약</div>
+                  <p className="text-[12px] text-slate-900 leading-relaxed">{periodChaeun.flowNarrative}</p>
+                </div>
+              )}
               <div className="space-y-4">
                 {rows.map((r, i) => (
                   <div key={i} className={i > 0 ? 'border-t border-gray-100 pt-4' : ''}>
