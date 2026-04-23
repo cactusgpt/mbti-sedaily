@@ -263,6 +263,86 @@ export default function ChaeunPage() {
           );
         })()}
 
+        {/* 0) 시기별 재운 흐름 (최상단) */}
+        {periodChaeun && (periodChaeun.yeonun || periodChaeun.wolun || periodChaeun.iljin) && (() => {
+          type Row = { label: string; sub: string; ganji: string; ganjiHanja: string; themeLine: string; note: string; categories: string[] };
+          const rows: Row[] = [];
+          if (periodChaeun.yeonun) {
+            rows.push({
+              label: '올해',
+              sub: `${periodChaeun.yeonun.year}`,
+              ganji: periodChaeun.yeonun.ganji,
+              ganjiHanja: periodChaeun.yeonun.ganjiHanja,
+              themeLine: periodChaeun.yeonun.themeLine,
+              note: periodChaeun.yeonun.note,
+              categories: periodChaeun.yeonun.categories,
+            });
+          }
+          if (periodChaeun.wolun) {
+            rows.push({
+              label: '이번 달',
+              sub: `${periodChaeun.wolun.month}월`,
+              ganji: periodChaeun.wolun.ganji,
+              ganjiHanja: periodChaeun.wolun.ganjiHanja,
+              themeLine: periodChaeun.wolun.themeLine,
+              note: periodChaeun.wolun.note,
+              categories: periodChaeun.wolun.categories,
+            });
+          }
+          if (periodChaeun.iljin) {
+            rows.push({
+              label: '오늘',
+              sub: periodChaeun.iljin.dateLabel,
+              ganji: periodChaeun.iljin.ganji,
+              ganjiHanja: periodChaeun.iljin.ganjiHanja,
+              themeLine: periodChaeun.iljin.themeLine,
+              note: periodChaeun.iljin.note,
+              categories: periodChaeun.iljin.categories,
+            });
+          }
+          const PATH_COLOR: Record<string, string> = {
+            '재성': '#D97706', '인성': '#3182F6', '식상': '#2D7A1F', '관성': '#7C3AED', '비겁': '#C33A1F',
+          };
+          return (
+            <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
+              <div className="text-[14px] font-bold text-gray-900 mb-1">시기별 재운 흐름</div>
+              <div className="text-[11px] text-gray-500 mb-4 leading-relaxed">
+                올해(세운) · 이번 달(월운) · 오늘(일진) 간지가 내 일간에게 가져오는 재운 영향이에요.
+              </div>
+              <div className="space-y-4">
+                {rows.map((r, i) => (
+                  <div key={i} className={i > 0 ? 'border-t border-gray-100 pt-4' : ''}>
+                    <div className="flex items-baseline justify-between mb-1.5">
+                      <div className="flex items-baseline gap-2 min-w-0">
+                        <span className="text-[12px] font-bold text-gray-900 shrink-0">{r.label}</span>
+                        <span className="text-[11px] text-gray-400 truncate">{r.sub}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[13px] font-extrabold text-gray-900 tracking-tight">{r.ganji}</span>
+                        <span className="text-[10px] text-gray-400 font-mono">{r.ganjiHanja}</span>
+                      </div>
+                    </div>
+                    {r.categories.length > 0 && (
+                      <div className="flex items-center gap-1 mb-1.5">
+                        {r.categories.map((c, ci) => (
+                          <span
+                            key={ci}
+                            className="inline-block rounded-full px-2 py-0.5 text-[10px] font-bold"
+                            style={{ background: `${PATH_COLOR[c]}14`, color: PATH_COLOR[c] }}
+                          >
+                            {c} +
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[12px] text-gray-600 leading-relaxed">{r.note}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* 1) 돈이 들어오는 5가지 경로 */}
         {wealthPaths && (() => {
           const PATH_COLORS: Record<string, { bg: string; bar: string; text: string }> = {
@@ -496,86 +576,6 @@ export default function ChaeunPage() {
                     </li>
                   ))}
                 </ul>
-              </div>
-            </div>
-          );
-        })()}
-
-        {/* 2-1) 시기별 재운 흐름 (세운/월운/일진) */}
-        {periodChaeun && (periodChaeun.yeonun || periodChaeun.wolun || periodChaeun.iljin) && (() => {
-          type Row = { label: string; sub: string; ganji: string; ganjiHanja: string; themeLine: string; note: string; categories: string[] };
-          const rows: Row[] = [];
-          if (periodChaeun.yeonun) {
-            rows.push({
-              label: '올해',
-              sub: `${periodChaeun.yeonun.year}`,
-              ganji: periodChaeun.yeonun.ganji,
-              ganjiHanja: periodChaeun.yeonun.ganjiHanja,
-              themeLine: periodChaeun.yeonun.themeLine,
-              note: periodChaeun.yeonun.note,
-              categories: periodChaeun.yeonun.categories,
-            });
-          }
-          if (periodChaeun.wolun) {
-            rows.push({
-              label: '이번 달',
-              sub: `${periodChaeun.wolun.month}월`,
-              ganji: periodChaeun.wolun.ganji,
-              ganjiHanja: periodChaeun.wolun.ganjiHanja,
-              themeLine: periodChaeun.wolun.themeLine,
-              note: periodChaeun.wolun.note,
-              categories: periodChaeun.wolun.categories,
-            });
-          }
-          if (periodChaeun.iljin) {
-            rows.push({
-              label: '오늘',
-              sub: periodChaeun.iljin.dateLabel,
-              ganji: periodChaeun.iljin.ganji,
-              ganjiHanja: periodChaeun.iljin.ganjiHanja,
-              themeLine: periodChaeun.iljin.themeLine,
-              note: periodChaeun.iljin.note,
-              categories: periodChaeun.iljin.categories,
-            });
-          }
-          const PATH_COLOR: Record<string, string> = {
-            '재성': '#D97706', '인성': '#3182F6', '식상': '#2D7A1F', '관성': '#7C3AED', '비겁': '#C33A1F',
-          };
-          return (
-            <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
-              <div className="text-[14px] font-bold text-gray-900 mb-1">시기별 재운 흐름</div>
-              <div className="text-[11px] text-gray-500 mb-4 leading-relaxed">
-                올해(세운) · 이번 달(월운) · 오늘(일진) 간지가 내 일간에게 가져오는 재운 영향이에요.
-              </div>
-              <div className="space-y-4">
-                {rows.map((r, i) => (
-                  <div key={i} className={i > 0 ? 'border-t border-gray-100 pt-4' : ''}>
-                    <div className="flex items-baseline justify-between mb-1.5">
-                      <div className="flex items-baseline gap-2 min-w-0">
-                        <span className="text-[12px] font-bold text-gray-900 shrink-0">{r.label}</span>
-                        <span className="text-[11px] text-gray-400 truncate">{r.sub}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[13px] font-extrabold text-gray-900 tracking-tight">{r.ganji}</span>
-                        <span className="text-[10px] text-gray-400 font-mono">{r.ganjiHanja}</span>
-                      </div>
-                    </div>
-                    {r.categories.length > 0 && (
-                      <div className="flex items-center gap-1 mb-1.5">
-                        {r.categories.map((c, ci) => (
-                          <span
-                            key={ci}
-                            className="inline-block rounded-full px-2 py-0.5 text-[10px] font-bold"
-                            style={{ background: `${PATH_COLOR[c]}14`, color: PATH_COLOR[c] }}
-                          >
-                            {c} +
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <p className="text-[12px] text-gray-600 leading-relaxed">{r.note}</p>
-                  </div>
-                ))}
               </div>
             </div>
           );
