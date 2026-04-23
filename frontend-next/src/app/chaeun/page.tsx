@@ -338,11 +338,11 @@ export default function ChaeunPage() {
             );
           };
 
-          // 행별 배경색 (올해=amber / 이번 달=sky / 오늘=흰색)
+          // 행별 배경: 모노톤 슬레이트 점진 (멀수록 옅음 → 오늘이 가장 선명)
           const ROW_BG: Record<string, { bg: string; border: string }> = {
-            '올해': { bg: '#FFFBEB', border: '#FEF3C7' },
-            '이번 달': { bg: '#F0F9FF', border: '#E0F2FE' },
-            '오늘': { bg: '#FFFFFF', border: '#E2E8F0' },
+            '올해': { bg: '#F8FAFC', border: '#E2E8F0' },       // slate-50
+            '이번 달': { bg: '#F1F5F9', border: '#CBD5E1' },    // slate-100
+            '오늘': { bg: '#FFFFFF', border: '#0F172A' },       // white + slate-900 border (강조)
           };
           return (
             <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
@@ -357,20 +357,20 @@ export default function ChaeunPage() {
                 </div>
               )}
               <div className="relative pl-6">
-                {/* 시간 흐름 세로선 (올해 amber → 이번 달 sky → 오늘 slate) */}
+                {/* 시간 흐름 세로선 — 슬레이트 점진 (옅음 → 진함) */}
                 <div
                   className="absolute w-[2px] rounded-full"
                   style={{
                     left: 8,
                     top: 18,
                     bottom: 18,
-                    background: 'linear-gradient(to bottom, #FCD34D 0%, #7DD3FC 50%, #0F172A 100%)',
+                    background: 'linear-gradient(to bottom, #CBD5E1 0%, #64748B 50%, #0F172A 100%)',
                   }}
                 />
                 <div className="space-y-3">
                 {rows.map((r, i) => {
                   const rowStyle = ROW_BG[r.label] || ROW_BG['오늘'];
-                  const dotColor = r.label === '올해' ? '#F59E0B' : r.label === '이번 달' ? '#0EA5E9' : '#0F172A';
+                  const dotColor = r.label === '올해' ? '#CBD5E1' : r.label === '이번 달' ? '#64748B' : '#0F172A';
                   const isNow = r.label === '오늘';
                   return (
                   <div key={i} className="relative">
