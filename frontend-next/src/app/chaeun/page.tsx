@@ -509,7 +509,51 @@ export default function ChaeunPage() {
           return (
             <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
               <div className="text-[14px] font-bold text-gray-900 mb-1">유형 진단</div>
-              <div className="text-[11px] text-gray-400 mb-4">신강/중화/신약 × 재성 강약 6타입</div>
+              <div className="text-[11px] text-gray-500 mb-3 leading-relaxed">
+                두 축을 교차해 6가지 유형 중 하나로 진단해요.
+              </div>
+
+              {/* 산출 기준 (접힘) */}
+              <details className="group mb-4">
+                <summary className="text-[11px] text-slate-500 cursor-pointer list-none flex items-center gap-1 hover:text-slate-700">
+                  <span className="group-open:rotate-90 transition-transform inline-block">▸</span>
+                  산출 기준 자세히 보기
+                </summary>
+                <div className="mt-2.5 rounded-lg p-3 bg-slate-50 space-y-2.5">
+                  <div>
+                    <div className="text-[11px] font-bold text-slate-800 mb-0.5">1) 일간 세력 (신강 / 중화 / 신약)</div>
+                    <div className="text-[11px] text-slate-600 leading-relaxed">
+                      원국의 월지·일지·세력이 일간(나)을 얼마나 받쳐주는지로 판단해요. <b>득령</b>(월지 도움) · <b>득지</b>(일지 도움) · <b>득세</b>(주변 기운의 도움) 3가지를 점수화해서 <b>극신강 / 신강 / 중화 / 신약 / 극신약</b> 5단계로 나누고, 이를 다시 <b>신강 · 중화 · 신약</b> 3그룹으로 묶어요.
+                    </div>
+                  </div>
+                  <div className="border-t border-slate-200 pt-2.5">
+                    <div className="text-[11px] font-bold text-slate-800 mb-0.5">2) 재성 강약 (강 / 약)</div>
+                    <div className="text-[11px] text-slate-600 leading-relaxed">
+                      원국 천간·지지에 있는 <b>편재·정재 개수</b>와 <b>지장간 속 뿌리 강도</b>를 합산해 <b>0~100</b> 점수로 만들고, <b>40점 이상은 &apos;재성 강&apos;</b>, 미만이면 &apos;재성 약&apos;으로 분류해요.
+                    </div>
+                  </div>
+                  <div className="border-t border-slate-200 pt-2.5">
+                    <div className="text-[11px] font-bold text-slate-800 mb-1.5">3) 교차 매트릭스</div>
+                    <div className="grid grid-cols-3 gap-1 text-[10px] text-center">
+                      <div />
+                      <div className="font-bold text-slate-500 py-1">재성 강</div>
+                      <div className="font-bold text-slate-500 py-1">재성 약</div>
+                      <div className="font-bold text-slate-700 py-1.5 text-right pr-1">신강</div>
+                      <div className="bg-white rounded py-1.5 text-slate-800 font-semibold">관리형</div>
+                      <div className="bg-white rounded py-1.5 text-slate-800 font-semibold">확장형</div>
+                      <div className="font-bold text-slate-700 py-1.5 text-right pr-1">중화</div>
+                      <div className="bg-white rounded py-1.5 text-slate-800 font-semibold">균형형</div>
+                      <div className="bg-white rounded py-1.5 text-slate-800 font-semibold">기회형</div>
+                      <div className="font-bold text-slate-700 py-1.5 text-right pr-1">신약</div>
+                      <div className="bg-white rounded py-1.5 text-slate-800 font-semibold">재다신약</div>
+                      <div className="bg-white rounded py-1.5 text-slate-800 font-semibold">우회축적</div>
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-2 leading-snug">
+                      내 원국 위치가 매트릭스의 어느 칸에 떨어지는지에 따라 위 6유형 중 하나로 진단돼요.
+                    </div>
+                  </div>
+                </div>
+              </details>
 
               <div className="mb-4">
                 <div className="flex items-center flex-wrap gap-1.5 mb-3">
