@@ -764,19 +764,19 @@ export default function ChaeunPage() {
             {/* 양쪽 라벨 */}
             <div className="flex items-start justify-between gap-3 mb-2">
               <div className="min-w-0">
-                <div className="text-[12px] font-bold text-slate-800">적극형 · 편재 {chaeseong!.pyeonJae}개</div>
+                <div className="text-[12px] font-bold" style={{ color: '#B45309' }}>적극형 · 편재 {chaeseong!.pyeonJae}개</div>
                 <div className="text-[10px] text-gray-400 leading-tight mt-0.5">사업·투자·영업<br />기회를 만들러 나감</div>
               </div>
               <div className="text-right min-w-0">
-                <div className="text-[12px] font-bold text-slate-500">안정형 · 정재 {chaeseong!.jeongJae}개</div>
+                <div className="text-[12px] font-bold" style={{ color: '#0F766E' }}>안정형 · 정재 {chaeseong!.jeongJae}개</div>
                 <div className="text-[10px] text-gray-400 leading-tight mt-0.5">월급·저축·고정 자산<br />꾸준히 쌓아감</div>
               </div>
             </div>
 
-            {/* 비율 바 — 같은 슬레이트 계열 명암 대비로 부드럽게 */}
+            {/* 비율 바 — 같은 darkness의 따뜻 · 차분 두 색 (amber-700 · teal-700) */}
             <div className="h-3 rounded-full overflow-hidden flex mb-2">
-              <div style={{ width: `${pyeonPct}%`, background: '#334155' }} />
-              <div style={{ width: `${jeongPct}%`, background: '#CBD5E1' }} />
+              <div style={{ width: `${pyeonPct}%`, background: '#B45309' }} />
+              <div style={{ width: `${jeongPct}%`, background: '#0F766E' }} />
             </div>
 
             {/* 해석 박스 */}
