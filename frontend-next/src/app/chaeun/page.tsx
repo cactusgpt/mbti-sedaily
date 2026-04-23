@@ -368,16 +368,8 @@ export default function ChaeunPage() {
 
         {/* 1) 돈이 들어오는 5가지 경로 */}
         {wealthPaths && (() => {
-          const PATH_COLORS: Record<string, { bg: string; bar: string; text: string }> = {
-            '재성': { bg: '#FEF3C7', bar: '#D97706', text: '#92400E' },
-            '인성': { bg: '#E8F2FF', bar: '#3182F6', text: '#1E3A8A' },
-            '식상': { bg: '#E8F5E5', bar: '#2D7A1F', text: '#1B5E20' },
-            '관성': { bg: '#EDE9FE', bar: '#7C3AED', text: '#5B21B6' },
-            '비겁': { bg: '#FEE7E2', bar: '#C33A1F', text: '#991B1B' },
-          };
           const maxStrength = Math.max(...wealthPaths.paths.map(p => p.strength), 1);
           const dom = wealthPaths.dominant;
-          const domColor = PATH_COLORS[dom.key];
           return (
             <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
               <div className="text-[14px] font-bold text-gray-900 mb-1">돈이 들어오는 5가지 경로</div>
@@ -389,49 +381,44 @@ export default function ChaeunPage() {
               <div className="space-y-3 mb-5">
                 {wealthPaths.paths.map((p, i) => {
                   const isDominant = i === 0 && p.strength > 0;
-                  const c = PATH_COLORS[p.key];
                   const barPct = maxStrength > 0 ? (p.strength / maxStrength) * 100 : 0;
                   return (
                     <div key={p.key}>
                       <div className="flex items-baseline justify-between mb-1">
                         <div className="flex items-center gap-1.5">
-                          <span
-                            className="inline-block rounded-md px-1.5 py-0.5 text-[10px] font-bold"
-                            style={{ background: c.bg, color: c.text }}
-                          >
+                          <span className={`inline-block rounded-md px-1.5 py-0.5 text-[10px] font-bold ${isDominant ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-500'}`}>
                             {p.key}
                           </span>
-                          <span className="text-[12px] font-semibold text-gray-800">{p.label}</span>
+                          <span className={`text-[12px] font-semibold ${isDominant ? 'text-slate-900' : 'text-slate-600'}`}>{p.label}</span>
                           {isDominant && (
-                            <span className="ml-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: c.bar, color: '#fff' }}>
+                            <span className="ml-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-slate-900 text-white">
                               주 경로
                             </span>
                           )}
                         </div>
-                        <span className="text-[11px] text-gray-500">{p.strength}</span>
+                        <span className={`text-[11px] ${isDominant ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>{p.strength}</span>
                       </div>
-                      <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                      <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
                         <div
                           className="h-full rounded-full"
                           style={{
                             width: `${barPct}%`,
-                            background: c.bar,
-                            opacity: isDominant ? 1 : 0.7,
+                            background: isDominant ? '#0F172A' : '#CBD5E1',
                           }}
                         />
                       </div>
-                      <div className="text-[10px] text-gray-400 mt-1 leading-snug">{p.desc}</div>
+                      <div className="text-[10px] text-slate-400 mt-1 leading-snug">{p.desc}</div>
                     </div>
                   );
                 })}
               </div>
 
               {/* 주 경로 기반 한 줄 요약 */}
-              <div className="rounded-xl p-3 mb-2" style={{ background: domColor.bg, borderLeft: `3px solid ${domColor.bar}` }}>
-                <div className="text-[11px] font-bold mb-1" style={{ color: domColor.text }}>
+              <div className="rounded-xl p-3 mb-2 bg-slate-50 border-l-[3px] border-slate-900">
+                <div className="text-[11px] font-bold mb-1 text-slate-900">
                   주 경로: {dom.label} ({dom.key})
                 </div>
-                <div className="text-[12px] leading-relaxed" style={{ color: domColor.text }}>
+                <div className="text-[12px] leading-relaxed text-slate-700">
                   {wealthPaths.fallback
                     ? '전반적으로 재물 기운이 모두 약한 편이에요. 당장의 수익보다 내공·경험을 쌓는 시기로 보고 긴 호흡을 가져가시면 좋아요.'
                     : dom.key === '재성'
