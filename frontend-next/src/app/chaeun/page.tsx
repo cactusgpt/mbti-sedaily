@@ -403,65 +403,95 @@ export default function ChaeunPage() {
                     {diagnosis.type}
                   </span>
                   {bodyTag && (
-                    <span
-                      className="inline-block rounded-full px-2 py-0.5 text-[10px] font-bold"
-                      style={{ background: bodyTag.bg, color: bodyTag.color }}
-                    >
+                    <span className="inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold text-gray-600 border border-gray-200">
                       {bodyTag.text}
                     </span>
                   )}
-                  <span
-                    className="inline-block rounded-full px-2 py-0.5 text-[10px] font-bold"
-                    style={{ background: dominTag.bg, color: dominTag.color }}
-                  >
+                  <span className="inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold text-gray-600 border border-gray-200">
                     {dominTag.text}
                   </span>
                 </div>
-                <p className="text-[13px] font-semibold text-gray-800 leading-relaxed">
+                <p className="text-[14px] font-semibold text-gray-900 leading-relaxed">
                   {diagnosis.headline}
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
-                <div className="rounded-xl p-3" style={{ background: '#E8F5E5' }}>
-                  <div className="text-[11px] font-bold text-green-700 mb-2">강점</div>
-                  <ul className="space-y-1">
-                    {diagnosis.strengths.map((s, i) => (
-                      <li key={i} className="text-[11px] text-green-800 leading-snug">· {s}</li>
-                    ))}
-                  </ul>
+              {/* 강점 */}
+              <div className="border-t border-gray-100 pt-4 mb-4">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <span className="text-[11px] font-bold text-gray-900 tracking-tight">강점</span>
                 </div>
-                <div className="rounded-xl p-3" style={{ background: '#FEE7E2' }}>
-                  <div className="text-[11px] font-bold text-red-700 mb-2">주의</div>
-                  <ul className="space-y-1">
-                    {diagnosis.cautions.map((s, i) => (
-                      <li key={i} className="text-[11px] text-red-800 leading-snug">· {s}</li>
-                    ))}
-                  </ul>
-                </div>
+                <ul className="space-y-1.5">
+                  {diagnosis.strengths.map((s, i) => (
+                    <li key={i} className="text-[12px] text-gray-700 leading-relaxed pl-3 relative">
+                      <span className="absolute left-0 top-[7px] w-1 h-1 rounded-full bg-gray-300" />
+                      {s}
+                    </li>
+                  ))}
+                </ul>
               </div>
 
+              {/* 주의 */}
               <div className="border-t border-gray-100 pt-4 mb-4">
-                <div className="text-[11px] font-bold text-gray-700 mb-2">권장 태도</div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  <span className="text-[11px] font-bold text-gray-900 tracking-tight">주의</span>
+                </div>
+                <ul className="space-y-1.5">
+                  {diagnosis.cautions.map((s, i) => (
+                    <li key={i} className="text-[12px] text-gray-700 leading-relaxed pl-3 relative">
+                      <span className="absolute left-0 top-[7px] w-1 h-1 rounded-full bg-gray-300" />
+                      {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* 권장 태도 */}
+              <div className="border-t border-gray-100 pt-4 mb-4">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+                  <span className="text-[11px] font-bold text-gray-900 tracking-tight">권장 태도</span>
+                </div>
                 <ul className="space-y-1.5">
                   {diagnosis.attitude.map((s, i) => (
-                    <li key={i} className="text-[12px] text-gray-700 leading-relaxed">· {s}</li>
+                    <li key={i} className="text-[12px] text-gray-700 leading-relaxed pl-3 relative">
+                      <span className="absolute left-0 top-[7px] w-1 h-1 rounded-full bg-gray-300" />
+                      {s}
+                    </li>
                   ))}
                 </ul>
               </div>
+
+              {/* 투자 스타일 */}
               <div className="border-t border-gray-100 pt-4 mb-4">
-                <div className="text-[11px] font-bold text-gray-700 mb-2">투자 스타일</div>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
+                  <span className="text-[11px] font-bold text-gray-900 tracking-tight">투자 스타일</span>
+                </div>
                 <ul className="space-y-1.5">
                   {diagnosis.investmentStyle.map((s, i) => (
-                    <li key={i} className="text-[12px] text-gray-700 leading-relaxed">· {s}</li>
+                    <li key={i} className="text-[12px] text-gray-700 leading-relaxed pl-3 relative">
+                      <span className="absolute left-0 top-[7px] w-1 h-1 rounded-full bg-gray-300" />
+                      {s}
+                    </li>
                   ))}
                 </ul>
               </div>
-              <div className="rounded-xl p-3" style={{ background: '#FEF7ED' }}>
-                <div className="text-[11px] font-bold text-orange-700 mb-2">피해야 할 행동</div>
+
+              {/* 피해야 할 행동 */}
+              <div className="border-t border-gray-100 pt-4">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                  <span className="text-[11px] font-bold text-gray-900 tracking-tight">피해야 할 행동</span>
+                </div>
                 <ul className="space-y-1.5">
                   {diagnosis.avoid.map((s, i) => (
-                    <li key={i} className="text-[12px] text-orange-900 leading-relaxed">· {s}</li>
+                    <li key={i} className="text-[12px] text-gray-700 leading-relaxed pl-3 relative">
+                      <span className="absolute left-0 top-[7px] w-1 h-1 rounded-full bg-gray-300" />
+                      {s}
+                    </li>
                   ))}
                 </ul>
               </div>
