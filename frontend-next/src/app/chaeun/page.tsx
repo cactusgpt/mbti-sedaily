@@ -411,7 +411,7 @@ export default function ChaeunPage() {
               </div>
 
               {/* 5 경로 게이지 (강도 내림차순) */}
-              <div className="space-y-3 mb-5">
+              <div className="space-y-3 mb-3">
                 {wealthPaths.paths.map((p, i) => {
                   const isDominant = i === 0 && p.strength > 0;
                   const barPct = maxStrength > 0 ? (p.strength / maxStrength) * 100 : 0;
@@ -429,7 +429,10 @@ export default function ChaeunPage() {
                             </span>
                           )}
                         </div>
-                        <span className={`text-[11px] ${isDominant ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>{p.strength}</span>
+                        <div className="flex items-baseline gap-1">
+                          <span className="text-[9px] text-slate-400 font-mono">({p.count}·{p.rootStrength})</span>
+                          <span className={`text-[11px] ${isDominant ? 'text-slate-900 font-semibold' : 'text-slate-400'}`}>{p.strength}</span>
+                        </div>
                       </div>
                       <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
                         <div
@@ -445,6 +448,22 @@ export default function ChaeunPage() {
                   );
                 })}
               </div>
+
+              {/* 산출 공식 주석 */}
+              <details className="group mb-4">
+                <summary className="text-[10px] text-slate-500 cursor-pointer list-none flex items-center gap-1 hover:text-slate-700">
+                  <span className="group-open:rotate-90 transition-transform inline-block">▸</span>
+                  점수는 어떻게 계산됐나요?
+                </summary>
+                <div className="mt-2 rounded-lg p-3 bg-slate-50 text-[11px] text-slate-700 leading-relaxed">
+                  <div className="font-semibold mb-1.5 text-slate-900">강도 = 간·지 본기 개수 × 10 + 지장간 뿌리 × 5 (최대 100)</div>
+                  <ul className="space-y-1 text-[10.5px]">
+                    <li>· <b>간·지 본기</b>: 원국 천간(일간 제외) + 지지 본기 중 해당 오행 개수</li>
+                    <li>· <b>지장간 뿌리</b>: 지지 속 숨은 천간의 위치별 가중치 (본기 3 · 중기 2 · 여기 1) 합산</li>
+                    <li>· 각 row의 <span className="font-mono">(N·M)</span> 은 <b>간·지 N개 · 뿌리 M점</b> 을 뜻해요</li>
+                  </ul>
+                </div>
+              </details>
 
               {/* 주 경로 기반 한 줄 요약 */}
               <div className="rounded-xl p-3 mb-2 bg-slate-50 border-l-[3px] border-slate-900">

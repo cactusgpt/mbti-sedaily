@@ -901,6 +901,37 @@ function pickNoteVariant(pool: string[], age: number, ganjiHanja: string): strin
   return pool[Math.abs(seed) % pool.length];
 }
 
+/** 대운 오행이 일간과 어떤 상극/설기 관계인지 → 경고 문장 반환 */
+function buildDaeunElementalRisk(ilgan: string, cgHanja: string, jjHanja: string): string {
+  const ilganOh = CG_OH[ilgan];
+  const cgOh = CG_OH[cgHanja];
+  const jjOh = CG_OH[jjHanja] ? CG_OH[jjHanja] : (JJG[jjHanja] ? CG_OH[JJG[jjHanja][JJG[jjHanja].length - 1]] : '');
+  if (!ilganOh) return '';
+
+  const idx = OH_LIST.indexOf(ilganOh as (typeof OH_LIST)[number]);
+  const ctrlEl = OH_LIST[(idx + 3) % 5];   // 일간을 극하는 오행 (관성)
+  const leakEl = OH_LIST[(idx + 1) % 5];   // 일간을 설기하는 오행 (식상)
+
+  const cgCtrl = cgOh === ctrlEl;
+  const jjCtrl = jjOh === ctrlEl;
+  const cgLeak = cgOh === leakEl;
+  const jjLeak = jjOh === leakEl;
+
+  if (cgCtrl && jjCtrl) {
+    return ` 다만 대운의 천간·지지가 모두 일간(${ilganOh})을 극하는 오행이라, 이 10년 전반에 체력·자신감이 눌리기 쉬워요. 건강 루틴과 정서 관리가 재운 관리만큼 중요한 시기예요.`;
+  }
+  if (jjCtrl) {
+    return ` 지지가 일간(${ilganOh})을 극하는 오행이라 몸·정서가 약해지기 쉬운 기간이에요. 수면·운동 등 기초 루틴을 평소보다 꼼꼼히 챙기세요.`;
+  }
+  if (cgCtrl) {
+    return ` 천간이 일간(${ilganOh})을 극하는 오행이라 외부 압박·책임감이 커지기 쉬운 시기예요.`;
+  }
+  if (cgLeak && jjLeak) {
+    return ` 대운 간지가 일간(${ilganOh}) 기운을 계속 설기하는 구조라 10년 내내 에너지 소모가 커요. 창작·서비스로 바쁘게 움직이는 시기지만 번아웃 주의.`;
+  }
+  return '';
+}
+
 export function evaluateDaeunChaeun(daeuns: DaeunEntry[], ilgan: string): ChaeunDaeunSegment[] {
   if (!ilgan) return [];
   return daeuns.map((d, i) => {
@@ -976,14 +1007,21 @@ export function evaluateDaeunChaeun(daeuns: DaeunEntry[], ilgan: string): Chaeun
     }
 
     const ganjiHanja = `${d.c}${d.j}`;
-    const note = pickNoteVariant(DAEUN_NOTE_POOLS[poolKey] || [], d.age, ganjiHanja);
+    const baseNote = pickNoteVariant(DAEUN_NOTE_POOLS[poolKey] || [], d.age, ganjiHanja);
+    const riskNote = buildDaeunElementalRisk(ilgan, d.c, d.j);
+    const note = baseNote + riskNote;
+    // 일간이 강하게 극받는 구간은 rating 을 caution 으로 격상
+    let finalRating = rating;
+    if (riskNote.includes('전반에 체력') || riskNote.includes('일간') && riskNote.includes('극하는')) {
+      if (finalRating === 'mixed') finalRating = 'caution';
+    }
 
     return {
       age: d.age,
       ganji: `${d.ck}${d.jk}`,
       ganjiHanja,
       theme,
-      rating,
+      rating: finalRating,
       note,
     };
   });
