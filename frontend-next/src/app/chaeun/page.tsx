@@ -469,27 +469,50 @@ export default function ChaeunPage() {
           );
         })()}
 
-        {/* 3) 투자 성향 미터 */}
+        {/* 3) 돈 쓰는 성격 (적극형 ↔ 안정형) */}
         {chaeseong!.totalCount > 0 && (
           <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
-            <div className="text-[14px] font-bold text-gray-900 mb-1">투자 성향 미터</div>
-            <div className="text-[11px] text-gray-400 mb-4">편재 ↔ 정재 비율</div>
-
-            <div className="flex items-center gap-2 text-[11px] font-semibold mb-2">
-              <span className="text-red-600">적극적 편재 {chaeseong!.pyeonJae}</span>
-              <div className="flex-1" />
-              <span className="text-blue-600">안정적 정재 {chaeseong!.jeongJae}</span>
+            <div className="text-[14px] font-bold text-gray-900 mb-1">내 돈 기운의 성격</div>
+            <div className="text-[11px] text-gray-500 mb-4 leading-relaxed">
+              재물(재성)은 크게 두 가지로 나뉘어요. <b>편재</b>는 큰 돈이 들락날락하는 <b>활동적</b>인 재물, <b>정재</b>는 월급처럼 꾸준히 쌓이는 <b>안정적</b>인 재물이에요. 내 사주엔 어느 쪽이 더 많을까요?
             </div>
-            <div className="h-3 rounded-full overflow-hidden flex">
+
+            {/* 양쪽 라벨 */}
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="min-w-0">
+                <div className="text-[12px] font-bold text-red-600">적극형 · 편재 {chaeseong!.pyeonJae}개</div>
+                <div className="text-[10px] text-gray-400 leading-tight mt-0.5">사업·투자·영업<br />기회를 만들러 나감</div>
+              </div>
+              <div className="text-right min-w-0">
+                <div className="text-[12px] font-bold text-blue-600">안정형 · 정재 {chaeseong!.jeongJae}개</div>
+                <div className="text-[10px] text-gray-400 leading-tight mt-0.5">월급·저축·고정 자산<br />꾸준히 쌓아감</div>
+              </div>
+            </div>
+
+            {/* 비율 바 */}
+            <div className="h-3 rounded-full overflow-hidden flex mb-2">
               <div style={{ width: `${pyeonPct}%`, background: '#EF4444' }} />
               <div style={{ width: `${jeongPct}%`, background: '#3B82F6' }} />
             </div>
-            <p className="text-[11px] text-gray-500 mt-3 leading-relaxed">
-              {chaeseong!.dominantType === '편재' && '활동적 재물(편재) 비중이 높아 기회 포착·확장에 유리하지만 변동폭이 큽니다.'}
-              {chaeseong!.dominantType === '정재' && '안정적 재물(정재) 비중이 높아 꾸준한 축적·저축에 유리합니다.'}
-              {chaeseong!.dominantType === '균형' && '편재·정재가 균형을 이뤄 공격과 수비를 오가는 포트폴리오가 어울립니다.'}
-              {chaeseong!.dominantType === '없음' && '원국에 재성이 약해 인성·식상 경로의 우회 축적이 어울립니다.'}
-            </p>
+
+            {/* 해석 박스 */}
+            <div className="rounded-xl p-3 mt-3" style={{ background: '#F9FAFB' }}>
+              <div className="text-[11px] font-bold text-gray-700 mb-1.5">이렇게 읽으면 돼요</div>
+              <p className="text-[12px] text-gray-600 leading-relaxed">
+                {chaeseong!.dominantType === '편재' && (<>
+                  <b>활동형(편재)</b>이 더 강한 구조예요. 새로운 기회가 생기면 빠르게 움직여 큰 수익을 만들 수 있지만, 수입·지출의 <b>기복이 크기 때문에</b> 여유 자금을 따로 두어 안전망을 만드는 게 중요해요.
+                </>)}
+                {chaeseong!.dominantType === '정재' && (<>
+                  <b>안정형(정재)</b>이 더 강한 구조예요. 규칙적인 소득·저축·장기 투자로 <b>꾸준히 불려 나가는 방식</b>이 잘 맞고, 급작스러운 투기·단기 트레이딩은 체질에 맞지 않는 편이에요.
+                </>)}
+                {chaeseong!.dominantType === '균형' && (<>
+                  <b>활동형과 안정형이 비슷하게 섞인</b> 구조예요. 상황에 따라 공격(신규 투자·사업)과 수비(저축·장기 보유)를 유연하게 전환할 수 있어요. 한쪽에 치우치지 말고 <b>비중을 조절</b>하며 운용하세요.
+                </>)}
+                {chaeseong!.dominantType === '없음' && (<>
+                  원국에 재성이 거의 없어서 편재/정재 구분의 의미가 작아요. <b>재물 그 자체보다 인성(실력)·식상(창작)</b> 같은 다른 경로로 돈이 들어오는 구조이니, 그쪽을 키우는 데 먼저 집중하시면 좋아요.
+                </>)}
+              </p>
+            </div>
           </div>
         )}
 
