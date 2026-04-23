@@ -350,13 +350,15 @@ export default function ChaeunPage() {
                     )}
                     <p className="text-[12px] text-gray-600 leading-relaxed mb-2">{r.note}</p>
 
-                    {/* 로또/횡재 운 */}
-                    <div className="rounded-lg px-3 py-2 flex items-center gap-2 flex-wrap" style={{ background: '#FFFBEB' }}>
-                      <span className="text-[10px] font-bold text-amber-800 shrink-0">🎲 로또 운</span>
-                      {renderStars(r.lotto.stars)}
-                      <span className="text-[11px] font-semibold text-amber-900 shrink-0">· {r.lotto.label}</span>
-                      <span className="text-[11px] text-amber-800 leading-snug basis-full">{r.lotto.note}</span>
-                    </div>
+                    {/* 로또/횡재 운 — 오늘 row에만 노출 */}
+                    {r.label === '오늘' && (
+                      <div className="rounded-lg px-3 py-2 flex items-center gap-2 flex-wrap" style={{ background: '#FFFBEB' }}>
+                        <span className="text-[10px] font-bold text-amber-800 shrink-0">🎲 로또 운</span>
+                        {renderStars(r.lotto.stars)}
+                        <span className="text-[11px] font-semibold text-amber-900 shrink-0">· {r.lotto.label}</span>
+                        <span className="text-[11px] text-amber-800 leading-snug basis-full">{r.lotto.note}</span>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
