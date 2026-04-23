@@ -265,7 +265,8 @@ export default function ChaeunPage() {
 
         {/* 0) 시기별 재운 흐름 (최상단) */}
         {periodChaeun && (periodChaeun.yeonun || periodChaeun.wolun || periodChaeun.iljin) && (() => {
-          type Row = { label: string; sub: string; ganji: string; ganjiHanja: string; themeLine: string; note: string; categories: string[] };
+          type LottoInfo = { stars: number; label: string; note: string };
+          type Row = { label: string; sub: string; ganji: string; ganjiHanja: string; themeLine: string; note: string; categories: string[]; lotto: LottoInfo };
           const rows: Row[] = [];
           if (periodChaeun.yeonun) {
             rows.push({
@@ -276,6 +277,7 @@ export default function ChaeunPage() {
               themeLine: periodChaeun.yeonun.themeLine,
               note: periodChaeun.yeonun.note,
               categories: periodChaeun.yeonun.categories,
+              lotto: periodChaeun.yeonun.lotto,
             });
           }
           if (periodChaeun.wolun) {
@@ -287,6 +289,7 @@ export default function ChaeunPage() {
               themeLine: periodChaeun.wolun.themeLine,
               note: periodChaeun.wolun.note,
               categories: periodChaeun.wolun.categories,
+              lotto: periodChaeun.wolun.lotto,
             });
           }
           if (periodChaeun.iljin) {
@@ -298,10 +301,20 @@ export default function ChaeunPage() {
               themeLine: periodChaeun.iljin.themeLine,
               note: periodChaeun.iljin.note,
               categories: periodChaeun.iljin.categories,
+              lotto: periodChaeun.iljin.lotto,
             });
           }
           const PATH_COLOR: Record<string, string> = {
             '재성': '#D97706', '인성': '#3182F6', '식상': '#2D7A1F', '관성': '#7C3AED', '비겁': '#C33A1F',
+          };
+          const renderStars = (n: number) => {
+            return (
+              <span className="inline-flex items-center gap-0.5">
+                {[1, 2, 3, 4, 5].map(i => (
+                  <span key={i} style={{ fontSize: 12, color: i <= n ? '#F59E0B' : '#E5E7EB', lineHeight: 1 }}>★</span>
+                ))}
+              </span>
+            );
           };
           return (
             <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
@@ -335,7 +348,15 @@ export default function ChaeunPage() {
                         ))}
                       </div>
                     )}
-                    <p className="text-[12px] text-gray-600 leading-relaxed">{r.note}</p>
+                    <p className="text-[12px] text-gray-600 leading-relaxed mb-2">{r.note}</p>
+
+                    {/* 로또/횡재 운 */}
+                    <div className="rounded-lg px-3 py-2 flex items-center gap-2 flex-wrap" style={{ background: '#FFFBEB' }}>
+                      <span className="text-[10px] font-bold text-amber-800 shrink-0">🎲 로또 운</span>
+                      {renderStars(r.lotto.stars)}
+                      <span className="text-[11px] font-semibold text-amber-900 shrink-0">· {r.lotto.label}</span>
+                      <span className="text-[11px] text-amber-800 leading-snug basis-full">{r.lotto.note}</span>
+                    </div>
                   </div>
                 ))}
               </div>

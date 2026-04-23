@@ -90,14 +90,45 @@ const PATH_SHORT: Record<WealthPathKey, string> = {
   '비겁': '비겁',
 };
 
+export interface LottoRating {
+  stars: number;   // 1~5
+  label: string;   // '로또 한 장?' 같은 짧은 라벨
+  note: string;    // 한 줄 설명
+}
+
 export interface PeriodChaeunInfo {
-  ganji: string;         // 한글 읽기 (예: '병오')
-  ganjiHanja: string;    // 한자 (예: '丙午')
-  cgSS: string;          // 천간 십성
-  jjSS: string;          // 지지 본기 십성
-  categories: WealthPathKey[];  // 영향 경로 (중복 없음)
-  themeLine: string;     // '재성 · 식상' 같은 요약
-  note: string;          // 친화적 한 줄 해석
+  ganji: string;
+  ganjiHanja: string;
+  cgSS: string;
+  jjSS: string;
+  categories: WealthPathKey[];
+  themeLine: string;
+  note: string;
+  lotto: LottoRating;  // 🎲 로또·횡재 운
+}
+
+/** 특정 시기 간지의 십성 조합으로 로또/횡재 운 계산 */
+function calcLottoRating(cgSS: string, jjSS: string): LottoRating {
+  const both = [cgSS, jjSS].filter(Boolean);
+  let score = 3;
+  if (both.includes('편재')) score += 2;    // 편재 = 횡재·투기 기운
+  if (both.includes('식신') || both.includes('상관')) score += 1; // 생산·창출
+  if (both.includes('편관')) score += 1;    // 도전·위험과 함께
+  if (both.includes('정재')) score += 0;    // 정재는 안정형 — 횡재 기운은 아님
+  if (both.includes('겁재')) score -= 2;    // 지출·손실
+  if (both.includes('비견')) score -= 1;    // 분재
+  if (both.includes('정관')) score -= 1;    // 공식·규율 우선 (횡재 ✕)
+  if (both.includes('정인') || both.includes('편인')) score -= 1; // 보수·학문 쪽
+
+  const stars = Math.max(1, Math.min(5, score));
+  const LABELS: Record<number, { label: string; note: string }> = {
+    5: { label: '로또 한 장쯤?', note: '편재 흐름이 강하게 도는 시기. 작은 도전이 큰 재미로 돌아올 수 있어요.' },
+    4: { label: '평소보다 운 좋음', note: '기대해도 괜찮은 흐름. 단, 생활비까지 거는 건 금물.' },
+    3: { label: '평범', note: '특별히 트이지도, 막히지도 않는 평범한 날이에요.' },
+    2: { label: '횡재 기대 말기', note: '지출이 새나가기 쉬운 흐름. 저축·소비 관리에 집중하세요.' },
+    1: { label: '통장에 고이 두기', note: '돈이 빠지는 기운이 강해요. 이번엔 패스하는 게 현명해요.' },
+  };
+  return { stars, label: LABELS[stars].label, note: LABELS[stars].note };
 }
 
 function buildPeriodNote(categories: WealthPathKey[]): string {
@@ -142,11 +173,12 @@ export function evaluatePeriodChaeun(
 
   const themeLine = categories.map(c => PATH_SHORT[c]).join(' · ') || '—';
   const note = buildPeriodNote(categories);
+  const lotto = calcLottoRating(cgSS, jjSS);
 
   return {
     ganji: `${periodCk || ''}${periodJk || ''}`,
     ganjiHanja: `${periodCg || ''}${periodJj || ''}`,
-    cgSS, jjSS, categories, themeLine, note,
+    cgSS, jjSS, categories, themeLine, note, lotto,
   };
 }
 
