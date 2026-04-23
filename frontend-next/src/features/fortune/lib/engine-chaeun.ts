@@ -5,12 +5,20 @@
 import {
   CG_OH,
   CHEONUL,
+  MUNCHANG,
+  YEOKMA,
+  DOHWA,
+  HWAGAE,
+  GEOBSAL,
+  JAESAL,
   JJG,
   sipsung,
   unsung,
   calcYeonun,
   calcWolun,
+  detectHapChung,
   getGapja,
+  type HapChungItem,
   type Pillar,
   type DaeunEntry,
   type SinGangYakResult,
@@ -804,8 +812,107 @@ const CHAEUN_DIAGNOSES: Record<ChaeunType, Omit<ChaeunDiagnosis, 'type'>> = {
   },
 };
 
-export function diagnoseChaeun(sgy: SinGangYakResult, chaeseong: ChaeseongProfile): ChaeunDiagnosis {
-  // 신강약을 3단계로 분리: 신강(극신강+신강) / 중화 / 신약(신약+극신약)
+// ── 원국 신살 감지 ──
+type NatalSinsal = '천을귀인' | '문창귀인' | '역마살' | '도화살' | '화개살' | '겁살' | '재살';
+
+function detectNatalSinsal(pillars: Pillar[]): NatalSinsal[] {
+  const ilgan = pillars[1]?.c;
+  const ilji = pillars[1]?.j;
+  if (!ilgan) return [];
+  const jis = pillars.map(p => p?.j).filter(Boolean) as string[];
+  const hits: NatalSinsal[] = [];
+  const cheonuls = CHEONUL[ilgan] || [];
+  if (jis.some(j => cheonuls.includes(j))) hits.push('천을귀인');
+  if (MUNCHANG[ilgan] && jis.includes(MUNCHANG[ilgan])) hits.push('문창귀인');
+  if (ilji) {
+    if (YEOKMA[ilji] && jis.includes(YEOKMA[ilji])) hits.push('역마살');
+    if (DOHWA[ilji] && jis.includes(DOHWA[ilji])) hits.push('도화살');
+    if (HWAGAE[ilji] && jis.includes(HWAGAE[ilji])) hits.push('화개살');
+    if (GEOBSAL[ilji] && jis.includes(GEOBSAL[ilji])) hits.push('겁살');
+    if (JAESAL[ilji] && jis.includes(JAESAL[ilji])) hits.push('재살');
+  }
+  return hits;
+}
+
+// ── 신살·합충별 개인화 꼬리 문장 매핑 ──
+interface PersonalTail {
+  strengths?: string;
+  cautions?: string;
+  attitude?: string;
+  investmentStyle?: string;
+  avoid?: string;
+}
+
+const SINSAL_TAILS: Record<NatalSinsal, PersonalTail> = {
+  '천을귀인': {
+    strengths: '원국 천을귀인 — 어려울 때 귀인의 도움을 받기 쉬운 체질이에요',
+    attitude: '큰 결정 앞에선 선배·멘토·전문가의 의견을 꼭 들어보세요',
+  },
+  '문창귀인': {
+    strengths: '원국 문창귀인 — 학문·자격·시험 쪽 성과가 특히 돋보여요',
+    investmentStyle: '자기계발·교육 투자 수익률이 남들보다 높게 돌아오는 편이에요',
+  },
+  '역마살': {
+    attitude: '원국 역마 — 이동·여행·해외 경험이 재운을 넓혀줘요',
+    cautions: '이동·출장·교통 관련 지출이 새나가기 쉬운 구조예요',
+  },
+  '도화살': {
+    strengths: '원국 도화 — 사람을 끌어당기는 매력으로 기회를 만드는 체질이에요',
+    cautions: '인간관계 기반 지출이 커질 수 있어 경계 설정이 중요해요',
+  },
+  '화개살': {
+    strengths: '원국 화개 — 한 분야를 깊이 파고드는 집중력이 재산이에요',
+    attitude: '혼자 몰입하는 시간을 존중해주는 환경을 미리 설계해두세요',
+  },
+  '겁살': {
+    cautions: '원국 겁살 — 예상치 못한 지출·손실 위험이 평소보다 높은 구조예요',
+    avoid: '보증·대출처럼 타인 돈과 얽히는 일',
+  },
+  '재살': {
+    cautions: '원국 재살 — 건강·안전사고가 곧 재물 손실로 이어지기 쉬워요',
+    attitude: '건강검진·보험은 남들보다 일찍 챙겨두시면 장기 이득이에요',
+  },
+};
+
+function buildHapChungTail(hapChung: HapChungItem[]): PersonalTail {
+  const hasChung = hapChung.some(h => h.type === '지지충');
+  const hasSamhap = hapChung.some(h => h.type === '지지삼합');
+  const hasYukhap = hapChung.some(h => h.type === '지지육합');
+  const hasChGanhap = hapChung.some(h => h.type === '천간합');
+
+  const tail: PersonalTail = {};
+  if (hasChung) {
+    tail.cautions = '원국 지지충 — 변동·이동이 많은 구조라 루틴을 스스로 만들어야 재운이 쌓여요';
+  }
+  if (hasSamhap) {
+    tail.strengths = '원국 삼합 — 특정 오행 흐름이 강해 그 오행 업종·관계에서 기회가 커요';
+  }
+  if (hasYukhap) {
+    tail.strengths = tail.strengths
+      ? tail.strengths
+      : '원국 육합 — 친화·연결 감각이 발달해 파트너십·협업에서 기회가 열리기 쉬워요';
+  }
+  if (hasChGanhap) {
+    tail.attitude = '원국 천간합 — 사람·조직과의 계약·약속이 비교적 매끄럽게 풀리는 편이에요';
+  }
+  return tail;
+}
+
+function appendTails(
+  base: string[],
+  tails: (string | undefined)[],
+): string[] {
+  const extras = tails.filter((t): t is string => !!t);
+  if (extras.length === 0) return base;
+  return [...base, ...extras];
+}
+
+export function diagnoseChaeun(
+  sgy: SinGangYakResult,
+  chaeseong: ChaeseongProfile,
+  pillars?: Pillar[],
+): ChaeunDiagnosis {
+  // 신강약을 3단계로 분리
   const bodyLevel: 'strong' | 'medium' | 'weak' =
     sgy.level === '극신강' || sgy.level === '신강' ? 'strong'
     : sgy.level === '중화' ? 'medium'
@@ -820,7 +927,48 @@ export function diagnoseChaeun(sgy: SinGangYakResult, chaeseong: ChaeseongProfil
   else if (bodyLevel === 'weak' && chaeStrong) type = '재다신약';
   else type = '우회축적';
 
-  return { type, ...CHAEUN_DIAGNOSES[type] };
+  const base = CHAEUN_DIAGNOSES[type];
+
+  // pillars 없으면 기본 진단만 반환 (하위 호환)
+  if (!pillars || pillars.length === 0) {
+    return { type, ...base };
+  }
+
+  // 원국 신살·합충 감지 → 섹션별 꼬리 문장 수집
+  const sinsalList = detectNatalSinsal(pillars);
+  const hapChung = detectHapChung(pillars);
+  const hapChungTail = buildHapChungTail(hapChung);
+
+  const strengthsTails = [
+    ...sinsalList.map(s => SINSAL_TAILS[s].strengths),
+    hapChungTail.strengths,
+  ];
+  const cautionsTails = [
+    ...sinsalList.map(s => SINSAL_TAILS[s].cautions),
+    hapChungTail.cautions,
+  ];
+  const attitudeTails = [
+    ...sinsalList.map(s => SINSAL_TAILS[s].attitude),
+    hapChungTail.attitude,
+  ];
+  const investTails = [
+    ...sinsalList.map(s => SINSAL_TAILS[s].investmentStyle),
+    hapChungTail.investmentStyle,
+  ];
+  const avoidTails = [
+    ...sinsalList.map(s => SINSAL_TAILS[s].avoid),
+    hapChungTail.avoid,
+  ];
+
+  return {
+    type,
+    headline: base.headline,
+    strengths: appendTails(base.strengths, strengthsTails),
+    cautions: appendTails(base.cautions, cautionsTails),
+    attitude: appendTails(base.attitude, attitudeTails),
+    investmentStyle: appendTails(base.investmentStyle, investTails),
+    avoid: appendTails(base.avoid, avoidTails),
+  };
 }
 
 // ── 대운 재물 타임라인 ──

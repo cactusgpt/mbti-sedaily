@@ -122,7 +122,7 @@ export default function ChaeunPage() {
   const chaeseong = saju ? calculateChaeseongProfile(pillars) : null;
   const wealthPaths = saju ? calculateWealthPaths(pillars) : null;
   const periodChaeun = saju && ilgan ? computeCurrentPeriodChaeun(ilgan, pillars) : null;
-  const diagnosis = structure?.singangyak && chaeseong ? diagnoseChaeun(structure.singangyak, chaeseong) : null;
+  const diagnosis = structure?.singangyak && chaeseong ? diagnoseChaeun(structure.singangyak, chaeseong, pillars) : null;
   const timeline = saju ? evaluateDaeunChaeun(daeuns, ilgan) : [];
 
   const now = new Date();
