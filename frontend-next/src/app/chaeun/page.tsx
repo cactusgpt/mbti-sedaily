@@ -420,9 +420,9 @@ export default function ChaeunPage() {
 
               {/* 강점 */}
               <div className="border-t border-gray-100 pt-4 mb-4">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  <span className="text-[11px] font-bold text-gray-900 tracking-tight">강점</span>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="inline-block w-1 h-4 rounded-sm bg-emerald-500" />
+                  <span className="text-[13px] font-extrabold text-gray-900 tracking-tight">강점</span>
                 </div>
                 <ul className="space-y-1.5">
                   {diagnosis.strengths.map((s, i) => (
@@ -436,9 +436,9 @@ export default function ChaeunPage() {
 
               {/* 주의 */}
               <div className="border-t border-gray-100 pt-4 mb-4">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                  <span className="text-[11px] font-bold text-gray-900 tracking-tight">주의</span>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="inline-block w-1 h-4 rounded-sm bg-amber-500" />
+                  <span className="text-[13px] font-extrabold text-gray-900 tracking-tight">주의</span>
                 </div>
                 <ul className="space-y-1.5">
                   {diagnosis.cautions.map((s, i) => (
@@ -452,9 +452,9 @@ export default function ChaeunPage() {
 
               {/* 권장 태도 */}
               <div className="border-t border-gray-100 pt-4 mb-4">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
-                  <span className="text-[11px] font-bold text-gray-900 tracking-tight">권장 태도</span>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="inline-block w-1 h-4 rounded-sm bg-blue-500" />
+                  <span className="text-[13px] font-extrabold text-gray-900 tracking-tight">권장 태도</span>
                 </div>
                 <ul className="space-y-1.5">
                   {diagnosis.attitude.map((s, i) => (
@@ -468,9 +468,9 @@ export default function ChaeunPage() {
 
               {/* 투자 스타일 */}
               <div className="border-t border-gray-100 pt-4 mb-4">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />
-                  <span className="text-[11px] font-bold text-gray-900 tracking-tight">투자 스타일</span>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="inline-block w-1 h-4 rounded-sm bg-violet-500" />
+                  <span className="text-[13px] font-extrabold text-gray-900 tracking-tight">투자 스타일</span>
                 </div>
                 <ul className="space-y-1.5">
                   {diagnosis.investmentStyle.map((s, i) => (
@@ -484,9 +484,9 @@ export default function ChaeunPage() {
 
               {/* 피해야 할 행동 */}
               <div className="border-t border-gray-100 pt-4">
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                  <span className="text-[11px] font-bold text-gray-900 tracking-tight">피해야 할 행동</span>
+                <div className="flex items-center gap-2 mb-2.5">
+                  <span className="inline-block w-1 h-4 rounded-sm bg-red-500" />
+                  <span className="text-[13px] font-extrabold text-gray-900 tracking-tight">피해야 할 행동</span>
                 </div>
                 <ul className="space-y-1.5">
                   {diagnosis.avoid.map((s, i) => (
