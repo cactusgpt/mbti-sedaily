@@ -11,6 +11,7 @@ import {
 } from '@/features/fortune/lib/engine';
 import {
   calculateChaeseongProfile,
+  calculateWealthPaths,
   diagnoseChaeun,
   evaluateDaeunChaeun,
 } from '@/features/fortune/lib/engine-chaeun';
@@ -118,6 +119,7 @@ export default function ChaeunPage() {
 
   const structure = saju ? buildStructureAnalysis(pillars) : null;
   const chaeseong = saju ? calculateChaeseongProfile(pillars) : null;
+  const wealthPaths = saju ? calculateWealthPaths(pillars) : null;
   const diagnosis = structure?.singangyak && chaeseong ? diagnoseChaeun(structure.singangyak, chaeseong) : null;
   const timeline = saju ? evaluateDaeunChaeun(daeuns, ilgan) : [];
 
@@ -259,78 +261,112 @@ export default function ChaeunPage() {
           );
         })()}
 
-        {/* 1) 재성 프로파일 */}
-        <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
-          <div className="text-[14px] font-bold text-gray-900 mb-1">나의 &apos;돈 그릇&apos; 구조</div>
-          <div className="text-[11px] text-gray-500 mb-4 leading-relaxed">
-            사주 속 <b>재성(財星)</b> = 돈·재물을 다루는 기운이에요. 그릇이 클수록 돈을 직접 운용하기 좋고, 작으면 전문성·지식으로 우회하는 편이 잘 맞아요.
-          </div>
+        {/* 1) 돈이 들어오는 5가지 경로 */}
+        {wealthPaths && (() => {
+          const PATH_COLORS: Record<string, { bg: string; bar: string; text: string }> = {
+            '재성': { bg: '#FEF3C7', bar: '#D97706', text: '#92400E' },
+            '인성': { bg: '#E8F2FF', bar: '#3182F6', text: '#1E3A8A' },
+            '식상': { bg: '#E8F5E5', bar: '#2D7A1F', text: '#1B5E20' },
+            '관성': { bg: '#EDE9FE', bar: '#7C3AED', text: '#5B21B6' },
+            '비겁': { bg: '#FEE7E2', bar: '#C33A1F', text: '#991B1B' },
+          };
+          const maxStrength = Math.max(...wealthPaths.paths.map(p => p.strength), 1);
+          const dom = wealthPaths.dominant;
+          const domColor = PATH_COLORS[dom.key];
+          return (
+            <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
+              <div className="text-[14px] font-bold text-gray-900 mb-1">돈이 들어오는 5가지 경로</div>
+              <div className="text-[11px] text-gray-500 mb-4 leading-relaxed">
+                재물이 내 사주로 흘러 들어오는 방식은 한 가지가 아니에요. 아래 5경로 중 가장 강한 쪽이 나의 주 수익 채널이 됩니다.
+              </div>
 
-          <div className="grid grid-cols-2 gap-2 mb-5">
-            <div className="rounded-xl p-3 text-center" style={{ background: '#F2F4F7' }}>
-              <div className="text-[11px] text-gray-500 font-semibold mb-1">편재</div>
-              <div className="text-[22px] font-extrabold text-gray-900 leading-none">{chaeseong!.pyeonJae}<span className="text-[12px] font-medium text-gray-400 ml-1">개</span></div>
-              <div className="text-[10px] text-gray-500 mt-1.5 leading-tight">활동적 재물<br /><span className="text-gray-400">사업·투자·유동 자금</span></div>
-            </div>
-            <div className="rounded-xl p-3 text-center" style={{ background: '#F2F4F7' }}>
-              <div className="text-[11px] text-gray-500 font-semibold mb-1">정재</div>
-              <div className="text-[22px] font-extrabold text-gray-900 leading-none">{chaeseong!.jeongJae}<span className="text-[12px] font-medium text-gray-400 ml-1">개</span></div>
-              <div className="text-[10px] text-gray-500 mt-1.5 leading-tight">안정된 재물<br /><span className="text-gray-400">월급·저축·고정 자산</span></div>
-            </div>
-          </div>
+              {/* 5 경로 게이지 (강도 내림차순) */}
+              <div className="space-y-3 mb-5">
+                {wealthPaths.paths.map((p, i) => {
+                  const isDominant = i === 0 && p.strength > 0;
+                  const c = PATH_COLORS[p.key];
+                  const barPct = maxStrength > 0 ? (p.strength / maxStrength) * 100 : 0;
+                  return (
+                    <div key={p.key}>
+                      <div className="flex items-baseline justify-between mb-1">
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className="inline-block rounded-md px-1.5 py-0.5 text-[10px] font-bold"
+                            style={{ background: c.bg, color: c.text }}
+                          >
+                            {p.key}
+                          </span>
+                          <span className="text-[12px] font-semibold text-gray-800">{p.label}</span>
+                          {isDominant && (
+                            <span className="ml-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full" style={{ background: c.bar, color: '#fff' }}>
+                              주 경로
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-gray-500">{p.strength}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${barPct}%`,
+                            background: c.bar,
+                            opacity: isDominant ? 1 : 0.7,
+                          }}
+                        />
+                      </div>
+                      <div className="text-[10px] text-gray-400 mt-1 leading-snug">{p.desc}</div>
+                    </div>
+                  );
+                })}
+              </div>
 
-          {/* 강도 게이지 */}
-          <div className="mb-2">
-            <div className="flex items-baseline justify-between mb-1.5">
-              <span className="text-[12px] font-semibold text-gray-700">재성 강도</span>
-              <span className="text-[12px] text-gray-500">{chaeseong!.strength}/100</span>
-            </div>
-            <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${chaeseong!.strength}%`,
-                  background: `linear-gradient(90deg, ${EL_SOLID[chaeOh] || '#5B8DF0'} 0%, ${EL_SOLID[chaeOh] || '#5B8DF0'}cc 100%)`,
-                }}
-              />
-            </div>
-            <div className="text-[10px] text-gray-400 mt-1.5">
-              재물 기운이 평소 얼마나 강하게 작용하는지 (원국 재성 개수 + 숨은 뿌리 합산)
-            </div>
-          </div>
+              {/* 주 경로 기반 한 줄 요약 */}
+              <div className="rounded-xl p-3 mb-2" style={{ background: domColor.bg, borderLeft: `3px solid ${domColor.bar}` }}>
+                <div className="text-[11px] font-bold mb-1" style={{ color: domColor.text }}>
+                  주 경로: {dom.label} ({dom.key})
+                </div>
+                <div className="text-[12px] leading-relaxed" style={{ color: domColor.text }}>
+                  {wealthPaths.fallback
+                    ? '전반적으로 재물 기운이 모두 약한 편이에요. 당장의 수익보다 내공·경험을 쌓는 시기로 보고 긴 호흡을 가져가시면 좋아요.'
+                    : dom.key === '재성'
+                      ? '돈을 직접 다루는 힘이 가장 강한 구조예요. 사업·투자·영업 등 주도적으로 자산을 운용하는 쪽이 잘 맞아요.'
+                      : dom.key === '인성'
+                        ? '실력·전문성이 그대로 수익이 되는 구조예요. 학문·자격·강의·컨설팅처럼 지식을 보수로 바꾸는 채널을 키우세요.'
+                        : dom.key === '식상'
+                          ? '표현·창작·서비스로 가치를 만들어내는 구조예요. 콘텐츠·프리랜스·퍼스널 브랜드 쪽이 잘 풀려요.'
+                          : dom.key === '관성'
+                            ? '직장·조직·지위에서 안정 수익이 오는 구조예요. 회사·공직·전문직 트랙에서 꾸준히 쌓아가는 게 어울려요.'
+                            : '동료·네트워크와의 협업이 돈으로 이어지는 구조예요. 공동 사업·협업 프로젝트·커뮤니티 기반 수익이 잘 맞아요.'}
+                </div>
+              </div>
 
-          {/* 뿌리 유무 */}
-          <div className="flex items-start gap-2 text-[12px] text-gray-600 mt-3">
-            <span
-              className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0"
-              style={{
-                background: chaeseong!.hasRoot ? '#E8F5E5' : '#F2F4F7',
-                color: chaeseong!.hasRoot ? '#2D7A1F' : '#6B7684',
-              }}
-            >
-              {chaeseong!.hasRoot ? '뿌리 있음' : '뿌리 없음'}
-            </span>
-            <span className="text-gray-500 leading-snug">
-              {chaeseong!.hasRoot
-                ? `지지(지지 글자) 안쪽에도 재물 기운이 받쳐주고 있어요 (합산 ${chaeseong!.rootStrength}점).`
-                : '지지(지지 글자) 안쪽에서도 재물 기운을 찾기 어려운 구조예요.'}
-            </span>
-          </div>
-
-          {/* 플레인 요약 */}
-          <div className="rounded-xl mt-4 p-3" style={{ background: '#EFF4FF', borderLeft: '3px solid #3B82F6' }}>
-            <div className="text-[11px] font-bold text-blue-700 mb-1">한 줄 요약</div>
-            <div className="text-[12px] text-blue-900 leading-relaxed">
-              {chaeseong!.strength === 0
-                ? '원국에 재성이 보이지 않는 구조예요. 돈을 직접 다루기보다 지식·전문성(인성)이나 창작·서비스(식상)를 통해 우회해서 쌓는 흐름이 잘 맞아요.'
-                : chaeseong!.strength < 30
-                  ? '재물 기운이 약한 편이에요. 기회가 왔을 때 움직이는 타입이라 평소 준비와 네트워크 관리가 중요해요.'
-                  : chaeseong!.strength < 60
-                    ? '재물 기운이 적당히 받쳐주는 구조예요. 꾸준히 쌓는 방식이 가장 잘 어울려요.'
-                    : '재물 기운이 풍부한 구조예요. 직접 자산을 운용하거나 다양한 소득 채널을 동시에 다루기 좋아요.'}
+              {/* 재성 상세 (재성이 있을 때만 세부 편재/정재) */}
+              {chaeseong!.totalCount > 0 && (
+                <div className="rounded-xl p-3 mt-3" style={{ background: '#F9FAFB' }}>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-bold text-gray-700">재성 상세</span>
+                    <span className="text-[10px] text-gray-400">
+                      뿌리 {chaeseong!.hasRoot ? `있음 · ${chaeseong!.rootStrength}점` : '없음'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg p-2.5 text-center bg-white">
+                      <div className="text-[10px] text-gray-500 font-semibold mb-0.5">편재</div>
+                      <div className="text-[18px] font-extrabold text-gray-900 leading-none">{chaeseong!.pyeonJae}<span className="text-[11px] font-medium text-gray-400 ml-0.5">개</span></div>
+                      <div className="text-[9px] text-gray-400 mt-1 leading-tight">사업·투자<br />유동 자금</div>
+                    </div>
+                    <div className="rounded-lg p-2.5 text-center bg-white">
+                      <div className="text-[10px] text-gray-500 font-semibold mb-0.5">정재</div>
+                      <div className="text-[18px] font-extrabold text-gray-900 leading-none">{chaeseong!.jeongJae}<span className="text-[11px] font-medium text-gray-400 ml-0.5">개</span></div>
+                      <div className="text-[9px] text-gray-400 mt-1 leading-tight">월급·저축<br />고정 자산</div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* 2) 6타입 진단 */}
         {diagnosis && (() => {

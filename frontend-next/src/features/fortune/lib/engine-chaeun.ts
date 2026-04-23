@@ -14,6 +14,92 @@ import {
 const OH_LIST = ['목', '화', '토', '금', '수'] as const;
 const YANG_CG = new Set(['甲', '丙', '戊', '庚', '壬']);
 
+// ── 돈이 들어오는 5가지 경로 (십성군 × 강도) ──
+export type WealthPathKey = '재성' | '인성' | '식상' | '관성' | '비겁';
+
+export interface WealthPath {
+  key: WealthPathKey;
+  oh: string;         // 해당 오행
+  count: number;      // 천간 + 지지 본기 합
+  rootStrength: number; // 지장간 가중합 (본기3·중기2·여기1)
+  strength: number;   // 0~100 종합
+  label: string;      // '직접 재물' 같은 평어
+  desc: string;       // 한 줄 설명
+}
+
+export interface WealthPathsResult {
+  paths: WealthPath[];  // 강도 내림차순 정렬
+  dominant: WealthPath; // 가장 강한 경로
+  fallback: boolean;    // 모든 경로가 극히 약한 경우 true
+}
+
+const PATH_META: Record<WealthPathKey, { label: string; desc: string }> = {
+  '재성': { label: '직접 재물', desc: '내가 직접 돈·자산·고객을 다루는 경로 (사업·투자·영업)' },
+  '인성': { label: '실력·전문성', desc: '학문·자격·지식이 그대로 수익 원천이 되는 경로 (학자·연구·컨설팅)' },
+  '식상': { label: '창작·서비스', desc: '내 재능·표현·서비스를 가치로 환산하는 경로 (프리랜스·콘텐츠·강의)' },
+  '관성': { label: '직책·명예', desc: '직장·조직·사회적 지위에서 안정 수익이 오는 경로 (회사원·공직·전문직)' },
+  '비겁': { label: '동료·협업', desc: '친구·동료·협력자와의 관계에서 기회·수익이 만들어지는 경로 (네트워크·공동사업)' },
+};
+
+function countOhInChart(ps: Pillar[], targetOh: string, excludeDayGan: boolean): { count: number; root: number } {
+  let count = 0;
+  let root = 0;
+  for (let i = 0; i < ps.length; i++) {
+    if (excludeDayGan && i === 1) continue;
+    const c = ps[i]?.c;
+    if (c && CG_OH[c] === targetOh) count++;
+  }
+  for (const p of ps) {
+    const j = p?.j;
+    if (!j) continue;
+    const arr = JJG[j] || [];
+    const main = arr[arr.length - 1];
+    if (main && CG_OH[main] === targetOh) count++;
+  }
+  for (const p of ps) {
+    const j = p?.j;
+    if (!j) continue;
+    const arr = JJG[j] || [];
+    const weights = arr.length === 1 ? [3] : arr.length === 2 ? [1, 3] : [1, 2, 3];
+    arr.forEach((h, i) => {
+      if (CG_OH[h] === targetOh) root += weights[i];
+    });
+  }
+  return { count, root };
+}
+
+export function calculateWealthPaths(ps: Pillar[]): WealthPathsResult | null {
+  const ilgan = ps[1]?.c;
+  const ilganOh = CG_OH[ilgan || ''];
+  if (!ilgan || !ilganOh) return null;
+  const idx = OH_LIST.indexOf(ilganOh as (typeof OH_LIST)[number]);
+
+  const pathOh: Record<WealthPathKey, string> = {
+    '비겁': ilganOh,
+    '식상': OH_LIST[(idx + 1) % 5],
+    '재성': OH_LIST[(idx + 2) % 5],
+    '관성': OH_LIST[(idx + 3) % 5],
+    '인성': OH_LIST[(idx + 4) % 5],
+  };
+
+  const paths: WealthPath[] = (Object.keys(pathOh) as WealthPathKey[]).map(key => {
+    const oh = pathOh[key];
+    const { count, root } = countOhInChart(ps, oh, key === '비겁');
+    const strength = Math.max(0, Math.min(100, count * 10 + root * 5));
+    return {
+      key, oh, count, rootStrength: root, strength,
+      label: PATH_META[key].label,
+      desc: PATH_META[key].desc,
+    };
+  });
+
+  const sorted = [...paths].sort((a, b) => b.strength - a.strength);
+  const dominant = sorted[0];
+  const fallback = dominant.strength < 20;
+
+  return { paths: sorted, dominant, fallback };
+}
+
 // ── 재성 프로파일 ──
 export interface ChaeseongProfile {
   pyeonJae: number;
