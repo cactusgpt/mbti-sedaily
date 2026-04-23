@@ -312,10 +312,37 @@ export default function ChaeunPage() {
             return (
               <span className="inline-flex items-center gap-0.5">
                 {[1, 2, 3, 4, 5].map(i => (
-                  <span key={i} style={{ fontSize: 12, color: i <= n ? '#F59E0B' : '#E5E7EB', lineHeight: 1 }}>★</span>
+                  <span key={i} style={{ fontSize: 13, color: i <= n ? '#EA580C' : '#94A3B8', lineHeight: 1 }}>★</span>
                 ))}
               </span>
             );
+          };
+
+          // 본문 핵심 키워드 자동 볼드
+          const BOLD_KEYWORDS = [
+            '재성', '편재', '정재',
+            '관성', '편관', '정관',
+            '인성', '편인', '정인',
+            '식상', '식신', '상관',
+            '비겁', '비견', '겁재',
+            '창작·서비스', '창작·수익', '학습·자격', '사업·투자·영업',
+            '직장·지위', '직장 재물', '협업', '퍼스널 브랜드', '네트워크',
+            '올해', '이번 달', '오늘',
+          ];
+          const renderBoldNote = (text: string) => {
+            const pattern = new RegExp(`(${BOLD_KEYWORDS.join('|')})`, 'g');
+            return text.split(pattern).map((part, idx) =>
+              BOLD_KEYWORDS.includes(part)
+                ? <span key={idx} className="font-bold text-slate-900">{part}</span>
+                : <span key={idx}>{part}</span>
+            );
+          };
+
+          // 행별 배경색 (올해=amber / 이번 달=sky / 오늘=흰색)
+          const ROW_BG: Record<string, { bg: string; border: string }> = {
+            '올해': { bg: '#FFFBEB', border: '#FEF3C7' },
+            '이번 달': { bg: '#F0F9FF', border: '#E0F2FE' },
+            '오늘': { bg: '#FFFFFF', border: '#E2E8F0' },
           };
           return (
             <div className="bg-white border border-gray-200 rounded-[16px] p-4 sm:p-5 mb-3">
@@ -329,21 +356,27 @@ export default function ChaeunPage() {
                   <p className="text-[12px] text-slate-900 leading-relaxed">{periodChaeun.flowNarrative}</p>
                 </div>
               )}
-              <div className="space-y-4">
-                {rows.map((r, i) => (
-                  <div key={i} className={i > 0 ? 'border-t border-gray-100 pt-4' : ''}>
-                    <div className="flex items-baseline justify-between mb-1.5">
+              <div className="space-y-2.5">
+                {rows.map((r, i) => {
+                  const rowStyle = ROW_BG[r.label] || ROW_BG['오늘'];
+                  return (
+                  <div
+                    key={i}
+                    className="rounded-xl p-3.5"
+                    style={{ background: rowStyle.bg, border: `1px solid ${rowStyle.border}` }}
+                  >
+                    <div className="flex items-baseline justify-between mb-2">
                       <div className="flex items-baseline gap-2 min-w-0">
                         <span className="text-[12px] font-bold text-gray-900 shrink-0">{r.label}</span>
                         <span className="text-[11px] text-gray-400 truncate">{r.sub}</span>
                       </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="text-[13px] font-extrabold text-gray-900 tracking-tight">{r.ganji}</span>
-                        <span className="text-[10px] text-gray-400 font-mono">{r.ganjiHanja}</span>
+                      <div className="flex items-baseline gap-1 shrink-0">
+                        <span className="text-[14px] font-extrabold text-gray-900 tracking-tight">{r.ganji}</span>
+                        <span className="text-[10px] text-gray-400 font-mono">({r.ganjiHanja})</span>
                       </div>
                     </div>
                     {r.categories.length > 0 && (
-                      <div className="flex items-center gap-1 mb-1.5">
+                      <div className="flex items-center gap-1 mb-2">
                         {r.categories.map((c, ci) => (
                           <span
                             key={ci}
@@ -355,7 +388,7 @@ export default function ChaeunPage() {
                         ))}
                       </div>
                     )}
-                    <p className="text-[12px] text-gray-600 leading-relaxed mb-2">{r.note}</p>
+                    <p className="text-[12px] text-gray-700 leading-relaxed mb-2">{renderBoldNote(r.note)}</p>
 
                     {/* 로또/횡재 운 — 오늘 row에만 노출 (세부 점수 공개) */}
                     {r.label === '오늘' && (
@@ -393,7 +426,8 @@ export default function ChaeunPage() {
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           );
