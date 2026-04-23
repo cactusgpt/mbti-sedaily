@@ -522,6 +522,88 @@ export interface ChaeunDaeunSegment {
   note: string;
 }
 
+// 대운 테마별 노트 풀 — 같은 테마라도 여러 변주로 다양하게
+const DAEUN_NOTE_POOLS: Record<string, string[]> = {
+  '직장 재물': [
+    '재성과 관성이 함께 들어와 직장·지위 기반의 수익이 확장되는 시기.',
+    '조직에서 책임이 커지면서 보상도 자연스레 따라오는 구간.',
+    '승진·이직·프로젝트 리더십이 곧 재물로 이어지는 흐름.',
+    '직책과 실력이 모두 올라가며 고정 수입이 크게 도약하기 좋음.',
+  ],
+  '재물 확장 편재': [
+    '편재가 들어와 사업·투자·유동 자금이 활발히 돌아가는 구간.',
+    '새로운 수익 채널을 여러 개 시도하기 좋은 편재 대운.',
+    '활동 반경이 넓어지며 기회가 쏟아지듯 열리는 구간. 선택과 집중이 열쇠.',
+    '큰 돈이 드나드는 흐름이 강해짐. 관리만 잘하면 크게 도약 가능.',
+  ],
+  '재물 확장 정재': [
+    '정재가 들어와 성실한 노력이 안정 수익으로 결실 맺는 구간.',
+    '꾸준한 축적·저축·부동산 운용에 유리한 정재 대운.',
+    '한 분야에 집중해 복리로 쌓아가기 최적의 시기.',
+    '지루할 수 있지만 장기적으로 체질에 가장 맞는 재물 경로가 열림.',
+  ],
+  '재물 유출 주의 초입': [
+    '겁재 대운 초입 — 충동 지출·보증·공동투자 주의가 특히 강한 시기.',
+    '대운이 바뀌며 겁재가 처음 들어와 심리적 흔들림이 크니 보수적 운영을.',
+    '초기 5년이 고비. 큰 결정 전 한 번 더 검토하는 습관이 안전망.',
+  ],
+  '재물 유출 주의': [
+    '겁재가 들어와 지출·경쟁이 늘어나는 구간. 보수적 재정 운영이 안전.',
+    '남과 얽히는 금전 관계에서 손실이 발생하기 쉬운 대운.',
+    '동업·보증·공동 투자는 특히 신중히. 단독 판단을 우선.',
+    '수입은 있어도 빠져나가는 구멍이 보이니 가계부 점검이 중요.',
+  ],
+  '경쟁·분재': [
+    '비견이 들어와 동료·경쟁자와 얽히는 구간. 독자 판단이 유리.',
+    '같은 길을 걷는 사람들과 겹치는 시기. 차별화가 재운을 가름.',
+    '협력 기회와 경쟁 갈등이 섞이는 구간. 관계 설계가 핵심.',
+    '내 자리·내 몫을 지키는 의식적 노력이 필요한 대운.',
+  ],
+  '직장·책임 편관': [
+    '편관이 들어와 도전적 직무·책임이 커지는 구간. 스트레스와 성장이 공존.',
+    '압박 속에서 역량이 빠르게 크는 편관 대운. 버티면 평가가 따라옴.',
+    '큰 프로젝트·위기 대응 같은 고강도 업무가 주어지는 시기.',
+  ],
+  '직장·책임 정관': [
+    '정관이 들어와 안정된 직위·공식 인정이 커지는 구간.',
+    '조직 내 질서와 명예가 동시에 올라가는 정관 대운. 승진에 유리.',
+    '공적인 자리·대외 활동이 늘며 평판 자산이 축적되는 시기.',
+  ],
+  '전문성 기반 정인': [
+    '정인이 들어와 학습·자격·정통 지식이 재물의 뿌리가 되는 구간.',
+    '멘토·상급자의 지원이 커지는 정인 대운. 배움에 집중하기 좋음.',
+    '학위·자격증·정규 교육이 큰 성과로 이어지는 시기.',
+  ],
+  '전문성 기반 편인': [
+    '편인이 들어와 독창적 시각·비정통 전문성이 힘을 발휘하는 구간.',
+    '비주류·틈새 분야의 지식이 수익이 되는 편인 대운.',
+    '직관과 영감으로 새로운 영역을 개척하기 좋은 시기.',
+  ],
+  '재물 생산 식신': [
+    '식신이 들어와 여유·취미·표현이 자연스럽게 수익으로 이어지는 구간.',
+    '음식·콘텐츠·서비스 분야에서 꾸준한 수익이 만들어지는 식신 대운.',
+    '즐기는 일이 곧 돈이 되는, 편안한 생산성의 시기.',
+  ],
+  '재물 생산 상관': [
+    '상관이 들어와 재능·창의력이 폭발적으로 드러나는 구간.',
+    '표현력·퍼스널 브랜드가 곧 수익이 되는 상관 대운.',
+    '콘텐츠·강연·프리랜스 같은 무형 자산이 크게 성장하는 시기.',
+  ],
+  '안정 유지': [
+    '별다른 큰 변수 없이 기존 흐름이 이어지는 안정 구간.',
+    '내실을 다지기 좋은 조용한 대운. 큰 확장보다 체질 관리 시기.',
+    '눈에 띄는 도약은 적지만 기반이 단단해지는 시기.',
+  ],
+};
+
+// 결정론적 variant 선택 (간지+나이 해시)
+function pickNoteVariant(pool: string[], age: number, ganjiHanja: string): string {
+  if (!pool || pool.length === 0) return '';
+  let seed = age;
+  for (let i = 0; i < ganjiHanja.length; i++) seed = seed * 31 + ganjiHanja.charCodeAt(i);
+  return pool[Math.abs(seed) % pool.length];
+}
+
 export function evaluateDaeunChaeun(daeuns: DaeunEntry[], ilgan: string): ChaeunDaeunSegment[] {
   if (!ilgan) return [];
   return daeuns.map((d, i) => {
@@ -533,51 +615,76 @@ export function evaluateDaeunChaeun(daeuns: DaeunEntry[], ilgan: string): Chaeun
 
     let theme = '안정 유지';
     let rating: ChaeunTimelineRating = 'mixed';
-    let note = '';
+    let poolKey = '안정 유지';
 
-    const hasChaeseong = bothSS.some(s => s === '편재' || s === '정재');
+    const hasPyeonJae = bothSS.includes('편재');
+    const hasJeongJae = bothSS.includes('정재');
+    const hasChaeseong = hasPyeonJae || hasJeongJae;
     const hasGeobjae = bothSS.includes('겁재');
     const hasBigyeon = bothSS.includes('비견');
-    const hasGwansung = bothSS.some(s => s === '편관' || s === '정관');
-    const hasInsung = bothSS.some(s => s === '편인' || s === '정인');
-    const hasSiksang = bothSS.some(s => s === '식신' || s === '상관');
+    const hasPyeonGwan = bothSS.includes('편관');
+    const hasJeongGwan = bothSS.includes('정관');
+    const hasGwansung = hasPyeonGwan || hasJeongGwan;
+    const hasPyeonIn = bothSS.includes('편인');
+    const hasJeongIn = bothSS.includes('정인');
+    const hasInsung = hasPyeonIn || hasJeongIn;
+    const hasSikshin = bothSS.includes('식신');
+    const hasSanggwan = bothSS.includes('상관');
+    const hasSiksang = hasSikshin || hasSanggwan;
 
     if (hasChaeseong && hasGwansung) {
       theme = '직장 재물';
       rating = 'strong';
-      note = '재성과 관성이 함께 와 직장·지위 기반의 수익이 확장되는 구간.';
-    } else if (hasChaeseong) {
+      poolKey = '직장 재물';
+    } else if (hasPyeonJae) {
       theme = '재물 확장';
       rating = 'strong';
-      note = '재성이 들어와 적극적 재물 활동·사업 기회가 크게 열리는 구간.';
+      poolKey = '재물 확장 편재';
+    } else if (hasJeongJae) {
+      theme = '재물 확장';
+      rating = 'strong';
+      poolKey = '재물 확장 정재';
     } else if (hasGeobjae) {
       theme = '재물 유출 주의';
       rating = 'caution';
-      note = i === 0
-        ? '겁재 대운 초입 — 충동 지출·보증·공동투자 주의가 특히 강한 구간.'
-        : '겁재가 들어와 지출·경쟁이 늘어나는 구간. 보수적 재정 운영이 안전.';
+      poolKey = i === 0 ? '재물 유출 주의 초입' : '재물 유출 주의';
     } else if (hasBigyeon) {
       theme = '경쟁·분재';
       rating = 'mixed';
-      note = '비견이 들어와 동료·경쟁과 얽히는 구간. 독자 판단이 유리.';
-    } else if (hasGwansung) {
+      poolKey = '경쟁·분재';
+    } else if (hasPyeonGwan) {
       theme = '직장·책임';
       rating = 'mixed';
-      note = '관성이 들어와 직장·사회적 책임이 커지는 구간. 재물은 직책 따라 따라옴.';
-    } else if (hasInsung) {
+      poolKey = '직장·책임 편관';
+    } else if (hasJeongGwan) {
+      theme = '직장·책임';
+      rating = 'mixed';
+      poolKey = '직장·책임 정관';
+    } else if (hasJeongIn) {
       theme = '전문성 기반';
       rating = 'mixed';
-      note = '인성이 들어와 학습·자격·전문성이 재물의 뿌리가 되는 구간.';
-    } else if (hasSiksang) {
+      poolKey = '전문성 기반 정인';
+    } else if (hasPyeonIn) {
+      theme = '전문성 기반';
+      rating = 'mixed';
+      poolKey = '전문성 기반 편인';
+    } else if (hasSikshin) {
       theme = '재물 생산';
       rating = 'strong';
-      note = '식상이 들어와 생산·표현·서비스를 통해 수익이 만들어지는 구간.';
+      poolKey = '재물 생산 식신';
+    } else if (hasSanggwan) {
+      theme = '재물 생산';
+      rating = 'strong';
+      poolKey = '재물 생산 상관';
     }
+
+    const ganjiHanja = `${d.c}${d.j}`;
+    const note = pickNoteVariant(DAEUN_NOTE_POOLS[poolKey] || [], d.age, ganjiHanja);
 
     return {
       age: d.age,
       ganji: `${d.ck}${d.jk}`,
-      ganjiHanja: `${d.c}${d.j}`,
+      ganjiHanja,
       theme,
       rating,
       note,
