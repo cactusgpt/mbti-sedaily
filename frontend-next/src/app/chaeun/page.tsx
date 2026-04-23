@@ -121,7 +121,7 @@ export default function ChaeunPage() {
   const structure = saju ? buildStructureAnalysis(pillars) : null;
   const chaeseong = saju ? calculateChaeseongProfile(pillars) : null;
   const wealthPaths = saju ? calculateWealthPaths(pillars) : null;
-  const periodChaeun = saju && ilgan ? computeCurrentPeriodChaeun(ilgan) : null;
+  const periodChaeun = saju && ilgan ? computeCurrentPeriodChaeun(ilgan, pillars) : null;
   const diagnosis = structure?.singangyak && chaeseong ? diagnoseChaeun(structure.singangyak, chaeseong) : null;
   const timeline = saju ? evaluateDaeunChaeun(daeuns, ilgan) : [];
 
@@ -265,7 +265,8 @@ export default function ChaeunPage() {
 
         {/* 0) 시기별 재운 흐름 (최상단) */}
         {periodChaeun && (periodChaeun.yeonun || periodChaeun.wolun || periodChaeun.iljin) && (() => {
-          type LottoInfo = { stars: number; label: string; note: string };
+          type LottoBreakdown = { label: string; points: number; note: string; met: boolean };
+          type LottoInfo = { stars: number; score: number; label: string; note: string; breakdown: LottoBreakdown[]; disclaimer: string };
           type Row = { label: string; sub: string; ganji: string; ganjiHanja: string; themeLine: string; note: string; categories: string[]; lotto: LottoInfo };
           const rows: Row[] = [];
           if (periodChaeun.yeonun) {
@@ -350,13 +351,39 @@ export default function ChaeunPage() {
                     )}
                     <p className="text-[12px] text-gray-600 leading-relaxed mb-2">{r.note}</p>
 
-                    {/* 로또/횡재 운 — 오늘 row에만 노출 */}
+                    {/* 로또/횡재 운 — 오늘 row에만 노출 (세부 점수 공개) */}
                     {r.label === '오늘' && (
-                      <div className="rounded-lg px-3 py-2 flex items-center gap-2 flex-wrap" style={{ background: '#FFFBEB' }}>
-                        <span className="text-[10px] font-bold text-amber-800 shrink-0">🎲 로또 운</span>
-                        {renderStars(r.lotto.stars)}
-                        <span className="text-[11px] font-semibold text-amber-900 shrink-0">· {r.lotto.label}</span>
-                        <span className="text-[11px] text-amber-800 leading-snug basis-full">{r.lotto.note}</span>
+                      <div className="rounded-lg px-3 py-3" style={{ background: '#FFFBEB' }}>
+                        <div className="flex items-center gap-2 flex-wrap mb-2">
+                          <span className="text-[10px] font-bold text-amber-800 shrink-0">🎲 로또 운</span>
+                          {renderStars(r.lotto.stars)}
+                          <span className="text-[11px] font-semibold text-amber-900 shrink-0">· {r.lotto.label}</span>
+                          <span className="ml-auto text-[11px] font-bold text-amber-900">{r.lotto.score}/100</span>
+                        </div>
+                        <p className="text-[11px] text-amber-800 leading-snug mb-2">{r.lotto.note}</p>
+
+                        <details className="group">
+                          <summary className="text-[10px] text-amber-700 cursor-pointer list-none flex items-center gap-1 hover:text-amber-900">
+                            <span className="group-open:rotate-90 transition-transform inline-block">▸</span>
+                            점수 내역 보기
+                          </summary>
+                          <div className="mt-2 space-y-1">
+                            {r.lotto.breakdown.map((b, bi) => (
+                              <div key={bi} className="flex items-baseline gap-2 text-[10px]">
+                                <span className={`shrink-0 w-[4px] h-[4px] rounded-full mt-[5px] ${b.met ? 'bg-amber-600' : 'bg-amber-200'}`} />
+                                <span className="text-amber-900 font-semibold w-[70px] shrink-0">{b.label}</span>
+                                <span className={`font-bold w-[34px] shrink-0 ${b.points > 0 ? 'text-emerald-700' : b.points < 0 ? 'text-red-600' : 'text-amber-700/60'}`}>
+                                  {b.points > 0 ? `+${b.points}` : b.points}
+                                </span>
+                                <span className="text-amber-800/80 leading-snug">{b.note}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+
+                        <p className="text-[9px] text-amber-700/70 mt-2 leading-snug italic">
+                          ※ {r.lotto.disclaimer}
+                        </p>
                       </div>
                     )}
                   </div>

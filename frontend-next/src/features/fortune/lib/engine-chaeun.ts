@@ -4,8 +4,10 @@
  */
 import {
   CG_OH,
+  CHEONUL,
   JJG,
   sipsung,
+  unsung,
   calcYeonun,
   calcWolun,
   getGapja,
@@ -90,10 +92,20 @@ const PATH_SHORT: Record<WealthPathKey, string> = {
   '비겁': '비겁',
 };
 
+export interface LottoBreakdown {
+  label: string;       // '편재 투출' 같은 항목 이름
+  points: number;      // 가감 점수
+  note: string;        // 한 줄 설명
+  met: boolean;        // 조건 충족 여부
+}
+
 export interface LottoRating {
   stars: number;   // 1~5
+  score: number;   // 0~100
   label: string;   // '로또 한 장?' 같은 짧은 라벨
   note: string;    // 한 줄 설명
+  breakdown: LottoBreakdown[];  // 점수 내역 (투명 공개)
+  disclaimer: string; // 면책 문구
 }
 
 export interface PeriodChaeunInfo {
@@ -104,31 +116,128 @@ export interface PeriodChaeunInfo {
   categories: WealthPathKey[];
   themeLine: string;
   note: string;
-  lotto: LottoRating;  // 🎲 로또·횡재 운
+  lotto: LottoRating;
 }
 
-/** 특정 시기 간지의 십성 조합으로 로또/횡재 운 계산 */
-function calcLottoRating(cgSS: string, jjSS: string): LottoRating {
-  const both = [cgSS, jjSS].filter(Boolean);
-  let score = 3;
-  if (both.includes('편재')) score += 2;    // 편재 = 횡재·투기 기운
-  if (both.includes('식신') || both.includes('상관')) score += 1; // 생산·창출
-  if (both.includes('편관')) score += 1;    // 도전·위험과 함께
-  if (both.includes('정재')) score += 0;    // 정재는 안정형 — 횡재 기운은 아님
-  if (both.includes('겁재')) score -= 2;    // 지출·손실
-  if (both.includes('비견')) score -= 1;    // 분재
-  if (both.includes('정관')) score -= 1;    // 공식·규율 우선 (횡재 ✕)
-  if (both.includes('정인') || both.includes('편인')) score -= 1; // 보수·학문 쪽
+const LOTTO_DISCLAIMER = '전통 명리의 참고 지표를 단순 점수화한 재미용 수치예요. 실제 당첨 확률과는 무관합니다.';
 
-  const stars = Math.max(1, Math.min(5, score));
+/** 일진 간지 기반 100점 만점 로또/횡재 운 산정
+ *  편재 투출(+30) / 천을귀인(+20) / 12운성 생·왕·관(+20, 사·묘·절 -10) / 일진 재성(+15) / 오행 균형(+15)
+ */
+function calcLottoRating(
+  ilgan: string,
+  cgSS: string,
+  jjSS: string,
+  pillars: Pillar[],
+  dayJj: string,
+): LottoRating {
+  const breakdown: LottoBreakdown[] = [];
+  let score = 0;
+
+  // 1) 편재 투출 — 원국 천간(일간 제외)에 편재가 드러나 있는지
+  const ilganYang = ['甲', '丙', '戊', '庚', '壬'].includes(ilgan);
+  const ilganOh = CG_OH[ilgan];
+  const OH_LIST_TMP = ['목', '화', '토', '금', '수'];
+  const chaeOh = OH_LIST_TMP[(OH_LIST_TMP.indexOf(ilganOh) + 2) % 5];
+  let pyeonJaeVisible = false;
+  for (let i = 0; i < pillars.length; i++) {
+    if (i === 1) continue;
+    const c = pillars[i]?.c;
+    if (!c || CG_OH[c] !== chaeOh) continue;
+    const isYang = ['甲', '丙', '戊', '庚', '壬'].includes(c);
+    if (isYang !== ilganYang) { pyeonJaeVisible = true; break; }
+  }
+  breakdown.push({
+    label: '편재 투출',
+    points: pyeonJaeVisible ? 30 : 0,
+    note: pyeonJaeVisible ? '원국 천간에 편재가 드러나 횡재 기운 자극에 민감한 구조' : '원국 천간에 편재가 드러나지 않음',
+    met: pyeonJaeVisible,
+  });
+  if (pyeonJaeVisible) score += 30;
+
+  // 2) 천을귀인 — 오늘 일진 지지가 내 일간의 천을귀인 지지인지
+  const cheonulList = CHEONUL[ilgan] || [];
+  const cheonulHit = !!dayJj && cheonulList.includes(dayJj);
+  breakdown.push({
+    label: '천을귀인',
+    points: cheonulHit ? 20 : 0,
+    note: cheonulHit ? `오늘 일진 지지 ${dayJj}가 일간 ${ilgan}의 천을귀인` : '오늘 일진에 천을귀인 해당 없음',
+    met: cheonulHit,
+  });
+  if (cheonulHit) score += 20;
+
+  // 3) 12운성 — 오늘 일진 지지의 12운성
+  const us = ilgan && dayJj ? unsung(ilgan, dayJj) : '';
+  const wangPos = ['장생', '관대', '건록', '제왕'].includes(us); // 생·왕·관
+  const deathPos = ['사', '묘', '절'].includes(us);
+  const usScore = wangPos ? 20 : deathPos ? -10 : 0;
+  breakdown.push({
+    label: `12운성 ${us || '—'}`,
+    points: usScore,
+    note: wangPos ? '운기 상승 구간 (장생·관대·건록·제왕)'
+          : deathPos ? '운기 하강 구간 (사·묘·절)'
+          : '중립 구간',
+    met: wangPos,
+  });
+  score += usScore;
+
+  // 4) 일진 재성 — 오늘 일진의 천간/지지 본기에 재성(편재·정재) 유무
+  const bothSS = [cgSS, jjSS];
+  const dayHasJae = bothSS.includes('편재') || bothSS.includes('정재');
+  breakdown.push({
+    label: '일진 재성',
+    points: dayHasJae ? 15 : 0,
+    note: dayHasJae ? '오늘 일진에 재성이 실려 재물 기운이 활성' : '오늘 일진에 재성 없음',
+    met: dayHasJae,
+  });
+  if (dayHasJae) score += 15;
+
+  // 5) 오행 균형도 — 원국 5오행 모두 1개 이상이면 균형
+  const ohCounts: Record<string, number> = { 목: 0, 화: 0, 토: 0, 금: 0, 수: 0 };
+  for (const p of pillars) {
+    if (p.c && CG_OH[p.c]) ohCounts[CG_OH[p.c]]++;
+    if (p.j) {
+      const arr = JJG[p.j] || [];
+      const main = arr[arr.length - 1];
+      if (main && CG_OH[main]) ohCounts[CG_OH[main]]++;
+    }
+  }
+  const presentCount = Object.values(ohCounts).filter(c => c > 0).length;
+  const balanceScore = presentCount === 5 ? 15 : presentCount === 4 ? 10 : presentCount === 3 ? 5 : 0;
+  breakdown.push({
+    label: '오행 균형',
+    points: balanceScore,
+    note: `원국 오행 ${presentCount}/5종 보유 (5종 완성 +15, 4종 +10, 3종 +5)`,
+    met: presentCount >= 4,
+  });
+  score += balanceScore;
+
+  // 총점 0~100 clamp
+  score = Math.max(0, Math.min(100, score));
+
+  // 별점 매핑
+  const stars =
+    score >= 80 ? 5 :
+    score >= 60 ? 4 :
+    score >= 40 ? 3 :
+    score >= 20 ? 2 : 1;
+
   const LABELS: Record<number, { label: string; note: string }> = {
-    5: { label: '로또 한 장쯤?', note: '편재 흐름이 강하게 도는 시기. 작은 도전이 큰 재미로 돌아올 수 있어요.' },
-    4: { label: '평소보다 운 좋음', note: '기대해도 괜찮은 흐름. 단, 생활비까지 거는 건 금물.' },
-    3: { label: '평범', note: '특별히 트이지도, 막히지도 않는 평범한 날이에요.' },
-    2: { label: '횡재 기대 말기', note: '지출이 새나가기 쉬운 흐름. 저축·소비 관리에 집중하세요.' },
-    1: { label: '통장에 고이 두기', note: '돈이 빠지는 기운이 강해요. 이번엔 패스하는 게 현명해요.' },
+    5: { label: '로또 한 장쯤?', note: '편재·귀인·운기가 맞물려 평소보다 재물 감도가 가장 높은 날이에요.' },
+    4: { label: '평소보다 운 좋음', note: '재물 감도가 올라간 흐름. 단, 생활비까지 거는 건 금물.' },
+    3: { label: '평범', note: '딱히 트이지도 막히지도 않는 평범한 흐름이에요.' },
+    2: { label: '횡재 기대 말기', note: '운성이 낮거나 귀인이 없는 날. 소비 관리에 집중.' },
+    1: { label: '통장에 고이 두기', note: '여러 지표가 낮게 나오는 흐름. 이번엔 패스하는 게 현명해요.' },
   };
-  return { stars, label: LABELS[stars].label, note: LABELS[stars].note };
+
+  return {
+    stars,
+    score,
+    label: LABELS[stars].label,
+    note: LABELS[stars].note,
+    breakdown,
+    disclaimer: LOTTO_DISCLAIMER,
+  };
 }
 
 function buildPeriodNote(categories: WealthPathKey[]): string {
@@ -159,6 +268,7 @@ export function evaluatePeriodChaeun(
   periodJj: string,
   periodCk: string,
   periodJk: string,
+  pillars: Pillar[],
 ): PeriodChaeunInfo {
   const cgSS = periodCg && ilgan ? sipsung(ilgan, periodCg) : '';
   const jjArr = periodJj ? (JJG[periodJj] || []) : [];
@@ -173,7 +283,7 @@ export function evaluatePeriodChaeun(
 
   const themeLine = categories.map(c => PATH_SHORT[c]).join(' · ') || '—';
   const note = buildPeriodNote(categories);
-  const lotto = calcLottoRating(cgSS, jjSS);
+  const lotto = calcLottoRating(ilgan, cgSS, jjSS, pillars, periodJj);
 
   return {
     ganji: `${periodCk || ''}${periodJk || ''}`,
@@ -189,7 +299,7 @@ export interface CurrentPeriodChaeun {
 }
 
 /** 오늘 기준 올해 세운 · 이번 달 월운 · 오늘 일진의 재운 영향 평가 */
-export function computeCurrentPeriodChaeun(ilgan: string): CurrentPeriodChaeun {
+export function computeCurrentPeriodChaeun(ilgan: string, pillars: Pillar[] = []): CurrentPeriodChaeun {
   if (!ilgan) return { yeonun: null, wolun: null, iljin: null };
   const now = new Date();
   const y = now.getFullYear();
@@ -200,14 +310,14 @@ export function computeCurrentPeriodChaeun(ilgan: string): CurrentPeriodChaeun {
   const yeonuns = calcYeonun();
   const yr = yeonuns.find(v => v.year === y);
   const yeonun = yr
-    ? { ...evaluatePeriodChaeun(ilgan, yr.c, yr.j, yr.ck, yr.jk), year: yr.year }
+    ? { ...evaluatePeriodChaeun(ilgan, yr.c, yr.j, yr.ck, yr.jk, pillars), year: yr.year }
     : null;
 
   // 월운
   const woluns = calcWolun();
   const mo = woluns.find(v => v.month === m);
   const wolun = mo
-    ? { ...evaluatePeriodChaeun(ilgan, mo.c, mo.j, mo.ck, mo.jk), month: mo.month }
+    ? { ...evaluatePeriodChaeun(ilgan, mo.c, mo.j, mo.ck, mo.jk, pillars), month: mo.month }
     : null;
 
   // 일진
@@ -216,7 +326,7 @@ export function computeCurrentPeriodChaeun(ilgan: string): CurrentPeriodChaeun {
     const g = getGapja(y, m, d);
     const dateLabel = `${y}.${String(m).padStart(2, '0')}.${String(d).padStart(2, '0')}`;
     iljin = {
-      ...evaluatePeriodChaeun(ilgan, g.dayPillarHanja[0], g.dayPillarHanja[1], g.dayPillar[0], g.dayPillar[1]),
+      ...evaluatePeriodChaeun(ilgan, g.dayPillarHanja[0], g.dayPillarHanja[1], g.dayPillar[0], g.dayPillar[1], pillars),
       dateLabel,
     };
   } catch {}
