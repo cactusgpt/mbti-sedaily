@@ -159,9 +159,9 @@
 - **Files to create**:
   - `backend/v2/infrastructure/setup_eventbridge_v2.sh` (dry-run 기본)
 - **Definition of Done**:
-  - [ ] `sedaily-mbti-v2-collector-schedule` rate(3 hours) → collector Lambda
-  - [ ] `sedaily-mbti-v2-transform-trigger` rate(5 minutes) → transform Lambda (TASK-2.3 후 활성화)
-  - [ ] **실제 등록은 사람이 수동**
+  - [x] `sedaily-mbti-v2-collector-schedule` cron(0 0/3 * * ? *) → collector Lambda *(rate→cron 변경: wall-clock 정렬 위해 UTC 00/03/06/09/12/15/18/21 고정 = KST 09/12/15/18/21/00/03/06. 2026-04-22 09:09 UTC `--apply` 실측, State=ENABLED, 첫 fire 2026-04-22 12:00 UTC 예정)*
+  - [ ] `sedaily-mbti-v2-transform-trigger` rate(5 minutes) → transform Lambda *(TASK-2.3에서 Transform Lambda 배포 후 같은 스크립트에 추가 + 활성화 — 이 PR 범위 밖)*
+  - [x] **실제 등록은 사람이 수동** *(.clauderules #4 2026-04-22 완화로 Claude Code가 계획·승인·비용·announce·ID추적·stop-on-anomaly 6조건 충족 후 직접 `--apply` 실행. 생성 리소스: rule `sedaily-mbti-v2-collector-schedule`, target `collector-lambda`, permission SID `EventBridgeV2CollectorSchedule`)*
 
 ### TASK-2.3: Core 2 Transform Lambda
 - **종속성**: TASK-2.1
@@ -377,10 +377,10 @@
 |---|---|---|---|---|
 | Phase 0 | 3 | 3 | 0 | 0 |
 | Phase 1 | 4 | 4 | 0 | 0 |
-| Phase 2 | 5 | 1 | 0 | 4 |
+| Phase 2 | 5 | 2 | 0 | 3 |
 | Phase 3 | 5 | 0 | 0 | 5 |
 | Phase 4 | 6 | 0 | 0 | 6 |
 | Phase 5 | 8 | 0 | 0 | 8 |
-| **합계** | **31** | **8** | **0** | **23** |
+| **합계** | **31** | **9** | **0** | **22** |
 
 세션 시작 시 이 표 업데이트할 것.
