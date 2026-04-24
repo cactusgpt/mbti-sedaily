@@ -58,6 +58,12 @@ Output (passed to Step 2):
     }
   }
 """
+# Pipeline Schedule: EventBridge triggers every 3 hours (8 runs/day)
+# Rule: sedaily-mbti-pipeline-schedule-dev
+# Expression: rate(3 hours)
+# Previous: cron(0 22 * * ? *) — once daily at 07:00 KST
+# Deduplication: Already-processed articles are skipped via DynamoDB lookup
+
 import asyncio
 import json
 import logging
@@ -65,7 +71,7 @@ import re
 import time
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Set, Tuple
 
 import boto3
 from botocore.config import Config
@@ -427,28 +433,130 @@ def _store_type_assignments(
     date_str: str,
     type_assignments: Dict[str, List[str]],
     metrics: Dict[str, Any],
+    scores_map: Dict[str, Dict[str, float]] = None,
 ) -> None:
-    """Store MBTI type→article mapping in DynamoDB for API lookups."""
+    """
+    Merge MBTI type→article mapping with any existing assignments for today.
+
+    On the first run of the day this simply writes. On subsequent runs it:
+      1. Reads existing NT/NF/ST/SF lists from the __type_assignments__ item
+      2. Unions new IDs into each list
+      3. Re-ranks by composite score and keeps only the top 30 per type
+      4. Increments run_count and updates last_run_at
+    """
+    scores_map = scores_map or {}
+    dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
+    table = dynamodb.Table(DYNAMODB_TABLE_ARTICLES_DEV)
+    key = f'__type_assignments__{date_str}'
+
+    # Read existing assignments (if any)
+    existing_item = {}
+    run_count = 0
+    try:
+        resp = table.get_item(Key={'news_id': key})
+        existing_item = resp.get('Item', {})
+        run_count = int(existing_item.get('run_count', 0))
+    except Exception as e:
+        logger.warning(f"Could not read existing type_assignments: {e}")
+
+    # Merge per type: union existing + new, re-rank, keep top 30
+    merged: Dict[str, List[str]] = {}
+    for group in ['NT', 'NF', 'ST', 'SF']:
+        existing_ids = existing_item.get(group, [])
+        if not isinstance(existing_ids, list):
+            existing_ids = []
+        new_ids = type_assignments.get(group, [])
+
+        # Union preserving order (existing first, then new)
+        seen: set = set()
+        union: List[str] = []
+        for nid in existing_ids + new_ids:
+            if nid not in seen:
+                union.append(nid)
+                seen.add(nid)
+
+        # Re-rank by composite score if scores available
+        score_key = f"{group.lower()}_score"
+        # Existing IDs without scores in this run get 7.0 (already vetted)
+        EXISTING_DEFAULT_SCORE = 7.0
+
+        def _composite(nid: str) -> float:
+            s = scores_map.get(nid, {})
+            ts = s.get(score_key, EXISTING_DEFAULT_SCORE)
+            qs = s.get('quality', EXISTING_DEFAULT_SCORE)
+            return ts * 0.7 + qs * 0.3
+
+        union.sort(key=_composite, reverse=True)
+        merged[group] = union[:TOTAL_TARGET]
+
+    run_count += 1
+    now = datetime.now(KST).isoformat()
+
+    merged_unique: set = set()
+    for ids in merged.values():
+        merged_unique.update(ids)
+
+    table.put_item(Item={
+        'news_id': key,
+        'item_type': 'type_assignment',
+        'date': date_str,
+        'NT': merged['NT'],
+        'NF': merged['NF'],
+        'ST': merged['ST'],
+        'SF': merged['SF'],
+        'metrics': {
+            'total_unique': len(merged_unique),
+            'overlap_count': sum(len(v) for v in merged.values()) - len(merged_unique),
+            'per_type': {t: len(ids) for t, ids in merged.items()},
+        },
+        'run_count': run_count,
+        'last_run_at': now,
+        'created_at': existing_item.get('created_at', now),
+    })
+
+    logger.info(
+        f"Stored type_assignments for {date_str} "
+        f"(run #{run_count}, {len(merged_unique)} unique articles)"
+    )
+
+
+# ── Deduplication ────────────────────────────────────────────────────────────
+
+
+def _get_already_processed_ids(date_str: str) -> Set[str]:
+    """
+    Return news_ids already transformed and stored by earlier pipeline runs today.
+
+    Strategy (two targeted queries, no table scan):
+      1. Read the __type_assignments__{date} item — its NT/NF/ST/SF lists
+         contain all IDs selected in previous runs.
+      2. This is sufficient because _store_type_assignments merges across runs,
+         so the item always reflects the cumulative set.
+    """
     dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
     table = dynamodb.Table(DYNAMODB_TABLE_ARTICLES_DEV)
 
-    table.put_item(Item={
-        'news_id': f'__type_assignments__{date_str}',
-        'item_type': 'type_assignment',
-        'date': date_str,
-        'NT': type_assignments.get('NT', []),
-        'NF': type_assignments.get('NF', []),
-        'ST': type_assignments.get('ST', []),
-        'SF': type_assignments.get('SF', []),
-        'metrics': {
-            'total_unique': metrics.get('total_unique_selected', 0),
-            'overlap_count': metrics.get('overlap_count', 0),
-            'per_type': metrics.get('per_type', {}),
-        },
-        'created_at': datetime.now(KST).isoformat(),
-    })
+    try:
+        response = table.get_item(
+            Key={'news_id': f'__type_assignments__{date_str}'},
+            ProjectionExpression='NT, NF, ST, SF',
+        )
+        item = response.get('Item')
+        if not item:
+            return set()
 
-    logger.info(f"Stored type_assignments for {date_str}")
+        processed: Set[str] = set()
+        for group in ['NT', 'NF', 'ST', 'SF']:
+            ids = item.get(group, [])
+            if isinstance(ids, list):
+                processed.update(ids)
+
+        logger.info(f"Dedup: {len(processed)} articles already processed for {date_str}")
+        return processed
+
+    except Exception as e:
+        logger.warning(f"Dedup lookup failed (non-fatal, proceeding without dedup): {e}")
+        return set()
 
 
 # ── Main logic ───────────────────────────────────────────────────────────────
@@ -485,6 +593,41 @@ async def _select_articles(date_str: str) -> Dict[str, Any]:
         f"Pre-filter: {len(candidates)} candidates "
         f"(deleted=-{excluded_deleted}, rules=-{excluded_rules})"
     )
+
+    # Phase B2: deduplication — skip articles already processed in earlier runs today
+    already_processed = _get_already_processed_ids(date_str)
+    pre_dedup_count = len(candidates)
+    if already_processed:
+        candidates = [a for a in candidates if a.nsid not in already_processed]
+        logger.info(
+            f"After dedup: {len(candidates)} new candidates "
+            f"({len(already_processed)} already processed)"
+        )
+
+    # If too few new articles, skip AI scoring
+    if len(candidates) < 5:
+        elapsed = int((time.time() - start) * 1000)
+        logger.info(f"Only {len(candidates)} new articles — skipping pipeline run")
+        return {
+            'step': 1,
+            'date': date_str,
+            'selected_articles_s3_uri': '',
+            'selected_article_ids': [],
+            'selected_articles_summary': [],
+            'type_assignments': {},
+            'metrics': {
+                'total_in_xml': total_in_xml,
+                'excluded_deleted': excluded_deleted,
+                'excluded_rules': excluded_rules,
+                'already_processed': len(already_processed),
+                'new_candidates': len(candidates),
+                'selected': 0,
+                'total_unique_selected': 0,
+                'per_type': {},
+                'reason': 'insufficient_new_articles',
+                'duration_ms': elapsed,
+            },
+        }
 
     # Phase C: AI scoring (Nova Lite) — 4 MBTI dimensions + quality
     fallback_used = False
@@ -576,13 +719,13 @@ async def _select_articles(date_str: str) -> Dict[str, Any]:
     total_assigned = sum(per_type_counts.values())
     overlap_count = total_assigned - total_unique
 
-    # Phase G: store type_assignments in DynamoDB for API lookups
+    # Phase G: store type_assignments in DynamoDB (merges with earlier runs)
     try:
         _store_type_assignments(date_str, type_assignments, {
             'total_unique_selected': total_unique,
             'overlap_count': overlap_count,
             'per_type': per_type_counts,
-        })
+        }, scores_map=scores_map)
     except Exception as e:
         logger.error(f"Failed to store type_assignments (non-fatal): {e}")
 
