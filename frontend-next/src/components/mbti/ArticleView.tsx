@@ -99,7 +99,10 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
     if (!version && !isLoadingContent) {
       setIsLoadingContent(true);
       fetch(`${API_URL}/api/article/${article.news_id}`)
-        .then((res) => res.json())
+        .then((res) => {
+          if (!res.ok) throw new Error(`API error: ${res.status}`);
+          return res.json();
+        })
         .then((data) => {
           setArticle((prev) => ({
             ...prev,
@@ -121,11 +124,12 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
     }
   }, [article.news_id, version]);
 
-  // 읽기 기록
+  // 읽기 기록 — fires once per article open; version hasn't loaded yet
+  // at this point, so we always use the original article title
   useEffect(() => {
     trackArticleRead(article.news_id);
     if (isAuthenticated && user) {
-      recordArticleRead(user.userId, article.news_id, version?.title || article.title);
+      recordArticleRead(user.userId, article.news_id, article.title);
     }
   }, [article.news_id, isAuthenticated, user]);
 
