@@ -166,22 +166,37 @@
 ### TASK-2.3: Core 2 Transform Lambda
 - **종속성**: TASK-2.1
 - **Files to create**:
+  - `backend/v2/clients/transform_v2_service.py` *(wrapper; composition around v1 MbtiTransformService, injects VPC Bedrock endpoint + correct Opus 4.6 model ID)*
   - `backend/v2/handlers/core2_transform.py`
-  - `backend/v2/tests/test_core2_transform.py`
+  - `backend/v2/tests/test_transform_v2_service.py` *(7 unit: 3 user-specified regression guards + 2 model_id guards + close + delegation smoke)*
+  - `backend/v2/tests/test_core2_transform.py` *(11 unit + 1 integration: OPTIONS, empty batch, full success, partial failure, total failure, semaphore, deadline, 3× logging events)*
+  - `backend/v2/infrastructure/verify_opus_baseline.py` *(one-shot diagnostic — not part of Lambda package; measures Opus 4.6 p99 latency + verifies 1h TTL)*
+- **Files to modify (v2 only)**:
+  - `backend/v2/tests/conftest.py` — `_TEST_PREFIXES` += `test_v2_2_3_`
+  - `backend/v2/deploy-v2.sh` — `CORE2_FUNCTIONS=("sedaily-mbti-v2-transform-dev")`
 - **로직**:
-  1. `PgVectorV2Client.get_articles_by_status('raw', limit=10)` — 배치 크기 10
-  2. 각 기사: v1 `MbtiTransformService.transform_article()` 재사용 (4 병렬 Opus)
-  3. 4 버전 각각 Titan V2 임베딩
-  4. S3에 `version_{NT|NF|ST|SF}.json` 업로드
-  5. `insert_article_version` × 4
+  1. `PgVectorV2Client.get_articles_by_status('raw', limit=20)` — 배치 크기 20 (Phase A2 Section 3 sizing)
+  2. 각 기사: v1 `MbtiTransformService.transform_article()` 재사용 (4 병렬 Opus) via `TransformV2Service` wrapper
+  3. 4 버전 각각 Titan V2 임베딩 (4 parallel)
+  4. S3에 `version_{NT|NF|ST|SF}.json` 업로드 (4 parallel)
+  5. `insert_article_version` × 4 (db_lock 직렬화 — pg8000 thread-unsafe)
   6. `update_article_status(news_id, 'transformed')`
-  7. 에러 시 `status='failed'`
+  7. 부분 실패 (<4 versions) 또는 예외 시 `status='failed'` (strict policy)
+  8. Wave 사이 `context.get_remaining_time_in_millis()` 체크, < `WAVE_DEADLINE_BUFFER_S` (90s) 시 나머지 articles 스킵 (status='raw' 유지, 다음 fire pickup)
 - **Definition of Done**:
-  - [ ] 함수명 `sedaily-mbti-v2-transform-dev`
-  - [ ] **프롬프트 캐싱 활성화** (`cache_control: {"type": "ephemeral"}`) — 시스템 프롬프트에
-  - [ ] 4 병렬 호출 (asyncio.gather)
-  - [ ] Bedrock 스로틀링 시 exponential backoff 재시도 3회
-  - [ ] 실패한 기사는 재처리 가능 (`status='failed'` → 별도 잡으로 재시도)
+  - [x] 함수명 `sedaily-mbti-v2-transform-dev` *(빈 Lambda 사용자 생성됨, Phase C에서 Handler/VPC/Timeout/Memory/Env 설정)*
+  - [~] **프롬프트 캐싱 활성화** *(v1 `cache_control: {"type": "ephemeral"}` 상속 — 하지만 `verify_opus_baseline.py` 실측 결과 Opus 4.6는 default ephemeral에 cache 0% 반환. **1h TTL만 작동**함. v2 버전에서 1h TTL 적용은 v1 `transform_single_group` 수정 필요 → `.clauderules` #1 위반 → 별도 follow-up TASK로 defer. Option Z.)*
+  - [x] 4 병렬 호출 (asyncio.gather) *(v1 재사용)*
+  - [x] Bedrock 스로틀링 시 exponential backoff 재시도 *(v1 5회 재시도 그대로 상속. spec 3회보다 보수적)*
+  - [x] 실패한 기사는 재처리 가능 (`status='failed'` → 별도 잡으로 재시도) *(`ON CONFLICT (news_id, mbti_type) DO UPDATE` for version rows; status 재설정은 수동 SQL 또는 별도 retry job)*
+  - [x] 18 unit tests PASS (`pytest v2/tests/test_transform_v2_service.py v2/tests/test_core2_transform.py -m 'not integration'`)
+  - [x] `verify_opus_baseline.py` 실측 완료 *(article 2KB8R3LJ9D, p50=27.96s, p99=28.73s, 1h TTL PASS — 결과 C1 commit body)*
+- **Notes**:
+  - **Mega-system prompt rejected**: consolidating 4 personas into a single system block would save ~18% input tokens but re-introduces the quality regression that drove v1 from single-call → 4-parallel. Not worth the trade. Re-evaluate at Phase 5 if cost pressure increases.
+  - **1h cache TTL deferred (Option Z)**: v1 `MbtiTransformService` hardcodes `cache_control: {"type":"ephemeral"}` at line 188-192 (no ttl). `.clauderules` #1 forbids editing v1. `verify_opus_baseline.py` confirms Opus 4.6 supports `ttl="1h"` — but also reveals Opus 4.6 does **NOT** honor default 5min ephemeral (cache_creation=0 on all 5 no-ttl calls). **Implication: current v2 Transform runs with ZERO cache benefit on Opus 4.6.** Cost per article ≈ $0.74 without cache vs ~$0.52 with 1h cache (warm) = ~30% savings left on the table. **Follow-up TASK-2.6 suggested**: thick v2 wrapper that bypasses v1's Bedrock call to inject `ttl="1h"`. Verify with TASK-2.3 live data: if cache_read_input_tokens stays 0 after backlog clear (expected per this finding), create TASK-2.6 with estimated $2000+/month savings at current traffic.
+  - **v1 MODEL_ID bug surfaced**: `config/constants.py:86 BEDROCK_MODEL_ID_OPUS = 'us.anthropic.claude-opus-4-6-v1:0'` — but Bedrock's actual Opus 4.6 inference profile is `us.anthropic.claude-opus-4-6-v1` (no `:0` suffix; AWS changed convention for 4.6+). `TransformV2Service` overrides to the correct ID; v1 production may be silently failing transforms. **Separate v1 hotfix session recommended.**
+  - **S3 field convention** (discovered during TASK-2.3): v1 `article_to_dict()` renames Python dataclass fields to JSON keys at S3 boundary — `title` → `title_ko`, `sub_title` → `sub_title_ko`, `content_clean` → `content_ko`. v2 Transform handler uses the JSON keys directly (not the dataclass names). Future v2 handlers reading `original.json` must follow the same convention.
+  - **WAVE_DEADLINE_BUFFER_S = 90s** sized from `verify_opus_baseline.py` p99 observation (28.73s per single Opus call), wave of 5 ≈ 35s p99, + one retry allowance 30s + 25s safety. Phase D production data may prompt tightening to 60s or loosening to 120s.
 
 ### TASK-2.4: Core 2 Validator Lambda
 - **종속성**: TASK-2.3
@@ -377,10 +392,10 @@
 |---|---|---|---|---|
 | Phase 0 | 3 | 3 | 0 | 0 |
 | Phase 1 | 4 | 4 | 0 | 0 |
-| Phase 2 | 5 | 2 | 0 | 3 |
+| Phase 2 | 5 | 3 | 0 | 2 |
 | Phase 3 | 5 | 0 | 0 | 5 |
 | Phase 4 | 6 | 0 | 0 | 6 |
 | Phase 5 | 8 | 0 | 0 | 8 |
-| **합계** | **31** | **9** | **0** | **22** |
+| **합계** | **31** | **10** | **0** | **21** |
 
 세션 시작 시 이 표 업데이트할 것.

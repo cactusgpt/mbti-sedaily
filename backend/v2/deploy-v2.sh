@@ -42,7 +42,10 @@ API_V2_FUNCTIONS=(
 CORE1_FUNCTIONS=(
   "sedaily-mbti-v2-collector-dev"  # TASK-2.1
 )
-CORE2_FUNCTIONS=()  # TASK-2.3 → transform, validator
+CORE2_FUNCTIONS=(
+  "sedaily-mbti-v2-transform-dev"  # TASK-2.3
+  # TASK-2.4 will add sedaily-mbti-v2-validator-dev
+)
 CORE3_FUNCTIONS=()  # TASK-3.4 → feed, article, event, consolidation
 
 # chat-agent deploys via Docker + ECR + agentcore CLI — not in this list.
