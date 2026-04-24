@@ -70,6 +70,15 @@ from v2.clients.transform_v2_service import TransformV2Service
 
 
 logger = logging.getLogger(__name__)
+# AWS Lambda Python runtime's root logger defaults to WARNING, which silently
+# drops ``logger.info(json.dumps({...}))`` emissions used by this handler for
+# per-article and per-run observability. Phase D live invoke (2026-04-24,
+# RequestId 9688e130) confirmed ``[ERROR]`` and ``[WARNING]`` reach CloudWatch
+# but ``[INFO]`` events (``transform_complete``, ``transform_run_complete``,
+# ``transform_empty_batch``) did not. Raise the root level so CloudWatch
+# Insights can aggregate them. v1 handlers have the same latent issue; we
+# only fix v2 here per ``.clauderules`` #1 (no v1 edits).
+logging.getLogger().setLevel(logging.INFO)
 
 
 # ── Sizing constants ──────────────────────────────────────────────────────────

@@ -184,7 +184,7 @@
   7. 부분 실패 (<4 versions) 또는 예외 시 `status='failed'` (strict policy)
   8. Wave 사이 `context.get_remaining_time_in_millis()` 체크, < `WAVE_DEADLINE_BUFFER_S` (90s) 시 나머지 articles 스킵 (status='raw' 유지, 다음 fire pickup)
 - **Definition of Done**:
-  - [x] 함수명 `sedaily-mbti-v2-transform-dev` *(빈 Lambda 사용자 생성됨, Phase C에서 Handler/VPC/Timeout/Memory/Env 설정)*
+  - [x] 함수명 `sedaily-mbti-v2-transform-dev` *(빈 Lambda 사용자 생성됨, Phase C에서 Handler=`v2.handlers.core2_transform.lambda_handler` / VPC `vpc-07a3a75110d6594aa` / Timeout=900s / Memory=1024MB / 7 env vars / Reserved concurrency=1 / IAM `+BedrockOpus46Invoke` 완료)*
   - [~] **프롬프트 캐싱 활성화** *(v1 `cache_control: {"type": "ephemeral"}` 상속 — 하지만 `verify_opus_baseline.py` 실측 결과 Opus 4.6는 default ephemeral에 cache 0% 반환. **1h TTL만 작동**함. v2 버전에서 1h TTL 적용은 v1 `transform_single_group` 수정 필요 → `.clauderules` #1 위반 → 별도 follow-up TASK로 defer. Option Z.)*
   - [x] 4 병렬 호출 (asyncio.gather) *(v1 재사용)*
   - [x] Bedrock 스로틀링 시 exponential backoff 재시도 *(v1 5회 재시도 그대로 상속. spec 3회보다 보수적)*
@@ -197,6 +197,9 @@
   - **v1 MODEL_ID bug surfaced**: `config/constants.py:86 BEDROCK_MODEL_ID_OPUS = 'us.anthropic.claude-opus-4-6-v1:0'` — but Bedrock's actual Opus 4.6 inference profile is `us.anthropic.claude-opus-4-6-v1` (no `:0` suffix; AWS changed convention for 4.6+). `TransformV2Service` overrides to the correct ID; v1 production may be silently failing transforms. **Separate v1 hotfix session recommended.**
   - **S3 field convention** (discovered during TASK-2.3): v1 `article_to_dict()` renames Python dataclass fields to JSON keys at S3 boundary — `title` → `title_ko`, `sub_title` → `sub_title_ko`, `content_clean` → `content_ko`. v2 Transform handler uses the JSON keys directly (not the dataclass names). Future v2 handlers reading `original.json` must follow the same convention.
   - **WAVE_DEADLINE_BUFFER_S = 90s** sized from `verify_opus_baseline.py` p99 observation (28.73s per single Opus call), wave of 5 ≈ 35s p99, + one retry allowance 30s + 25s safety. Phase D production data may prompt tightening to 60s or loosening to 120s.
+  - **Phase D live invoke** (2026-04-24 RequestId `9688e130`, Duration 595,688ms, Memory 114/1024MB): 20 articles processed, 80 `version_*.json` files written to S3. SF group hit JSON parse errors with 2× retry (v1 exp backoff; resolved). Estimated cost ~$18.76. Next ~483 raw articles remain in backlog — will be cleared when EventBridge rule is enabled.
+  - **Lambda Python root logger level** fix applied: `logging.getLogger().setLevel(logging.INFO)` at module top of `core2_transform.py`. Phase D first invoke revealed that AWS Lambda Python runtime defaults to WARNING level, silently dropping every `logger.info(json.dumps({...}))` emission (including `transform_run_complete`, `transform_complete`, `transform_empty_batch`). v1 handlers share the same latent issue; only v2 is patched here per `.clauderules` #1.
+  - **EventBridge trigger `sedaily-mbti-v2-transform-trigger`** (Phase E): created `rate(5 minutes)`, state=**DISABLED**. Deliberate cost-safety default — enabling starts ~$220/day steady-state Opus spend (plus ~$216/hour while a backlog persists). Enable via `./v2/infrastructure/setup_transform_trigger.sh --enable` once any Option Y follow-up decisions are made.
 
 ### TASK-2.4: Core 2 Validator Lambda
 - **종속성**: TASK-2.3
