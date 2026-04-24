@@ -82,6 +82,8 @@ BEDROCK_MODEL_ID_DEFAULT = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
 BEDROCK_MODEL_ID_HAIKU = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
 # Sonnet 4 — Higher quality for complex rewriting (optional upgrade)
 BEDROCK_MODEL_ID_SONNET = 'us.anthropic.claude-sonnet-4-20250514-v1:0'
+# Opus 4.6 — Highest quality for MBTI article transformation (parallel per-group calls)
+BEDROCK_MODEL_ID_OPUS = 'us.anthropic.claude-opus-4-6-v1:0'
 
 # AWS Bedrock Nova Models
 # Nova Lite — Low-cost for simple classification/filtering (Steps 1, 2, 4, Supervisor)

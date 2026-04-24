@@ -18,6 +18,7 @@ from .constants import (
     S3_AUDIO_BUCKET_DEV,
     OPENSEARCH_INDEX_DEFAULT,
     BEDROCK_MODEL_ID_DEFAULT,
+    BEDROCK_MODEL_ID_OPUS,
     BEDROCK_MODEL_ID_NOVA_LITE,
     BEDROCK_EMBEDDING_MODEL_ID,
     BIGKINDS_API_URL_DEFAULT,
@@ -59,7 +60,7 @@ class Settings:
 
     # ── AI Models (Bedrock) ──────────────────────────────────────────────────
 
-    claude_model_id: str = BEDROCK_MODEL_ID_DEFAULT
+    claude_model_id: str = BEDROCK_MODEL_ID_OPUS
     nova_model_id: str = BEDROCK_MODEL_ID_NOVA_LITE
     embedding_model_id: str = BEDROCK_EMBEDDING_MODEL_ID
 
@@ -131,7 +132,7 @@ class Settings:
             s3_audio_bucket=os.getenv('S3_AUDIO_BUCKET', S3_AUDIO_BUCKET_DEV),
 
             # AI Models
-            claude_model_id=os.getenv('CLAUDE_MODEL_ID', BEDROCK_MODEL_ID_DEFAULT),
+            claude_model_id=os.getenv('CLAUDE_MODEL_ID', BEDROCK_MODEL_ID_OPUS),
             nova_model_id=os.getenv('NOVA_MODEL_ID', BEDROCK_MODEL_ID_NOVA_LITE),
             embedding_model_id=os.getenv('EMBEDDING_MODEL_ID', BEDROCK_EMBEDDING_MODEL_ID),
 

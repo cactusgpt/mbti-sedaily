@@ -1,5 +1,5 @@
 {
-  "Comment": "AI LENS MBTI Article Transformation Pipeline — chained Map iteration. Each step overwrites the state (ResultPath: $) so only ONE copy of articles is in the state at any time, keeping well under the 256 KB inter-state limit. Each Map iteration runs Step3 (Transform) → Step4 (Validate) → Supervisor (Store) for ONE article. Per-iteration output is projected to a small metrics object. Pipeline selects ~85 unique articles (top 30 per MBTI type with overlap).",
+  "Comment": "AI LENS MBTI Article Transformation Pipeline — triggered every 3 hours (8 runs/day). Deduplication ensures already-processed articles are skipped. Each Map iteration runs Transform (Opus 4.6, 4 parallel calls) → Validate → Store.",
   "StartAt": "Step1_Select",
   "TimeoutSeconds": 3600,
   "States": {
@@ -86,8 +86,8 @@
 
     "ProcessArticlesMap": {
       "Type": "Map",
-      "Comment": "Per-article processing: Transform → Validate → Store. MaxConcurrency=8 to handle ~85 unique articles (~11 waves × ~30s ≈ 5.5 min). Each iteration is independent — failures don't block other articles. Per-iteration output is projected to a small status object via OutputPath on the final substate.",
-      "MaxConcurrency": 8,
+      "Comment": "Per-article processing: Transform → Validate → Store. MaxConcurrency=3 because each article makes 4 parallel Opus calls (3×4=12 concurrent Bedrock requests). Each iteration is independent — failures don't block other articles. Per-iteration output is projected to a small status object via OutputPath on the final substate.",
+      "MaxConcurrency": 3,
       "ItemsPath": "$.body.classified_articles",
       "ItemSelector": {
         "date.$": "$.body.date",
@@ -103,7 +103,7 @@
 
           "TransformOne": {
             "Type": "Task",
-            "Comment": "Claude Haiku rewrites the article into 4 MBTI versions",
+            "Comment": "Claude Opus rewrites the article into 4 MBTI versions (4 parallel calls per article)",
             "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-step3-dev",
             "Parameters": {
               "step": 2,
@@ -113,7 +113,7 @@
               "classification_map": {},
               "metrics": {}
             },
-            "TimeoutSeconds": 300,
+            "TimeoutSeconds": 600,
             "Retry": [
               {
                 "ErrorEquals": ["States.TaskFailed", "States.Timeout", "Lambda.ServiceException"],

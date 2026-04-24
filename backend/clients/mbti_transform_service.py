@@ -14,16 +14,15 @@ from typing import Optional, Dict, Any
 import logging
 import os
 import json
-import re
 
 import boto3
 from botocore.config import Config
 
-from config.constants import MBTI_GROUPS, MBTI_GROUP_INFO
+from config.constants import MBTI_GROUPS, MBTI_GROUP_INFO, BEDROCK_MODEL_ID_OPUS
 
-# Boto3 config with extended timeouts for Bedrock
+# Boto3 config with extended timeouts for Bedrock (Opus is slower than Haiku)
 BEDROCK_CONFIG = Config(
-    read_timeout=300,  # 5 minutes read timeout
+    read_timeout=600,  # 10 minutes read timeout
     connect_timeout=60,  # 1 minute connect timeout
     retries={'max_attempts': 3}
 )
@@ -33,11 +32,7 @@ logger = logging.getLogger(__name__)
 # Retry configuration
 MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 30
-MAX_RETRY_DELAY = 300
-
-# AWS Bedrock Claude Haiku 3.5 - Cost optimized model
-# Cost: $0.25/$1.25 per 1M tokens (input/output)
-BEDROCK_MODEL_ID = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+MAX_RETRY_DELAY = 600
 
 # Prompt file names for each MBTI group (under prompts/transform/)
 PROMPT_FILES = {
@@ -66,7 +61,7 @@ class MbtiTransformService:
         aws_access_key_id: Optional[str] = None,
         aws_secret_access_key: Optional[str] = None,
     ):
-        self.model_id = model_id or BEDROCK_MODEL_ID
+        self.model_id = model_id or BEDROCK_MODEL_ID_OPUS
         self.region = region
 
         if aws_access_key_id and aws_secret_access_key:
@@ -115,197 +110,201 @@ class MbtiTransformService:
             logger.warning(f"Failed to load prompt for {group}: {e}")
             return None
 
-    def _load_transform_prompt(self) -> str:
+    def _build_group_system_prompt(self, group: str, group_prompt: str) -> str:
         """
-        Load all 4 MBTI group prompts and combine into a comprehensive system prompt.
-
-        Priority:
-        1. Individual prompt files from /backend/prompts/ (nt.md, nf.md, st.md, sf.md)
-        2. DynamoDB settings_config.transform_prompt (legacy fallback)
-        3. MBTI_TRANSFORM_PROMPT.md file (legacy fallback)
-        4. Default fallback
-        """
-        # Load all 4 individual prompts
-        group_prompts = {}
-        all_loaded = True
-
-        for group in MBTI_GROUPS:
-            prompt = self._load_group_prompt(group)
-            if prompt:
-                group_prompts[group] = prompt
-            else:
-                all_loaded = False
-                logger.warning(f"Failed to load prompt for {group}")
-
-        # If all 4 prompts loaded successfully, combine them
-        if all_loaded and len(group_prompts) == 4:
-            logger.info("Using individual prompts from /backend/prompts/ folder")
-            return self._build_combined_prompt(group_prompts)
-
-        # Fallback: Try DynamoDB
-        try:
-            from config.constants import DYNAMODB_TABLE_ARTICLES_DEV
-            dynamodb = boto3.resource('dynamodb', region_name='us-east-1')
-            table = dynamodb.Table(DYNAMODB_TABLE_ARTICLES_DEV)
-            response = table.get_item(Key={'news_id': 'settings_config'})
-            settings = response.get('Item', {})
-
-            if settings.get('transform_prompt'):
-                logger.info("Using transform prompt from DynamoDB settings (fallback)")
-                return settings['transform_prompt']
-        except Exception as e:
-            logger.warning(f"Failed to load prompt from DynamoDB: {e}")
-
-        # Fallback: Try legacy file
-        prompt_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "MBTI_TRANSFORM_PROMPT.md")
-        try:
-            with open(prompt_path, 'r', encoding='utf-8') as f:
-                logger.info("Using transform prompt from MBTI_TRANSFORM_PROMPT.md file (fallback)")
-                return f.read()
-        except Exception as e:
-            logger.warning(f"Failed to load MBTI_TRANSFORM_PROMPT.md: {e}. Using default.")
-            return "당신은 경제 뉴스를 MBTI 4그룹(NT, NF, ST, SF) 스타일로 변환하는 전문가입니다. JSON 형식으로 출력하세요."
-
-    def _build_combined_prompt(self, group_prompts: Dict[str, str]) -> str:
-        """
-        Build a comprehensive system prompt from individual group prompts.
+        Build the system prompt for a single MBTI group transformation.
 
         Args:
-            group_prompts: Dict mapping group name to prompt content
+            group: MBTI group (NT, NF, ST, SF)
+            group_prompt: Raw prompt content from the group's .md file
 
         Returns:
-            Combined system prompt with JSON output instructions
+            Complete system prompt with persona instructions + JSON output format
         """
-        combined = """당신은 서울경제신문의 MBTI 맞춤형 뉴스 변환 전문가입니다.
-하나의 경제 기사를 4가지 MBTI 그룹 스타일(NT, NF, ST, SF)로 변환합니다.
-각 그룹별로 아래 가이드라인을 정확히 따라주세요.
+        info = MBTI_GROUP_INFO[group]
+        return f"""당신은 서울경제신문의 MBTI 맞춤형 뉴스 변환 전문가입니다.
+다음 경제 기사를 [{info['label']}] 스타일로 변환합니다.
+아래 가이드라인을 정확히 따라주세요.
 
-===========================================
-[중요] 출력 형식 - 반드시 JSON으로 출력하세요
-===========================================
+{group_prompt}
 
-다음 JSON 형식으로 출력해주세요. 각 그룹별로 5개 필드를 모두 포함해야 합니다:
+[출력 형식] 반드시 아래 JSON으로 출력:
+{{
+  "title": "제목 (50자 내외)",
+  "subtitle": "부제목 (1~2문장)",
+  "body": "본문 (마크다운)",
+  "key_points": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"],
+  "closing_line": "마무리 한 줄"
+}}"""
 
-```json
-{
-  "NT": {
-    "title": "NT 스타일 제목",
-    "subtitle": "1~2문장 부제목 (핵심 메시지 요약)",
-    "body": "NT 스타일 본문 (마크다운 형식)",
-    "key_points": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"],
-    "closing_line": "NT 성격에 맞는 마무리 한 줄"
-  },
-  "NF": {
-    "title": "NF 스타일 제목",
-    "subtitle": "1~2문장 부제목 (핵심 메시지 요약)",
-    "body": "NF 스타일 본문 (마크다운 형식)",
-    "key_points": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"],
-    "closing_line": "NF 성격에 맞는 마무리 한 줄"
-  },
-  "ST": {
-    "title": "ST 스타일 제목",
-    "subtitle": "1~2문장 부제목 (핵심 메시지 요약)",
-    "body": "ST 스타일 본문 (마크다운 형식)",
-    "key_points": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"],
-    "closing_line": "ST 성격에 맞는 마무리 한 줄"
-  },
-  "SF": {
-    "title": "SF 스타일 제목",
-    "subtitle": "1~2문장 부제목 (핵심 메시지 요약)",
-    "body": "SF 스타일 본문 (마크다운 형식)",
-    "key_points": ["핵심 포인트 1", "핵심 포인트 2", "핵심 포인트 3"],
-    "closing_line": "SF 성격에 맞는 마무리 한 줄"
-  }
-}
-```
-
-필드 설명:
-- title: 그룹 스타일에 맞는 제목 (50자 내외)
-- subtitle: 기사의 핵심을 요약하는 부제목 (1~2문장)
-- body: 본문 전체 (마크다운 형식, ** 볼드, 소제목 마커 등)
-- key_points: 핵심 요약 포인트 3~5개 (배열, 각 항목은 1~2문장)
-- closing_line: 해당 MBTI 그룹 성격에 맞는 마무리 한 줄
-
-===========================================
-[NT 전략형 분석가] 가이드라인
-===========================================
-"""
-
-        # Add NT prompt
-        combined += f"\n{group_prompts.get('NT', '')}\n\n"
-
-        combined += """
-===========================================
-[NF 가치형 해석자] 가이드라인
-===========================================
-"""
-
-        # Add NF prompt
-        combined += f"\n{group_prompts.get('NF', '')}\n\n"
-
-        combined += """
-===========================================
-[ST 실용형 실무자] 가이드라인
-===========================================
-"""
-
-        # Add ST prompt
-        combined += f"\n{group_prompts.get('ST', '')}\n\n"
-
-        combined += """
-===========================================
-[SF 공감형 소통가] 가이드라인
-===========================================
-"""
-
-        # Add SF prompt
-        combined += f"\n{group_prompts.get('SF', '')}\n\n"
-
-        combined += """
-===========================================
-[최종 확인 사항]
-===========================================
-
-1. 팩트 100% 유지 - 원본 기사의 사실을 절대 변조하지 마세요
-2. 각 그룹별 스타일 차이가 명확해야 합니다
-3. 모든 4개 그룹(NT, NF, ST, SF)을 반드시 포함하세요
-4. 반드시 유효한 JSON 형식으로 출력하세요
-5. body는 마크다운 형식으로 작성하세요 (** 볼드, 소제목 마커 등)
-6. 각 그룹별 5개 필드(title, subtitle, body, key_points, closing_line) 모두 포함하세요
-7. key_points는 반드시 3~5개 문자열 배열이어야 합니다
-8. closing_line은 해당 MBTI 그룹 특성에 맞는 한 줄로 작성하세요
-"""
-
-        return combined
-
-    async def transform_article(
+    async def transform_single_group(
         self,
+        group: str,
         title: str,
         subtitle: str,
         content: str,
         category: str = "",
-        custom_prompt: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Transform a Korean article into 4 MBTI styles.
+        Transform an article into a single MBTI group style.
 
         Args:
+            group: MBTI group (NT, NF, ST, SF)
             title: Original Korean title
             subtitle: Original Korean subtitle
             content: Original Korean content (clean text)
             category: Article category
-            custom_prompt: Optional custom prompt override
 
         Returns:
-            Dict with:
-              - 'versions': {NT: {...}, NF: {...}, ST: {...}, SF: {...}}
-              - 'usage': token usage data
+            Dict with 'version' (single group result) and 'usage' (token data)
+
+        Raises:
+            TransformError: If transformation fails after all retries
         """
-        if not content or not content.strip():
-            raise TransformError("Article content must be non-empty")
+        group_prompt = self._load_group_prompt(group)
+        if not group_prompt:
+            raise TransformError(f"Failed to load prompt for {group}")
 
-        system_prompt = custom_prompt or self._load_transform_prompt()
+        system_prompt = self._build_group_system_prompt(group, group_prompt)
 
+        user_message = f"""다음 경제 기사를 {group} 스타일로 변환해주세요.
+
+[원본 제목] {title}
+[원본 부제목] {subtitle or '없음'}
+[카테고리] {category or '경제'}
+
+[원본 기사]
+{content}"""
+
+        last_error = None
+        retry_delay = INITIAL_RETRY_DELAY
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                request_body = json.dumps({
+                    "anthropic_version": "bedrock-2023-05-31",
+                    "max_tokens": 16384,
+                    "system": [
+                        {
+                            "type": "text",
+                            "text": system_prompt,
+                            "cache_control": {"type": "ephemeral", "ttl": "1h"}
+                        }
+                    ],
+                    "messages": [
+                        {"role": "user", "content": user_message}
+                    ]
+                })
+
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: self.bedrock_client.invoke_model(
+                        modelId=self.model_id,
+                        contentType="application/json",
+                        accept="application/json",
+                        body=request_body
+                    )
+                )
+
+                response_body = json.loads(response['body'].read())
+
+                if not response_body.get("content") or len(response_body["content"]) == 0:
+                    raise TransformError(f"Empty content in Bedrock response for {group}")
+
+                response_text = response_body["content"][0].get("text", "")
+
+                if attempt > 0:
+                    logger.info(f"Transform {group} succeeded on attempt {attempt + 1}")
+
+                # Parse JSON — extract first balanced {...} block
+                start = response_text.find('{')
+                if start == -1:
+                    raise TransformError(f"No JSON found in {group} response")
+                depth = 0
+                json_str = None
+                for _i in range(start, len(response_text)):
+                    if response_text[_i] == '{':
+                        depth += 1
+                    elif response_text[_i] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            json_str = response_text[start:_i + 1]
+                            break
+                if json_str is None:
+                    raise TransformError(f"No complete JSON object in {group} response")
+
+                version = json.loads(json_str)
+
+                # Validate required fields
+                if not version.get('title') or not version.get('body'):
+                    raise TransformError(f"{group} response missing title or body")
+                version.setdefault('subtitle', '')
+                version.setdefault('key_points', [])
+                version.setdefault('closing_line', '')
+
+                # Extract usage
+                usage = response_body.get("usage", {})
+                usage_data = {
+                    "input_tokens": usage.get("input_tokens", 0),
+                    "output_tokens": usage.get("output_tokens", 0),
+                    "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+                    "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+                }
+
+                return {"version": version, "usage": usage_data}
+
+            except self.bedrock_client.exceptions.ThrottlingException as e:
+                logger.warning(f"Bedrock throttling ({group}). Retry {attempt + 1}/{MAX_RETRIES} in {retry_delay}s...")
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
+                    last_error = e
+                    continue
+                raise TransformError(f"Transform {group} failed: Throttling - {e}")
+
+            except self.bedrock_client.exceptions.ModelTimeoutException as e:
+                logger.warning(f"Bedrock timeout ({group}). Retry {attempt + 1}/{MAX_RETRIES} in {retry_delay}s...")
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
+                    last_error = e
+                    continue
+                raise TransformError(f"Transform {group} failed: Timeout - {e}")
+
+            except (json.JSONDecodeError, TransformError) as e:
+                logger.error(f"Transform {group} parse error: {e}")
+                if attempt < MAX_RETRIES - 1:
+                    logger.warning(f"Retrying {group}... {attempt + 1}/{MAX_RETRIES}")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
+                    last_error = e
+                    continue
+                raise TransformError(f"Transform {group} failed: {e}")
+
+            except Exception as e:
+                logger.error(f"Transform {group} error: {e}")
+                last_error = e
+                if attempt < MAX_RETRIES - 1:
+                    await asyncio.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
+                    continue
+                raise TransformError(f"Transform {group} failed: {e}")
+
+        raise TransformError(f"Transform {group} failed after {MAX_RETRIES} retries: {last_error}")
+
+    async def _transform_article_single_call(
+        self,
+        title: str,
+        subtitle: str,
+        content: str,
+        category: str,
+        system_prompt: str,
+    ) -> Dict[str, Any]:
+        """
+        Legacy single-call fallback: one Bedrock call producing all 4 MBTI versions.
+        Used only when custom_prompt is provided for backward compatibility.
+        """
         user_message = f"""다음 경제 기사를 4가지 MBTI 그룹 스타일(NT, NF, ST, SF)로 변환해주세요.
 
 [원본 제목] {title}
@@ -322,12 +321,12 @@ class MbtiTransformService:
             try:
                 request_body = json.dumps({
                     "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 8192,
+                    "max_tokens": 16384,
                     "system": [
                         {
                             "type": "text",
                             "text": system_prompt,
-                            "cache_control": {"type": "ephemeral"}
+                            "cache_control": {"type": "ephemeral", "ttl": "1h"}
                         }
                     ],
                     "messages": [
@@ -353,80 +352,172 @@ class MbtiTransformService:
 
                 response_text = response_body["content"][0].get("text", "")
 
-                if attempt > 0:
-                    logger.info(f"Transform succeeded on attempt {attempt + 1}")
-
-                # Parse JSON from response
-                json_match = re.search(r'\{[\s\S]*\}', response_text)
-                if not json_match:
+                # Parse JSON — extract first balanced {...} block
+                start = response_text.find('{')
+                if start == -1:
                     raise TransformError("No JSON found in response")
+                depth = 0
+                json_str = None
+                for _i in range(start, len(response_text)):
+                    if response_text[_i] == '{':
+                        depth += 1
+                    elif response_text[_i] == '}':
+                        depth -= 1
+                        if depth == 0:
+                            json_str = response_text[start:_i + 1]
+                            break
+                if json_str is None:
+                    raise TransformError("No complete JSON object found in response")
 
-                versions = json.loads(json_match.group(0))
+                versions = json.loads(json_str)
 
-                # Validate all 4 groups exist with required fields
                 for group in MBTI_GROUPS:
                     if group not in versions:
                         raise TransformError(f"Missing MBTI group '{group}' in response")
                     v = versions[group]
                     if not v.get('title') or not v.get('body'):
                         raise TransformError(f"MBTI group '{group}' missing title or body")
-                    # Ensure optional fields have defaults
                     v.setdefault('subtitle', '')
                     v.setdefault('key_points', [])
                     v.setdefault('closing_line', '')
 
-                # Extract usage
                 usage = response_body.get("usage", {})
-                usage_data = {
-                    "input_tokens": usage.get("input_tokens", 0),
-                    "output_tokens": usage.get("output_tokens", 0),
-                    "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
-                    "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
-                }
-
                 return {
                     "versions": versions,
-                    "usage": usage_data
+                    "usage": {
+                        "input_tokens": usage.get("input_tokens", 0),
+                        "output_tokens": usage.get("output_tokens", 0),
+                        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
+                        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
+                    },
                 }
 
             except self.bedrock_client.exceptions.ThrottlingException as e:
-                logger.warning(f"Bedrock throttling. Retry {attempt + 1}/{MAX_RETRIES} in {retry_delay}s...")
+                logger.warning(f"Bedrock throttling (single-call). Retry {attempt + 1}/{MAX_RETRIES}...")
                 if attempt < MAX_RETRIES - 1:
                     await asyncio.sleep(retry_delay)
                     retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
                     last_error = e
                     continue
-                raise TransformError(f"Transform failed: Throttling - {str(e)}")
+                raise TransformError(f"Transform failed: Throttling - {e}")
 
             except self.bedrock_client.exceptions.ModelTimeoutException as e:
-                logger.warning(f"Bedrock timeout. Retry {attempt + 1}/{MAX_RETRIES} in {retry_delay}s...")
+                logger.warning(f"Bedrock timeout (single-call). Retry {attempt + 1}/{MAX_RETRIES}...")
                 if attempt < MAX_RETRIES - 1:
                     await asyncio.sleep(retry_delay)
                     retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
                     last_error = e
                     continue
-                raise TransformError(f"Transform failed: Timeout - {str(e)}")
+                raise TransformError(f"Transform failed: Timeout - {e}")
 
             except (json.JSONDecodeError, TransformError) as e:
-                logger.error(f"Transform parse error: {str(e)}")
+                logger.error(f"Transform parse error (single-call): {e}")
                 if attempt < MAX_RETRIES - 1:
-                    logger.warning(f"Retrying... {attempt + 1}/{MAX_RETRIES}")
                     await asyncio.sleep(retry_delay)
                     retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
                     last_error = e
                     continue
-                raise TransformError(f"Transform failed: {str(e)}")
+                raise TransformError(f"Transform failed: {e}")
 
             except Exception as e:
-                logger.error(f"Transform error: {str(e)}")
+                logger.error(f"Transform error (single-call): {e}")
                 last_error = e
                 if attempt < MAX_RETRIES - 1:
                     await asyncio.sleep(retry_delay)
                     retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
                     continue
-                raise TransformError(f"Transform failed: {str(e)}")
+                raise TransformError(f"Transform failed: {e}")
 
-        raise TransformError(f"Transform failed after {MAX_RETRIES} retries: {str(last_error)}")
+        raise TransformError(f"Transform failed after {MAX_RETRIES} retries: {last_error}")
+
+    async def transform_article(
+        self,
+        title: str,
+        subtitle: str,
+        content: str,
+        category: str = "",
+        custom_prompt: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Transform a Korean article into 4 MBTI styles using parallel per-group calls.
+
+        Launches 4 concurrent Bedrock calls (one per MBTI group) via asyncio.gather.
+        If some groups fail, returns the successful ones with a warning (graceful
+        degradation). Raises TransformError only if ALL groups fail.
+
+        Args:
+            title: Original Korean title
+            subtitle: Original Korean subtitle
+            content: Original Korean content (clean text)
+            category: Article category
+            custom_prompt: If provided, falls back to a single combined call
+                          (old behavior) instead of 4 parallel calls
+
+        Returns:
+            Dict with:
+              - 'versions': {NT: {...}, NF: {...}, ST: {...}, SF: {...}}
+              - 'usage': aggregated token usage across all calls
+        """
+        if not content or not content.strip():
+            raise TransformError("Article content must be non-empty")
+
+        # Backward compatibility: if custom_prompt is provided, fall back to
+        # a single combined call (old behavior) instead of 4 parallel calls.
+        if custom_prompt:
+            return await self._transform_article_single_call(
+                title=title, subtitle=subtitle, content=content,
+                category=category, system_prompt=custom_prompt,
+            )
+
+        # Launch 4 parallel calls — one per MBTI group
+        tasks = [
+            self.transform_single_group(
+                group=group,
+                title=title,
+                subtitle=subtitle,
+                content=content,
+                category=category,
+            )
+            for group in MBTI_GROUPS
+        ]
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Merge results — collect successes and log failures
+        versions = {}
+        total_usage = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+        }
+        failed_groups = []
+
+        for group, result in zip(MBTI_GROUPS, results):
+            if isinstance(result, Exception):
+                logger.warning(f"Transform failed for {group}: {result}")
+                failed_groups.append(group)
+            else:
+                versions[group] = result["version"]
+                for key in total_usage:
+                    total_usage[key] += result["usage"].get(key, 0)
+
+        if not versions:
+            raise TransformError(
+                f"All 4 MBTI group transforms failed: "
+                f"{[str(r) for r in results if isinstance(r, Exception)]}"
+            )
+
+        if failed_groups:
+            logger.warning(
+                f"Partial transform: {len(versions)}/4 groups succeeded, "
+                f"failed: {failed_groups}"
+            )
+
+        return {
+            "versions": versions,
+            "usage": total_usage,
+        }
 
     async def close(self):
         """Close resources (no-op for Bedrock client)"""

@@ -1,11 +1,11 @@
 """
 Step 3: Tone & Manner Transformation
 =====================================
-Calls Claude (via Bedrock) to rewrite each article into 4 MBTI versions.
-ONE model call per article generates ALL 4 versions simultaneously, using
-the combined prompt built from /prompts/nt.md, nf.md, st.md, sf.md.
+Calls Claude Opus (via Bedrock) to rewrite each article into 4 MBTI versions.
+4 PARALLEL model calls per article — one per MBTI group (NT, NF, ST, SF) —
+each with its own dedicated prompt from /prompts/transform/{group}.md.
 
-Uses Claude (NOT Nova) — Korean rewriting is a complex task.
+Uses Claude Opus 4.6 (NOT Nova) — Korean rewriting is a complex task.
 
 Article content is loaded from the S3 temp file uploaded by Step 1
 (selected_articles_s3_uri) rather than from the Step Functions payload,
@@ -67,7 +67,7 @@ import boto3
 from botocore.config import Config
 
 from config.constants import (
-    BEDROCK_MODEL_ID_HAIKU,
+    BEDROCK_MODEL_ID_OPUS,
     BEDROCK_REGION,
     MBTI_GROUPS,
 )

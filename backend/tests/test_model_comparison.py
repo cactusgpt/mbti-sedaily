@@ -302,9 +302,13 @@ def _calc_cost(model_key: str, input_tokens: int, output_tokens: int) -> float:
 async def run_comparison(articles: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Run both models on all articles and collect metrics."""
 
-    # Load prompts once (shared between both models)
+    # Claude service (now uses parallel per-group calls internally)
     claude_service = MbtiTransformService(model_id=BEDROCK_MODEL_ID_HAIKU, region=BEDROCK_REGION)
-    system_prompt = claude_service._load_transform_prompt()
+    # Build a combined prompt for Nova comparison (Claude no longer uses combined prompts)
+    group_prompts = {g: claude_service._load_group_prompt(g) or '' for g in MBTI_GROUPS}
+    system_prompt = "4가지 MBTI 그룹 스타일로 변환하세요.\n\n" + "\n\n".join(
+        f"[{g}]\n{p}" for g, p in group_prompts.items()
+    )
 
     per_article = []
     claude_totals = {'times': [], 'costs': [], 'complete': 0, 'in_tok': 0, 'out_tok': 0, 'success': 0}
