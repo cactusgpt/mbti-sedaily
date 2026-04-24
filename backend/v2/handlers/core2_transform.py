@@ -67,6 +67,7 @@ from v2.clients.embedding_v2_client import EmbeddingV2Client
 from v2.clients.pgvector_v2_client import PgVectorV2Client
 from v2.clients.s3_article_v2_client import S3ArticleV2Client
 from v2.clients.transform_v2_service import TransformV2Service
+from v2.core2.validator import validate_versions
 
 
 logger = logging.getLogger(__name__)
@@ -286,6 +287,36 @@ async def _process_one_article(
                             "failed_groups": [
                                 g for g in MBTI_GROUPS if g not in versions
                             ],
+                            "usage": usage,
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+                return None
+
+            # TASK-2.4 — inline Validator. Structural + Nova Lite hallucination
+            # check. Runs AFTER transform but BEFORE any S3/pg writes so a
+            # failed validation never leaves half-committed versions behind.
+            # Default-to-pass on Nova errors (see validator module docstring).
+            validation = await validate_versions(
+                title=original.get("title_ko", ""),
+                content=original.get("content_ko", ""),
+                versions=versions,
+                endpoint_url=os.getenv("BEDROCK_RUNTIME_ENDPOINT_URL") or None,
+                enable_ai_check=True,
+            )
+            if not validation.passed:
+                async with db_lock:
+                    await asyncio.to_thread(
+                        pg.update_article_status, news_id, "failed"
+                    )
+                logger.error(
+                    json.dumps(
+                        {
+                            "event": "transform_validation_failure",
+                            "news_id": news_id,
+                            "ai_check_used": validation.ai_check_used,
+                            "issues": validation.issues,
                             "usage": usage,
                         },
                         ensure_ascii=False,

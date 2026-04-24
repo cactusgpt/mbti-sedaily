@@ -201,16 +201,29 @@
   - **Lambda Python root logger level** fix applied: `logging.getLogger().setLevel(logging.INFO)` at module top of `core2_transform.py`. Phase D first invoke revealed that AWS Lambda Python runtime defaults to WARNING level, silently dropping every `logger.info(json.dumps({...}))` emission (including `transform_run_complete`, `transform_complete`, `transform_empty_batch`). v1 handlers share the same latent issue; only v2 is patched here per `.clauderules` #1.
   - **EventBridge trigger `sedaily-mbti-v2-transform-trigger`** (Phase E): created `rate(5 minutes)`, state=**DISABLED**. Deliberate cost-safety default — enabling starts ~$220/day steady-state Opus spend (plus ~$216/hour while a backlog persists). Enable via `./v2/infrastructure/setup_transform_trigger.sh --enable` once any Option Y follow-up decisions are made.
 
-### TASK-2.4: Core 2 Validator Lambda
+### TASK-2.4: Core 2 Validator (inline)
 - **종속성**: TASK-2.3
-- **Files to create**:
-  - `backend/v2/handlers/core2_validator.py`
-  - `backend/v2/tests/test_core2_validator.py`
-- **로직**: Nova Lite로 4 버전 cross-check (사실 일관성, 톤 매칭). v1 `step4_validate.py` 로직 단순화해서 이식.
+- **Files created**:
+  - `backend/v2/core2/__init__.py`, `backend/v2/core2/validator.py` *(inline library, not a handler)*
+  - `backend/v2/tests/test_validator.py` *(26 unit tests — structural + Nova Lite AI check + parse robustness)*
+- **Files modified**:
+  - `backend/v2/handlers/core2_transform.py` — imports `validate_versions`, calls it between transform success and version inserts; on failure marks `status='failed'` and emits `transform_validation_failure` JSON event
+  - `backend/v2/tests/test_core2_transform.py` — patches validator, adds 2 integration tests
+  - `backend/v2/tests/conftest.py` — `+test_v2_2_4_` prefix
+- **Design decision — inline, not separate Lambda**:
+  - TASK spec allowed both "SNS/SQS trigger" and "같은 Lambda에서 inline 호출". Chose inline because (a) `.clauderules` #5 forbids autonomous Lambda creation, (b) avoids SNS/SQS plumbing cost, (c) no rollback needed — validator runs BEFORE version inserts so a failure never leaves half-committed state.
+  - Trade-off: couples validator lifecycle to transformer. Re-validation of already-transformed articles would need a separate job. Acceptable for v2; revisit if product demands it.
+- **Validation logic**:
+  - **Structural** (deterministic, always run): missing group / missing_title / missing_body / body_too_short (<100 chars) / body_too_long (>10k) / wrong_language (Korean <30%).
+  - **Semantic** (Nova Lite, skipped if structural already failed): hallucination = "covers an entirely unrelated topic". Default-to-pass on Nova errors (mirrors v1 `step4_validate`).
+  - Does NOT flag style differences, added context, reordered content, tone variations across MBTI groups — those are intended outputs.
 - **Definition of Done**:
-  - [ ] 함수명 `sedaily-mbti-v2-validator-dev`
-  - [ ] Transform Lambda가 성공 시 SNS/SQS로 Validator에 트리거 (또는 같은 Lambda에서 inline 호출)
-  - [ ] Validator 실패 시 `status='failed'`로 돌림
+  - [x] Inline module `backend/v2/core2/validator.py` (TASK spec's "same Lambda inline" option; no separate Lambda per `.clauderules` #5 + simpler wiring)
+  - [x] Transform Lambda invokes `validate_versions` before version inserts; failure marks `status='failed'` with `transform_validation_failure` JSON log event (AI issues + ai_check_used flag)
+  - [x] Validator default-to-pass on Bedrock errors (Nova exception swallowed, WARNING logged)
+  - [x] IAM: `BedrockNovaLiteInvoke` statement added to collector role inline policy (`amazon.nova-lite-v1:0` foundation model, us-east-1)
+  - [x] 26 validator unit tests + 2 handler integration tests PASS (272 total in v2 suite)
+  - [x] Deployed to `sedaily-mbti-v2-transform-dev` (same Lambda; code redeploy via `deploy-v2.sh transform`)
 
 ### TASK-2.5: v1 → v2 데이터 백필 스크립트 (일회성)
 - **종속성**: TASK-2.4
@@ -395,10 +408,10 @@
 |---|---|---|---|---|
 | Phase 0 | 3 | 3 | 0 | 0 |
 | Phase 1 | 4 | 4 | 0 | 0 |
-| Phase 2 | 5 | 3 | 0 | 2 |
+| Phase 2 | 5 | 4 | 0 | 1 |
 | Phase 3 | 5 | 0 | 0 | 5 |
 | Phase 4 | 6 | 0 | 0 | 6 |
 | Phase 5 | 8 | 0 | 0 | 8 |
-| **합계** | **31** | **10** | **0** | **21** |
+| **합계** | **31** | **11** | **0** | **20** |
 
 세션 시작 시 이 표 업데이트할 것.

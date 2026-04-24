@@ -88,8 +88,10 @@ def _install_client_mocks(
     raw_rows: List[Dict[str, Any]],
     transform_result: Optional[Dict[str, Any]] = None,
     transform_exception: Optional[Exception] = None,
+    validation_passed: bool = True,
+    validation_issues: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
-    """Construct patches + instance mocks for all four v2 clients.
+    """Construct patches + instance mocks for all four v2 clients + validator.
 
     Returns a dict of ``{class_patcher, instance}`` per client plus a
     combined ``context_manager_stack`` caller chains into a ``with
@@ -119,11 +121,24 @@ def _install_client_mocks(
     )
     s3_instance.put_article_file.return_value = "s3://mock/put"
 
+    # Validator mock — configurable pass/fail. Real validator tests live in
+    # test_validator.py; here we just stub the call so handler integration
+    # tests don't hit Bedrock.
+    from v2.core2.validator import ValidationResult
+
+    validation_result = ValidationResult(
+        passed=validation_passed,
+        issues=validation_issues or [],
+        ai_check_used=True,
+    )
+    validate_mock = AsyncMock(return_value=validation_result)
+
     return {
         "pg": pg_instance,
         "transform_svc": transform_instance,
         "embed": embed_instance,
         "s3": s3_instance,
+        "validate": validate_mock,
     }
 
 
@@ -132,7 +147,7 @@ def _patched_handler_call(
     context: Optional[MagicMock],
     instances: Dict[str, Any],
 ):
-    """Call ``lambda_handler`` with all four client constructors patched."""
+    """Call ``lambda_handler`` with all four client constructors + validator patched."""
     with patch(
         "v2.handlers.core2_transform.PgVectorV2Client", return_value=instances["pg"]
     ), patch(
@@ -142,6 +157,8 @@ def _patched_handler_call(
         "v2.handlers.core2_transform.EmbeddingV2Client", return_value=instances["embed"]
     ), patch(
         "v2.handlers.core2_transform.S3ArticleV2Client", return_value=instances["s3"]
+    ), patch(
+        "v2.handlers.core2_transform.validate_versions", new=instances["validate"]
     ):
         from v2.handlers.core2_transform import lambda_handler
 
@@ -383,6 +400,58 @@ def test_v2_2_3_logs_deadline_skip_event(
     assert len(skip_events) == 1
     assert skip_events[0]["skipped_count"] == 5
     assert skip_events[0]["wave_idx"] == 1  # 0-indexed: first skipped wave is #1
+
+
+def test_v2_2_3_validation_failure_marks_failed_no_versions_inserted() -> None:
+    """TASK-2.4 integration: validator rejects → status='failed', no versions."""
+    instances = _install_client_mocks(
+        raw_rows=[_make_raw_row("test_v2_2_3_val_fail")],
+        validation_passed=False,
+        validation_issues=[
+            {"group": "NF", "type": "hallucination", "detail": "원본과 다른 주제"}
+        ],
+    )
+
+    response = _patched_handler_call(
+        {"httpMethod": "POST"}, _make_context(), instances
+    )
+
+    body = json.loads(response["body"])
+    assert body["failed"] == 1
+    assert body["completed"] == 0
+
+    instances["pg"].insert_article_version.assert_not_called()
+    instances["pg"].update_article_status.assert_called_with(
+        "test_v2_2_3_val_fail", "failed"
+    )
+
+
+def test_v2_2_3_logs_validation_failure_event(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """transform_validation_failure JSON log emitted on validator reject."""
+    instances = _install_client_mocks(
+        raw_rows=[_make_raw_row("test_v2_2_3_val_log")],
+        validation_passed=False,
+        validation_issues=[
+            {"group": "SF", "type": "hallucination", "detail": "x"}
+        ],
+    )
+    with caplog.at_level(logging.ERROR, logger="v2.handlers.core2_transform"):
+        _patched_handler_call(
+            {"httpMethod": "POST"}, _make_context(), instances
+        )
+    val_events = [
+        json.loads(rec.message)
+        for rec in caplog.records
+        if rec.message.startswith("{") and '"transform_validation_failure"' in rec.message
+    ]
+    assert len(val_events) == 1
+    assert val_events[0]["news_id"] == "test_v2_2_3_val_log"
+    assert val_events[0]["ai_check_used"] is True
+    assert val_events[0]["issues"] == [
+        {"group": "SF", "type": "hallucination", "detail": "x"}
+    ]
 
 
 def test_v2_2_3_logs_empty_batch_event(
