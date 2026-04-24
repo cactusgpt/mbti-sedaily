@@ -1,0 +1,78 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+:root {
+  --color-bg: #ffffff;
+  --color-text: #000000;
+  --color-text-muted: #6b7280;
+  --color-primary: #2563eb;
+  --color-border: #e5e7eb;
+  --max-container: 1080px;
+  --gutter: 20px;
+}
+
+@theme inline {
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-text);
+  --color-primary: #ffffff;
+  --color-accent: #60a5fa;
+  --font-sans: 'Pretendard Variable', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Merriweather', Georgia, 'Times New Roman', serif;
+  --font-display: 'Playfair Display', Georgia, serif;
+  --spacing-gutter: min(32px, 5vw);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: 'Pretendard Variable', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-y: scroll;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.max-w-container {
+  max-width: var(--max-container);
+}
+
+.px-gutter {
+  padding-left: var(--gutter);
+  padding-right: var(--gutter);
+}
+
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: #000;
+  color: #fff;
+  padding: 8px 16px;
+  z-index: 100;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+.no-hover:hover {
+  text-decoration: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}

@@ -1,0 +1,226 @@
+{
+  "Comment": "AI LENS MBTI Article Transformation Pipeline — chained Map iteration. Each step overwrites the state (ResultPath: $) so only ONE copy of articles is in the state at any time, keeping well under the 256 KB inter-state limit. Each Map iteration runs Step3 (Transform) → Step4 (Validate) → Supervisor (Store) for ONE article. Per-iteration output is projected to a small metrics object. Pipeline selects ~85 unique articles (top 30 per MBTI type with overlap).",
+  "StartAt": "Step1_Select",
+  "TimeoutSeconds": 3600,
+  "States": {
+
+    "Step1_Select": {
+      "Type": "Task",
+      "Comment": "Load articles from S3 XML, AI-score with Nova on 4 MBTI dimensions, select top 30 per type",
+      "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-step1-dev",
+      "TimeoutSeconds": 600,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed", "States.Timeout", "Lambda.ServiceException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "PipelineFailure"
+        }
+      ],
+      "ResultPath": "$",
+      "Next": "CheckStep1HasArticles"
+    },
+
+    "CheckStep1HasArticles": {
+      "Type": "Choice",
+      "Comment": "Skip remaining steps if no articles were selected",
+      "Choices": [
+        {
+          "Variable": "$.body.metrics.selected",
+          "NumericGreaterThan": 0,
+          "Next": "Step2_Classify"
+        }
+      ],
+      "Default": "NoArticles"
+    },
+
+    "NoArticles": {
+      "Type": "Pass",
+      "Comment": "No articles to process — exit gracefully",
+      "Result": {
+        "step": "supervisor",
+        "stored_articles": [],
+        "rejected_articles": [],
+        "failed_articles": [],
+        "metrics": {
+          "input_count": 0,
+          "stored_count": 0,
+          "reason": "no_articles_selected"
+        }
+      },
+      "ResultPath": "$.pipeline_result",
+      "End": true
+    },
+
+    "Step2_Classify": {
+      "Type": "Task",
+      "Comment": "Nova MBTI classification — assigns target_groups to each article",
+      "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-step2-dev",
+      "InputPath": "$.body",
+      "TimeoutSeconds": 300,
+      "Retry": [
+        {
+          "ErrorEquals": ["States.TaskFailed", "States.Timeout", "Lambda.ServiceException"],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "PipelineFailure"
+        }
+      ],
+      "ResultPath": "$",
+      "Next": "ProcessArticlesMap"
+    },
+
+    "ProcessArticlesMap": {
+      "Type": "Map",
+      "Comment": "Per-article processing: Transform → Validate → Store. MaxConcurrency=8 to handle ~85 unique articles (~11 waves × ~30s ≈ 5.5 min). Each iteration is independent — failures don't block other articles. Per-iteration output is projected to a small status object via OutputPath on the final substate.",
+      "MaxConcurrency": 8,
+      "ItemsPath": "$.body.classified_articles",
+      "ItemSelector": {
+        "date.$": "$.body.date",
+        "selected_articles_s3_uri.$": "$.body.selected_articles_s3_uri",
+        "article.$": "$$.Map.Item.Value"
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": {
+          "Mode": "INLINE"
+        },
+        "StartAt": "TransformOne",
+        "States": {
+
+          "TransformOne": {
+            "Type": "Task",
+            "Comment": "Claude Haiku rewrites the article into 4 MBTI versions",
+            "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-step3-dev",
+            "Parameters": {
+              "step": 2,
+              "date.$": "$.date",
+              "selected_articles_s3_uri.$": "$.selected_articles_s3_uri",
+              "classified_articles.$": "States.Array($.article)",
+              "classification_map": {},
+              "metrics": {}
+            },
+            "TimeoutSeconds": 300,
+            "Retry": [
+              {
+                "ErrorEquals": ["States.TaskFailed", "States.Timeout", "Lambda.ServiceException"],
+                "IntervalSeconds": 15,
+                "MaxAttempts": 2,
+                "BackoffRate": 2.0
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "ItemFailed"
+              }
+            ],
+            "ResultPath": "$.step3_result",
+            "Next": "ValidateOne"
+          },
+
+          "ValidateOne": {
+            "Type": "Task",
+            "Comment": "Structural validation: missing fields, body length, language, hallucination",
+            "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-step4-dev",
+            "InputPath": "$.step3_result.body",
+            "TimeoutSeconds": 300,
+            "Retry": [
+              {
+                "ErrorEquals": ["States.TaskFailed", "States.Timeout", "Lambda.ServiceException"],
+                "IntervalSeconds": 10,
+                "MaxAttempts": 2,
+                "BackoffRate": 2.0
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "ItemFailed"
+              }
+            ],
+            "ResultPath": "$.step4_result",
+            "Next": "StoreOne"
+          },
+
+          "StoreOne": {
+            "Type": "Task",
+            "Comment": "Supervisor: soft Nova review (log only) + DynamoDB+S3 storage + vector indexing",
+            "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-supervisor-dev",
+            "InputPath": "$.step4_result.body",
+            "TimeoutSeconds": 300,
+            "Retry": [
+              {
+                "ErrorEquals": ["States.TaskFailed", "States.Timeout", "Lambda.ServiceException"],
+                "IntervalSeconds": 10,
+                "MaxAttempts": 2,
+                "BackoffRate": 2.0
+              }
+            ],
+            "Catch": [
+              {
+                "ErrorEquals": ["States.ALL"],
+                "ResultPath": "$.error",
+                "Next": "ItemFailed"
+              }
+            ],
+            "ResultPath": "$.supervisor_result",
+            "OutputPath": "$.supervisor_result.body.metrics",
+            "End": true
+          },
+
+          "ItemFailed": {
+            "Type": "Pass",
+            "Comment": "Mark this iteration as failed but don't block other iterations",
+            "Result": {
+              "stored_count": 0,
+              "store_failed_count": 1,
+              "reason": "iteration_failed"
+            },
+            "End": true
+          }
+        }
+      },
+      "ResultPath": "$.pipeline_result",
+      "End": true
+    },
+
+    "PipelineFailure": {
+      "Type": "Task",
+      "Comment": "Log a pipeline-level failure (Step 1 or Step 2 failed before Map). Does NOT re-raise.",
+      "Resource": "arn:aws:lambda:us-east-1:${AWS_ACCOUNT_ID}:function:sedaily-mbti-pipeline-supervisor-dev",
+      "Parameters": {
+        "step": 4,
+        "date.$": "$$.Execution.StartTime",
+        "validated_articles": [],
+        "flagged_articles": [],
+        "failed_articles": [
+          {
+            "news_id": "pipeline",
+            "title": "Pipeline-level failure",
+            "error.$": "States.Format('Step failed: {}', $.error.Cause)"
+          }
+        ],
+        "metrics": {}
+      },
+      "TimeoutSeconds": 60,
+      "ResultPath": "$.pipeline_result",
+      "End": true
+    }
+  }
+}
