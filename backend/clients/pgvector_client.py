@@ -223,7 +223,7 @@ class PgVectorClient:
                     "DELETE FROM articles_vectors WHERE news_id = :nid",
                     nid=news_id,
                 )
-            return -1
+            return 1
         except Exception as e:
             logger.warning(f"pgvector delete_article_vectors failed: {e}")
             return 0

@@ -101,8 +101,8 @@ class EmbeddingClient:
             return _average_vectors(vectors)
 
         except Exception as e:
-            logger.warning(f"Embedding failed for text ({len(text)} chars), returning empty: {e}")
-            return []
+            logger.warning(f"Embedding failed for text ({len(text)} chars), returning zero vector: {e}")
+            return [0.0] * self.dimension
 
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """

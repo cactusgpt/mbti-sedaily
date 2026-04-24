@@ -317,8 +317,8 @@ def lambda_handler(event: dict, context) -> dict:
 
         query = body.get("query", "")
         filters = body.get("filters", {})
-        page = body.get("page", 1)
-        page_size = body.get("page_size", 10)
+        page = int(body.get("page", 1))
+        page_size = int(body.get("page_size", 10))
 
         logger.info(f"Search request: query='{query}', filters={filters}, page={page}")
 

@@ -153,18 +153,19 @@ def _generate_questions(titles: List[str]) -> list:
 
     # Validate and normalize
     valid = []
-    for i, q in enumerate(questions[:3]):
+    for q in questions[:3]:
         if not q.get('question') or not q.get('options'):
             continue
+        qi = len(valid) + 1
         normalized = {
-            'id': f'q_ai_{i+1}',
+            'id': f'q_ai_{qi}',
             'question': q['question'],
             'subtitle': q.get('subtitle', ''),
             'options': [],
         }
         for j, opt in enumerate(q.get('options', [])[:4]):
             normalized['options'].append({
-                'id': f'opt_{i+1}_{j+1}',
+                'id': f'opt_{qi}_{j+1}',
                 'label': opt.get('label', ''),
                 'desc': opt.get('desc', ''),
                 'mbti': opt.get('mbti', ['NT', 'NF', 'ST', 'SF'][j]),

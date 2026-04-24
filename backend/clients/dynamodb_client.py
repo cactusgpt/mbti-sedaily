@@ -8,6 +8,7 @@ Article storage is split between DynamoDB (metadata + pointer) and S3 (body text
 
 Legacy articles (no s3_body_uri) still have body fields in DynamoDB and are read directly.
 """
+import asyncio
 import boto3
 import logging
 from typing import Optional, Dict, Any, TYPE_CHECKING
@@ -76,7 +77,7 @@ class DynamoDBClient:
 
         # New-style article: body is in S3
         if s3_body_uri and self._s3_article_client:
-            body = self._s3_article_client.get_body(news_id)
+            body = await asyncio.to_thread(self._s3_article_client.get_body, news_id)
             if body:
                 metadata.update(body)
             else:

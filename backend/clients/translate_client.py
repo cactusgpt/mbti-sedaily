@@ -189,11 +189,18 @@ def _split_for_translate(text: str, max_bytes: int) -> List[str]:
                 chunks.append('\n\n'.join(current))
                 current = []
                 current_bytes = 0
-            # Hard split
+            # Hard split — backtrack to valid UTF-8 boundary to avoid
+            # cutting multi-byte characters (Korean = 3 bytes each)
             encoded = para.encode('utf-8')
-            for i in range(0, len(encoded), max_bytes):
-                chunk_bytes = encoded[i:i + max_bytes]
-                chunks.append(chunk_bytes.decode('utf-8', errors='ignore'))
+            offset = 0
+            while offset < len(encoded):
+                end = min(offset + max_bytes, len(encoded))
+                # Backtrack if we landed in the middle of a multi-byte character
+                if end < len(encoded):
+                    while end > offset and (encoded[end] & 0xC0) == 0x80:
+                        end -= 1
+                chunks.append(encoded[offset:end].decode('utf-8'))
+                offset = end
             continue
 
         if current_bytes + para_bytes > max_bytes:
