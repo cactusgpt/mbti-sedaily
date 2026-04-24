@@ -26,3 +26,7 @@ frontend/out/
 
 # Claude Code
 .claude/
+
+# v2 env file (contains PG_V2_PASSWORD)
+backend/.env.v2
+.env.v2
