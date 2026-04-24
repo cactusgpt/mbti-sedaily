@@ -18,6 +18,17 @@ AI LENS — 서울경제신문의 MBTI 맞춤형 경제 뉴스 서비스. 원본
 | ST | 정훈 | 실용형 실무자 — 팩트시트 |
 | SF | 하은 | 공감형 소통가 — 친구 톡 |
 
+### v1 / v2 Parallel Redesign
+
+The repo currently holds two backend stacks side by side:
+
+- **v1** — everything in `backend/` **outside** `backend/v2/`. This is the production backend serving `mbti.sedaily.ai` today. The rest of this CLAUDE.md describes v1 unless explicitly noted.
+- **v2** — `backend/v2/`. A parallel redesign on branch `feature/backend-redesign` (recent commits are tagged `[v2]`). pgvector-centric storage hub, whole-corpus ingest (no Nova pre-selection), per-user personalization, and a Chat Agent on Bedrock AgentCore Runtime. Nothing in v2 is in production yet.
+
+**If you're doing v2 work, read `backend/v2/CLAUDE.md` and `backend/v2/.clauderules` first — they override this file for v2-scoped changes.** Hard rules from `.clauderules` worth knowing even from outside v2: v2 work must not modify v1 files (including this CLAUDE.md, `deploy.sh`, or anything in `handlers/`, `clients/`, `core/`, `services/`, `config/`); AWS resource creation is conditional — allowed only after a documented plan with cost estimate, explicit user approval, and stop-on-anomaly + ID tracking, while Lambda function create/delete and any secret env-var writes (e.g. `PG_V2_PASSWORD`) remain always-manual; `update-function-code` and non-secret config updates on existing Lambdas are the only fully-automated path. Commit trailer must read exactly `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>` — no model-capability suffix like "(1M context)" (GitHub parses author identity from the email, and parentheticals break the author-count stats).
+
+v2 resources are namespaced `sedaily-mbti-*-v2-dev` (Lambda), `sedaily-mbti-pgvector-v2-dev` (RDS), `sedaily-mbti-article-body-v2-dev` (S3) and ship via `backend/v2/deploy-v2.sh` (builds `lambda_package_v2.zip` that bundles v1 source so v2 handlers can `from clients.xxx import ...`). The v1 `./deploy.sh` never includes `v2/`.
+
 ## Commands
 
 ### Frontend (Next.js 16 + React 19)
@@ -64,6 +75,8 @@ aws cloudfront create-invalidation --distribution-id E1QS7PY350VHF6 --paths "/*"
 ```
 
 The backend deploy script builds a single Lambda zip (runtime deps only — `fastapi`/`pytest` and `infrastructure/` are excluded), uploads to `s3://sedaily-mbti-lambda-packages-dev/`, and calls `update-function-code` on each of 23 Lambda functions (18 API + 5 Pipeline). Functions that don't exist in AWS are skipped gracefully (`[SKIP] Function not found`). The authoritative function list is `API_FUNCTIONS` / `PIPELINE_FUNCTIONS` in `deploy.sh`.
+
+Lambda names don't match handler filenames: `article_handler.py` → `sedaily-mbti-article-dev` (no `handler` suffix), `step1_select.py` → `sedaily-mbti-pipeline-step1-dev`, `supervisor.py` → `sedaily-mbti-pipeline-supervisor-dev`. Use `deploy.sh` as the source of truth for the mapping.
 
 ## Architecture
 
@@ -145,7 +158,9 @@ clients/            → Service clients: dynamodb, personal_db, podcast_db, s3_a
                      to avoid pulling in opensearch-py/pg8000 at module load time.
 repositories/       → Business-level data access on top of clients (Personal, Podcast, Settings, Log)
 services/           → Business logic: article_filter, prompt_service, prompt_loader,
-                     collaborative_filter, metrics
+                     collaborative_filter, metrics, briefing_generator (used by
+                     briefing_handler), stock_service (used by chatbot_handler for
+                     inline stock/market-index lookups)
 models/             → Dataclasses: Article, Podcast, UserProfile/ArchivedSentence/ReadingRecord
                      (in personal.py), ABTest
 core/               → Framework: decorators.py (@lambda_handler, @require_params, etc.),
@@ -165,7 +180,12 @@ prompts/            → AI prompt templates organized by purpose:
                      supervisor/ (supervisor_review.md),
                      podcast/ (podcast_script.md),
                      question/ (daily_question.md)
+utils/              → Small helpers included in the Lambda zip: date_utils.py,
+                     hash_utils.py. Not a layer in the architectural sense —
+                     just shared utilities.
 ```
+
+A legacy `backend/MBTI_TRANSFORM_PROMPT.md` still sits at the backend root as the last-resort fallback for `clients/mbti_transform_service.py`. The canonical prompts live in `prompts/transform/` now — don't edit the root file.
 
 ### Frontend Structure
 
@@ -190,7 +210,7 @@ src/widgets/        → Placeholder (index.ts exports nothing yet) — reserved 
 src/legacy/         → Old code excluded from tsconfig (do not import from here)
 ```
 
-The main page (`/`) has 4 view modes: `feed` (default), `editor-select`, `briefing`, `story`. `src/components/mbti/FeedPage.tsx` contains 5 tabs: question, feed, community, archive, dna. Tab state syncs to URL via `?tab=feed`. The `/editors` route is a standalone dark-themed editor-intro page (Radix Sand Dark palette) separate from the `editor-select` view inside `/`.
+The main page (`/`) has 4 view modes: `feed` (default), `editor-select`, `briefing`, `story`. `src/components/mbti/FeedPage.tsx` contains 6 tabs: question, feed, community, archive, dna, fortune. Tab state syncs to URL via `?tab=feed`. The `/editors` route is a standalone dark-themed editor-intro page (Radix Sand Dark palette) separate from the `editor-select` view inside `/`.
 
 Planned FSD layers not yet implemented: `entities/`, `pages/`.
 
@@ -269,7 +289,7 @@ OpenSearch and pgvector are optional. If `OPENSEARCH_ENDPOINT` is empty, RAG sea
 | Nova Lite | `amazon.nova-lite-v1:0` | Article filtering (Step 1), MBTI classification (Step 2), validation (Step 4), Supervisor review |
 | Titan Embeddings V2 | `amazon.titan-embed-text-v2:0` | 1024-dim vectors for OpenSearch and pgvector |
 
-Constants are in `config/constants.py` (`BEDROCK_MODEL_ID_OPUS`, `BEDROCK_MODEL_ID_HAIKU`, `BEDROCK_MODEL_ID_NOVA_LITE`, etc.).
+Constants are in `config/constants.py` (`BEDROCK_MODEL_ID_OPUS`, `BEDROCK_MODEL_ID_HAIKU`, `BEDROCK_MODEL_ID_NOVA_LITE`, etc.). Prompt caching (`cache_control: {"type": "ephemeral"}`) is already applied to the shared system prompt in Step 3 Opus calls and the chatbot Haiku call — don't remove it, it cuts ~30–50% of input-token cost on Opus.
 
 ### Category System
 
@@ -311,7 +331,7 @@ The legacy `PromptService` (DynamoDB `settings_config` fallback) is a separate s
 |--------|--------|---------|
 | `sedaily-mbti-article-body-dev` | us-east-1 | Split-storage body JSON (MBTI versions, content_ko, content_blocks) |
 | `sedaily-mbti-audio-dev` | us-east-1 | Polly TTS audio files for podcasts |
-| `sedaily-news-source` | ap-northeast-2 | Source XML feed from 서울경제 (read-only) |
+| `sedaily-news-xml-storage` | ap-northeast-2 | Source XML feed from 서울경제 (read-only), keyed `daily-xml/{YYYYMMDD}.xml` |
 | `sedaily-mbti-frontend-dev` | ap-northeast-2 | Frontend static files (Next.js export) |
 
 ### Frontend Infrastructure
@@ -339,6 +359,8 @@ The frontend calls these endpoints (do not change paths or response shapes):
 
 ## Reference Documents
 
+### v1 (production)
+
 | File | Content |
 |------|---------|
 | `AWS_BACKEND_ARCHITECTURE.md` | Verified production AWS inventory — account, ARNs, 62 API routes, 23 Lambda configs, Step Functions state details, cost estimates. Use this when you need exact resource names/IDs. |
@@ -348,5 +370,17 @@ The frontend calls these endpoints (do not change paths or response shapes):
 | `frontend-next/CLAUDE.md` | Target FSD architecture rules, naming conventions, dependency direction |
 | `frontend-next/AGENTS.md` | Agent-oriented rules for frontend work |
 | `backend/infrastructure/README.md` | Step Functions + CloudFormation provisioning guide |
+
+### v2 (redesign, `backend/v2/`)
+
+Read these in order when starting any v2 work. `backend/v2/CLAUDE.md` explicitly takes precedence over this file for v2-scoped decisions.
+
+| File | Content |
+|------|---------|
+| `backend/v2/CLAUDE.md` | v2 context: 3-Core architecture (Collection / Transform / Personalization), v1-reuse policy, naming/env-var conventions, pgvector schema outline |
+| `backend/v2/.clauderules` | Hard rules: don't modify v1, don't create AWS resources, prompt-cache Opus calls, per-file pytest tests |
+| `backend/v2/TASKS.md` | PR-sized task checklist (Phase 0 scaffolding → Phase 5). Each TASK is one session / one commit |
+| `backend/v2/COMMANDS.md` | Validated v2 commands — use these instead of guessing AWS CLI / pytest / deploy incantations |
+| `backend/v2/README.md` | Quick directory tour + import sanity check (`python3 -c "import v2"`) |
 
 Note: `README.md` at project root is outdated (still references React+Vite and the old `frontend/` directory). Use this CLAUDE.md as the authoritative reference.
