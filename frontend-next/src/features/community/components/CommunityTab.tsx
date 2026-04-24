@@ -3,6 +3,8 @@
 import { useState } from "react";
 import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
 import { getWeekDays, isSameDay, getMonthDays } from "@/shared/utils/dateUtils";
+import { votePost, addComment, fetchComments } from "@/shared/lib/communityApi";
+import { useAuth } from "@/features/auth";
 
 // 커뮤니티 포스트 타입
 export interface CommunityComment {
@@ -79,6 +81,7 @@ export function CommunityTab({
   setShowWriteModal,
   trendingTags,
 }: Props) {
+  const { user } = useAuth();
   // 내부 상태
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [userVotes, setUserVotes] = useState<Record<string, 'up' | 'down' | null>>({});
@@ -86,6 +89,81 @@ export function CommunityTab({
   const [inlineComment, setInlineComment] = useState<Record<string, string>>({});
   const [showAllComments, setShowAllComments] = useState<Set<string>>(new Set());
   const [rankingPeriod, setRankingPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
+
+  // 투표 핸들러 — API 연동
+  const handleVote = async (postId: string, direction: 'up' | 'down') => {
+    const userId = user?.userId || 'anonymous';
+    const currentVote = userVotes[postId];
+
+    // Optimistic UI update
+    if (currentVote === direction) {
+      setUserVotes(prev => ({ ...prev, [postId]: null }));
+      setCommunityPosts(prev => prev.map(p =>
+        p.id === postId ? { ...p, upvotes: p.upvotes + (direction === 'up' ? -1 : 1) } : p
+      ));
+    } else {
+      setUserVotes(prev => ({ ...prev, [postId]: direction }));
+      const delta = direction === 'up'
+        ? (currentVote === 'down' ? 2 : 1)
+        : (currentVote === 'up' ? -2 : -1);
+      setCommunityPosts(prev => prev.map(p =>
+        p.id === postId ? { ...p, upvotes: p.upvotes + delta } : p
+      ));
+    }
+
+    // Fire-and-forget API call
+    votePost(postId, userId, direction);
+  };
+
+  // 댓글 추가 핸들러 — API 연동
+  const handleAddComment = async (postId: string) => {
+    const text = inlineComment[postId]?.trim();
+    if (!text) return;
+
+    const userId = user?.userId || 'anonymous';
+    const userName = user?.name || '나';
+    const comment = await addComment(postId, {
+      user_id: userId,
+      user_name: userName,
+      user_mbti: selectedGroup,
+      user_avatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${userName}&scale=90`,
+      text,
+    });
+
+    if (comment) {
+      setCommunityPosts(prev => prev.map(p => {
+        if (p.id === postId) {
+          return { ...p, commentCount: p.commentCount + 1, commentList: [comment, ...p.commentList] };
+        }
+        return p;
+      }));
+    }
+    setInlineComment(prev => ({ ...prev, [postId]: '' }));
+  };
+
+  // 댓글 펼침 시 API에서 로드
+  const handleExpandComments = async (postId: string) => {
+    setExpandedComments(prev => {
+      const next = new Set(prev);
+      if (next.has(postId)) {
+        next.delete(postId);
+      } else {
+        next.add(postId);
+      }
+      return next;
+    });
+
+    // 아직 댓글이 로드되지 않았으면 API에서 가져오기
+    const post = communityPosts.find(p => p.id === postId);
+    if (post && post.commentList.length === 0 && post.commentCount > 0) {
+      const comments = await fetchComments(postId);
+      if (comments.length > 0) {
+        setCommunityPosts(prev => prev.map(p =>
+          p.id === postId ? { ...p, commentList: comments } : p
+        ));
+      }
+    }
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -359,18 +437,7 @@ export function CommunityTab({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            const currentVote = userVotes[post.id];
-                            if (currentVote === 'up') {
-                              setUserVotes(prev => ({ ...prev, [post.id]: null }));
-                              setCommunityPosts(prev => prev.map(p =>
-                                p.id === post.id ? { ...p, upvotes: p.upvotes - 1 } : p
-                              ));
-                            } else {
-                              setUserVotes(prev => ({ ...prev, [post.id]: 'up' }));
-                              setCommunityPosts(prev => prev.map(p =>
-                                p.id === post.id ? { ...p, upvotes: p.upvotes + (currentVote === 'down' ? 2 : 1) } : p
-                              ));
-                            }
+                            handleVote(post.id, 'up');
                           }}
                           className={`flex items-center gap-1 px-3 py-2 transition-all duration-200 ${
                             userVotes[post.id] === 'up'
@@ -391,18 +458,7 @@ export function CommunityTab({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            const currentVote = userVotes[post.id];
-                            if (currentVote === 'down') {
-                              setUserVotes(prev => ({ ...prev, [post.id]: null }));
-                              setCommunityPosts(prev => prev.map(p =>
-                                p.id === post.id ? { ...p, upvotes: p.upvotes + 1 } : p
-                              ));
-                            } else {
-                              setUserVotes(prev => ({ ...prev, [post.id]: 'down' }));
-                              setCommunityPosts(prev => prev.map(p =>
-                                p.id === post.id ? { ...p, upvotes: p.upvotes - (currentVote === 'up' ? 2 : 1) } : p
-                              ));
-                            }
+                            handleVote(post.id, 'down');
                           }}
                           className={`flex items-center gap-1 px-3 py-2 transition-all duration-200 ${
                             userVotes[post.id] === 'down'
@@ -418,15 +474,7 @@ export function CommunityTab({
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          setExpandedComments(prev => {
-                            const next = new Set(prev);
-                            if (next.has(post.id)) {
-                              next.delete(post.id);
-                            } else {
-                              next.add(post.id);
-                            }
-                            return next;
-                          });
+                          handleExpandComments(post.id);
                         }}
                         className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-all duration-200 ml-1 ${
                           expandedComments.has(post.id) ? 'bg-gray-100' : 'hover:bg-gray-50'
@@ -492,24 +540,7 @@ export function CommunityTab({
                                 className="flex-1 px-4 py-2.5 bg-white border border-gray-200 rounded-full text-[14px] focus:outline-none focus:ring-2 focus:ring-gray-200 focus:border-transparent"
                               />
                               <button
-                                onClick={() => {
-                                  if (inlineComment[post.id]?.trim()) {
-                                    setCommunityPosts(prev => prev.map(p => {
-                                      if (p.id === post.id) {
-                                        return {
-                                          ...p,
-                                          commentCount: p.commentCount + 1,
-                                          commentList: [
-                                            { id: `c${Date.now()}`, userName: "나", userMbti: selectedGroup, userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=me&backgroundColor=fef3c7&scale=90", text: inlineComment[post.id], timeAgo: "방금 전", likes: 0 },
-                                            ...p.commentList
-                                          ]
-                                        };
-                                      }
-                                      return p;
-                                    }));
-                                    setInlineComment(prev => ({ ...prev, [post.id]: '' }));
-                                  }
-                                }}
+                                onClick={() => handleAddComment(post.id)}
                                 disabled={!inlineComment[post.id]?.trim()}
                                 className="px-4 py-2.5 bg-blue-500 text-white rounded-full text-[13px] font-medium hover:bg-blue-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
                               >

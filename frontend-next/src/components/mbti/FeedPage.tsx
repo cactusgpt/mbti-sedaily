@@ -2,8 +2,11 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
 import { API_URL } from "@/shared/config/api";
+import { fetchCommunityPosts, votePost, addComment, createCommunityPost, fetchComments } from "@/shared/lib/communityApi";
+import { fetchDailyQuestions, saveQuestionAnswer } from "@/shared/lib/questionApi";
+import type { DailyQuestionItem } from "@/features/question";
 import { ArticleView } from "./ArticleView";
-import { UserMenu } from "@/features/auth";
+import { UserMenu, useAuth } from "@/features/auth";
 import { mockArticles } from "@/shared/data/mockArticles";
 import { BarChart3, BookOpen, Lightbulb, Coffee, Coins, Rocket, Globe, Sparkles, Calendar, Newspaper, Users, Camera, TrendingUp } from "lucide-react";
 import { ScrollReveal } from "@/shared/ui/ScrollReveal";
@@ -133,6 +136,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { user } = useAuth();
 
   // URL에서 초기 탭 상태 읽기
   const getInitialTab = useCallback(() => {
@@ -156,6 +160,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
   const [showQuestions, setShowQuestions] = useState(true);
+  const [aiQuestions, setAiQuestions] = useState<DailyQuestionItem[]>([]);
 
   // 아카이빙 관련 상태 - 목업 데이터
   const [archivedSentences, setArchivedSentences] = useState<ArchivedSentence[]>(() => {
@@ -350,55 +355,178 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   // 랭킹 기간 필터
   const [rankingPeriod, setRankingPeriod] = useState<'daily' | 'weekly' | 'monthly'>('weekly');
 
-  // 오디오 플레이어 상태 (목업)
+  // 오디오 플레이어 상태 — real podcast API
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioProgress, setAudioProgress] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const [currentPlayingArticle, setCurrentPlayingArticle] = useState<{
     title: string;
     category: string;
+    podcastId?: string;
   } | null>(null);
   const [showPaywall, setShowPaywall] = useState(false);
-  const [hasUnlockedAudio, setHasUnlockedAudio] = useState(false); // 구독자 여부
+  const [hasUnlockedAudio, setHasUnlockedAudio] = useState(false);
+  const [podcastLoading, setPodcastLoading] = useState(false);
+  const [podcastError, setPodcastError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // 1분 미리듣기 제한 (전체 3분 중 33.3%)
-  const FREE_PREVIEW_LIMIT = 33.3;
+  const FREE_PREVIEW_SECONDS = 60;
 
-  // 오디오 재생 시작 (목업)
-  const startAudioBriefing = () => {
+  // Audio element event handlers
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const onTimeUpdate = () => {
+      setAudioCurrentTime(audio.currentTime);
+      const dur = audio.duration || 1;
+      setAudioProgress((audio.currentTime / dur) * 100);
+
+      // Paywall: stop at 1 minute for non-subscribers
+      if (!hasUnlockedAudio && audio.currentTime >= FREE_PREVIEW_SECONDS) {
+        audio.pause();
+        setIsPlaying(false);
+        setShowPaywall(true);
+      }
+    };
+
+    const onLoadedMetadata = () => {
+      setAudioDuration(audio.duration);
+    };
+
+    const onEnded = () => {
+      setIsPlaying(false);
+      setAudioProgress(100);
+    };
+
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
+
+    return () => {
+      audio.removeEventListener('timeupdate', onTimeUpdate);
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
+    };
+  }, [hasUnlockedAudio]);
+
+  // Start audio briefing — check for existing podcast, generate if needed
+  const startAudioBriefing = async () => {
     const firstArticle = articles[0];
-    if (firstArticle) {
-      setCurrentPlayingArticle({
-        title: firstArticle.title,
-        category: firstArticle.category
-      });
-      setShowAudioPlayer(true);
-      setIsPlaying(true);
-      setAudioProgress(0);
+    if (!firstArticle) return;
+
+    setCurrentPlayingArticle({
+      title: firstArticle.title,
+      category: firstArticle.category,
+    });
+    setShowAudioPlayer(true);
+    setPodcastLoading(true);
+    setPodcastError(null);
+
+    try {
+      const { getArticlePodcast, generatePodcast, waitForPodcast } = await import('@/shared/lib/podcastApi');
+
+      // 1. Check if podcast already exists
+      let podcast = await getArticlePodcast(firstArticle.news_id, selectedGroup);
+
+      if (podcast?.audio_url) {
+        // Existing podcast — play immediately
+        loadAndPlay(podcast.audio_url, podcast.podcast_id);
+        return;
+      }
+
+      if (podcast && !podcast.audio_url) {
+        // Podcast exists but no presigned URL — fetch full details
+        const { getPodcast } = await import('@/shared/lib/podcastApi');
+        const full = await getPodcast(podcast.podcast_id);
+        if (full?.audio_url) {
+          loadAndPlay(full.audio_url, full.podcast_id);
+          return;
+        }
+      }
+
+      // 2. No podcast — generate one
+      const generated = await generatePodcast(firstArticle.news_id, selectedGroup);
+      setCurrentPlayingArticle(prev => prev ? { ...prev, podcastId: generated.podcast_id } : null);
+
+      // 3. Poll until ready
+      const ready = await waitForPodcast(generated.podcast_id);
+      loadAndPlay(ready.audio_url!, ready.podcast_id);
+
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '오디오 생성에 실패했습니다';
+      setPodcastError(msg);
+      setPodcastLoading(false);
     }
   };
 
-  // 프로그레스 애니메이션 (목업) - 1분 제한
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    const maxProgress = hasUnlockedAudio ? 100 : FREE_PREVIEW_LIMIT;
+  const loadAndPlay = (audioUrl: string, podcastId: string) => {
+    setPodcastLoading(false);
+    setCurrentPlayingArticle(prev => prev ? { ...prev, podcastId } : null);
 
-    if (isPlaying && audioProgress < maxProgress) {
-      interval = setInterval(() => {
-        setAudioProgress(prev => {
-          const next = prev + 0.5;
-          // 1분 도달 시 페이월 표시
-          if (!hasUnlockedAudio && next >= FREE_PREVIEW_LIMIT) {
-            setIsPlaying(false);
-            setShowPaywall(true);
-            return FREE_PREVIEW_LIMIT;
-          }
-          return Math.min(next, maxProgress);
-        });
-      }, 500);
+    if (audioRef.current) {
+      audioRef.current.src = audioUrl;
+      audioRef.current.load();
+      audioRef.current.play().catch(() => {});
+      setIsPlaying(true);
     }
-    return () => clearInterval(interval);
-  }, [isPlaying, audioProgress, hasUnlockedAudio]);
+  };
+
+  const togglePlayPause = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play().catch(() => {});
+    }
+  };
+
+  const seekAudio = (progressPercent: number) => {
+    const audio = audioRef.current;
+    if (!audio || !audio.duration) return;
+
+    const maxProgress = hasUnlockedAudio ? 100 : (FREE_PREVIEW_SECONDS / audio.duration) * 100;
+    const clamped = Math.min(Math.max(0, progressPercent), maxProgress);
+    audio.currentTime = (clamped / 100) * audio.duration;
+    setAudioProgress(clamped);
+
+    if (!hasUnlockedAudio && audio.currentTime >= FREE_PREVIEW_SECONDS) {
+      audio.pause();
+      setIsPlaying(false);
+      setShowPaywall(true);
+    }
+  };
+
+  const skipAudio = (seconds: number) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const newTime = audio.currentTime + seconds;
+    const maxTime = hasUnlockedAudio ? audio.duration : FREE_PREVIEW_SECONDS;
+    audio.currentTime = Math.min(Math.max(0, newTime), maxTime);
+
+    if (!hasUnlockedAudio && audio.currentTime >= FREE_PREVIEW_SECONDS) {
+      audio.pause();
+      setIsPlaying(false);
+      setShowPaywall(true);
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
 
   // 유저 프로필 데이터 (온도, 칭호, MBTI, 아바타)
   const userProfiles: { [key: string]: { temperature: number; title: string; titleType: 'crown' | 'star' | 'lightning' | 'heart' | 'book' | 'chart'; badges: { name: string; type: 'trophy' | 'fire' | 'chat' | 'bulb' | 'target' | 'chart' }[]; mbti: string; avatar: string } } = {
@@ -458,105 +586,27 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   };
 
   // 커뮤니티 목업 데이터 - 아카이빙 문장 + 코멘트 형태
-  const [communityPosts, setCommunityPosts] = useState([
-    {
-      id: "p1",
-      userName: "서연",
-      userMbti: "INTJ",
-      userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=analyst&backgroundColor=e8f4f8&scale=90",
-      timeAgo: "방금 전",
-      archivedSentence: "AI 반도체 점유율 32%로 1위를 탈환했다는 것은 단순한 수치 이상의 의미를 갖는다.",
-      userComment: "드디어 삼성이 움직이기 시작했다. HBM 기술력만 따라잡으면 진짜 반격 시작일듯",
-      articleTitle: "반도체 전쟁, 삼성의 반격이 시작됐다",
-      tags: ["반도체", "삼성전자", "HBM"],
-      upvotes: 34,
-      commentCount: 12,
-      commentList: [
-        { id: "c1", userName: "지우", userMbti: "ISTP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=practical&backgroundColor=f0fdf4&scale=90", text: "HBM4 양산 시점이 관건일듯", timeAgo: "10분 전", likes: 5 },
-        { id: "c2", userName: "하은", userMbti: "ENFP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=storyteller&backgroundColor=faf5ff&scale=90", text: "엔비디아 납품 물량이 늘어나야 진짜 의미있지 않을까요?", timeAgo: "30분 전", likes: 8 },
-        { id: "c3", userName: "민준", userMbti: "ESFJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=friend&backgroundColor=fff7ed&scale=90", text: "삼성 화이팅", timeAgo: "1시간 전", likes: 2 },
-        { id: "c3a", userName: "도윤", userMbti: "ENTJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=leader&backgroundColor=fef3c7&scale=90", text: "TSMC랑 격차 줄이려면 최소 2년은 걸릴 듯", timeAgo: "2시간 전", likes: 11 },
-        { id: "c3b", userName: "수아", userMbti: "INFJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=dreamer&backgroundColor=e0e7ff&scale=90", text: "파운드리 점유율도 같이 봐야 전체 그림이 보여요", timeAgo: "2시간 전", likes: 7 },
-        { id: "c3c", userName: "예준", userMbti: "INTP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=thinker&backgroundColor=f3e8ff&scale=90", text: "HBM3E는 이미 양산 중이고 HBM4가 내년 상반기 목표라던데", timeAgo: "3시간 전", likes: 15 },
-        { id: "c3d", userName: "시우", userMbti: "ESTP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=action&backgroundColor=fce7f3&scale=90", text: "주가는 이미 반영된 거 아닌가요?", timeAgo: "4시간 전", likes: 4 },
-        { id: "c3e", userName: "지아", userMbti: "ISFP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=artist&backgroundColor=ccfbf1&scale=90", text: "장기 투자 관점에서 보면 좋은 뉴스", timeAgo: "5시간 전", likes: 9 },
-        { id: "c3f", userName: "현우", userMbti: "ESTJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=exec&backgroundColor=fee2e2&scale=90", text: "실적으로 증명해야 진짜죠", timeAgo: "6시간 전", likes: 6 },
-        { id: "c3g", userName: "유나", userMbti: "ENFJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=mentor&backgroundColor=dbeafe&scale=90", text: "한국 반도체 화이팅입니다!", timeAgo: "7시간 전", likes: 3 },
-        { id: "c3h", userName: "준서", userMbti: "ISTJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=steady&backgroundColor=fef9c3&scale=90", text: "객관적 데이터 감사합니다", timeAgo: "8시간 전", likes: 2 },
-        { id: "c3i", userName: "채원", userMbti: "ESFP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=performer&backgroundColor=d1fae5&scale=90", text: "드디어 좋은 소식이네요 ㅎㅎ", timeAgo: "어제", likes: 1 },
-      ],
-    },
-    {
-      id: "p2",
-      userName: "하은",
-      userMbti: "ENFP",
-      userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=storyteller&backgroundColor=faf5ff&scale=90",
-      timeAgo: "1시간 전",
-      archivedSentence: "금리 인하 시점이 예상보다 빨라질 수 있다는 신호다.",
-      userComment: "예금 만기 되면 어디로 옮겨야 하나... 채권 ETF 알아봐야겠다",
-      articleTitle: "연준의 새로운 메시지, 시장은 어떻게 반응할까",
-      tags: ["금리", "연준", "채권"],
-      upvotes: 67,
-      commentCount: 23,
-      commentList: [
-        { id: "c4", userName: "서연", userMbti: "INTJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=analyst&backgroundColor=e8f4f8&scale=90", text: "KODEX 국고채 10년 추천드려요", timeAgo: "20분 전", likes: 12 },
-        { id: "c5", userName: "지우", userMbti: "ISTP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=practical&backgroundColor=f0fdf4&scale=90", text: "저는 미국 장기채 ETF로 갈아탔어요", timeAgo: "45분 전", likes: 7 },
-      ],
-    },
-    {
-      id: "p3",
-      userName: "지우",
-      userMbti: "ISTP",
-      userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=practical&backgroundColor=f0fdf4&scale=90",
-      timeAgo: "3시간 전",
-      archivedSentence: "전기차 배터리 가격이 kWh당 100달러 아래로 떨어지면 내연기관차와의 가격 경쟁이 본격화된다.",
-      userComment: "지금 차 바꾸려는데 이거 보고 1년만 더 기다리기로 함",
-      articleTitle: "배터리 가격 하락, 전기차 대중화 앞당긴다",
-      tags: ["전기차", "배터리"],
-      upvotes: 89,
-      commentCount: 31,
-      commentList: [
-        { id: "c6", userName: "민준", userMbti: "ESFJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=friend&backgroundColor=fff7ed&scale=90", text: "저도 기다리는 중.. 충전 인프라도 더 좋아지겠죠", timeAgo: "1시간 전", likes: 15 },
-        { id: "c7", userName: "서연", userMbti: "INTJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=analyst&backgroundColor=e8f4f8&scale=90", text: "LFP 배터리 가격 하락이 더 빠를 것 같아요", timeAgo: "2시간 전", likes: 9 },
-      ],
-    },
-    {
-      id: "p4",
-      userName: "민준",
-      userMbti: "ESFJ",
-      userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=friend&backgroundColor=fff7ed&scale=90",
-      timeAgo: "5시간 전",
-      archivedSentence: "이번 실적은 시장 예상치를 15% 상회하는 수준으로, 3분기 연속 어닝 서프라이즈를 기록했다.",
-      userComment: "빅테크 진짜 무섭다... 떨어질 때 좀 살걸",
-      articleTitle: "빅테크 실적 시즌, 예상을 뛰어넘다",
-      tags: ["빅테크", "실적", "투자"],
-      upvotes: 45,
-      commentCount: 8,
-      commentList: [
-        { id: "c8", userName: "서연", userMbti: "INTJ", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=analyst&backgroundColor=e8f4f8&scale=90", text: "지금이라도 늦지 않았어요 장기 투자 관점에서는", timeAgo: "3시간 전", likes: 6 },
-      ],
-    },
-    {
-      id: "p5",
-      userName: "서연",
-      userMbti: "INTJ",
-      userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=analyst&backgroundColor=e8f4f8&scale=90",
-      timeAgo: "어제",
-      archivedSentence: "부동산 PF 부실 우려가 현실화되면서 건설사들의 자금 조달에 빨간불이 켜졌다.",
-      userComment: "분양가 떨어지면 좋겠는데... 현실적으로 힘들려나",
-      articleTitle: "건설업계, PF 위기 본격화",
-      tags: ["부동산", "PF", "건설"],
-      upvotes: 52,
-      commentCount: 19,
-      commentList: [
-        { id: "c9", userName: "지우", userMbti: "ISTP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=practical&backgroundColor=f0fdf4&scale=90", text: "분양가는 안떨어지고 할인분양만 늘어날듯", timeAgo: "5시간 전", likes: 11 },
-        { id: "c10", userName: "하은", userMbti: "ENFP", userAvatar: "https://api.dicebear.com/7.x/notionists/svg?seed=storyteller&backgroundColor=faf5ff&scale=90", text: "지방은 이미 많이 떨어졌더라고요", timeAgo: "8시간 전", likes: 4 },
-      ],
-    },
-  ]);
+  const [communityPosts, setCommunityPosts] = useState<{
+    id: string; userName: string; userMbti: string; userAvatar: string;
+    timeAgo: string; archivedSentence: string; userComment: string;
+    articleTitle: string; tags: string[]; upvotes: number;
+    commentCount: number; commentList: { id: string; userName: string; userMbti: string; userAvatar: string; text: string; timeAgo: string; likes: number }[];
+  }[]>([]);
 
   // 인기 태그
   const trendingTags = ["반도체", "금리", "전기차", "AI", "부동산", "빅테크", "투자"];
+
+  // 커뮤니티 포스트 로드
+  useEffect(() => {
+    const dateStr = formatDateStr(selectedDate);
+    fetchCommunityPosts(dateStr).then(posts => setCommunityPosts(posts));
+  }, [selectedDate]);
+
+  // AI 질문 로드
+  useEffect(() => {
+    const dateStr = formatDateStr(selectedDate);
+    fetchDailyQuestions(dateStr).then(qs => setAiQuestions(qs));
+  }, [selectedDate]);
 
   // 프리페칭
   const prefetchingRef = useRef<Set<string>>(new Set());
@@ -631,39 +681,45 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
     if (viewArticle) window.history.back();
   }, [viewArticle]);
 
-  // 기사 로드 - S3에서 선택된 날짜 기사 가져오기
+  // 기사 로드 - MBTI 변환된 기사 우선, 없으면 S3 XML → 검색 API 순으로 fallback
   useEffect(() => {
     async function fetchArticles() {
       try {
         setLoading(true);
         const dateStr = formatDateStr(selectedDate);
-        // S3에서 해당 날짜 기사 가져오기
-        const res = await fetch(`${API_URL}/s3-articles?date=${dateStr}&limit=30`);
+
+        // Primary: MBTI-transformed articles from pipeline DB (versions pre-loaded)
+        const res = await fetch(`${API_URL}/api/articles?date=${dateStr}&mbti_group=${selectedGroup}&limit=30`);
         const data = await res.json();
         if (data.articles?.length > 0) {
           setArticles(data.articles);
-        } else {
-          // S3에 기사가 없으면 기존 search API로 fallback
-          const targetDate = selectedDate.toISOString().slice(0, 10);
-          const nextDay = new Date(selectedDate);
-          nextDay.setDate(nextDay.getDate() + 1);
-          const searchRes = await fetch(`${API_URL}/api/search`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              query: "*",
-              filters: { published_from: targetDate, published_until: nextDay.toISOString().slice(0, 10) },
-              page: 1,
-              page_size: 30,
-            }),
-          });
-          const searchData = await searchRes.json();
-          if (searchData.articles?.length > 0) {
-            setArticles(searchData.articles);
-          } else {
-            setArticles([]);
-          }
+          return;
         }
+
+        // Fallback 1: raw S3 XML articles (for dates before pipeline was active)
+        const xmlRes = await fetch(`${API_URL}/s3-articles?date=${dateStr}&limit=30`);
+        const xmlData = await xmlRes.json();
+        if (xmlData.articles?.length > 0) {
+          setArticles(xmlData.articles);
+          return;
+        }
+
+        // Fallback 2: search API
+        const targetDate = selectedDate.toISOString().slice(0, 10);
+        const nextDay = new Date(selectedDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        const searchRes = await fetch(`${API_URL}/api/search`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query: "*",
+            filters: { published_from: targetDate, published_until: nextDay.toISOString().slice(0, 10) },
+            page: 1,
+            page_size: 30,
+          }),
+        });
+        const searchData = await searchRes.json();
+        setArticles(searchData.articles?.length > 0 ? searchData.articles : []);
       } catch {
         setArticles([]);
       } finally {
@@ -671,9 +727,11 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
       }
     }
     fetchArticles();
-  }, [selectedDate]);
+  }, [selectedDate, selectedGroup]);
 
   // 질문 답변 선택
+  const activeQuestionsList = aiQuestions.length > 0 ? aiQuestions : dailyQuestions;
+
   const handleSelectAnswer = (questionId: string, optionId: string, mbti?: MbtiGroupId) => {
     setSelectedAnswers(prev => ({ ...prev, [questionId]: optionId }));
 
@@ -683,8 +741,13 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
       localStorage.setItem("mbti-group", mbti);
     }
 
+    // 답변 서버 저장 (fire-and-forget)
+    if (user?.userId && mbti) {
+      saveQuestionAnswer({ user_id: user.userId, question_id: questionId, option_id: optionId, mbti });
+    }
+
     // 다음 질문으로 또는 피드로
-    if (currentQuestionIndex < dailyQuestions.length - 1) {
+    if (currentQuestionIndex < activeQuestionsList.length - 1) {
       setTimeout(() => setCurrentQuestionIndex(prev => prev + 1), 300);
     } else {
       setTimeout(() => {
@@ -694,8 +757,8 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
     }
   };
 
-  // 문장 아카이빙
-  const archiveSentence = (text: string, articleId: string, articleTitle: string, articlePublishedAt?: string) => {
+  // 문장 아카이빙 — logged-in: server API, anonymous: local state
+  const archiveSentence = async (text: string, articleId: string, articleTitle: string, articlePublishedAt?: string) => {
     const newSentence: ArchivedSentence = {
       id: `${articleId}-${Date.now()}`,
       text,
@@ -704,10 +767,35 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
       articlePublishedAt,
       createdAt: new Date(),
     };
+
+    // Optimistic: add to local state immediately
     setArchivedSentences(prev => [newSentence, ...prev]);
+
+    // If logged in, also save to server
+    if (user?.userId) {
+      try {
+        const { saveArchiveSentence } = await import('@/shared/lib/archiveApi');
+        const result = await saveArchiveSentence({
+          user_id: user.userId,
+          text,
+          article_id: articleId,
+          article_title: articleTitle,
+          article_published_at: articlePublishedAt,
+        });
+        // Replace local ID with server ID
+        setArchivedSentences(prev =>
+          prev.map(s => s.id === newSentence.id
+            ? { ...s, id: result.sentence.id, createdAt: new Date(result.sentence.created_at) }
+            : s
+          )
+        );
+      } catch (err) {
+        console.warn('Server archive save failed (local save kept):', err);
+      }
+    }
   };
 
-  const currentQuestion = dailyQuestions[currentQuestionIndex];
+  const currentQuestion = activeQuestionsList[Math.min(currentQuestionIndex, activeQuestionsList.length - 1)];
   const persona = personaInfo[selectedGroup];
 
   // 뉴스 DNA 데이터 (예시)
@@ -838,6 +926,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
               setShowQuestions(false);
               setActiveTab("feed");
             }}
+            questions={aiQuestions}
           />
         )}
 
@@ -1410,24 +1499,23 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
               </button>
               <h3 className="text-[16px] font-bold text-gray-900">새 글 작성</h3>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (selectedArchiveForPost && postComment.trim()) {
-                    // 새 글 추가
-                    const newPost = {
-                      id: `p${Date.now()}`,
-                      userName: persona.name,
-                      userMbti: selectedGroup,
-                      userAvatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${persona.name}&backgroundColor=fef3c7&scale=90`,
-                      timeAgo: "방금 전",
-                      archivedSentence: selectedArchiveForPost.text,
-                      userComment: postComment,
-                      articleTitle: selectedArchiveForPost.articleTitle,
-                      tags: ["새글"],
-                      upvotes: 0,
-                      commentCount: 0,
-                      commentList: [],
-                    };
-                    setCommunityPosts([newPost, ...communityPosts]);
+                    const userId = user?.userId || 'anonymous';
+                    const newPost = await createCommunityPost({
+                      user_id: userId,
+                      user_name: user?.name || persona.name,
+                      user_mbti: selectedGroup,
+                      user_avatar: `https://api.dicebear.com/7.x/notionists/svg?seed=${persona.name}&backgroundColor=fef3c7&scale=90`,
+                      archived_sentence: selectedArchiveForPost.text,
+                      user_comment: postComment,
+                      article_id: selectedArchiveForPost.articleId || '',
+                      article_title: selectedArchiveForPost.articleTitle,
+                      tags: [],
+                    });
+                    if (newPost) {
+                      setCommunityPosts(prev => [newPost, ...prev]);
+                    }
                     setShowWriteModal(false);
                     setSelectedArchiveForPost(null);
                     setPostComment("");
@@ -1498,35 +1586,19 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
         </div>
       )}
 
-      {/* 하단 오디오 플레이어 (목업) */}
+      {/* Hidden HTML5 audio element */}
+      <audio ref={audioRef} preload="none" />
+
+      {/* 하단 오디오 플레이어 */}
       {showAudioPlayer && (
         <div className="fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-100 shadow-[0_-2px_10px_rgba(0,0,0,0.06)]">
-          {/* 프로그레스 바 - 클릭/드래그 가능 */}
+          {/* 프로그레스 바 */}
           <div
             className="absolute top-0 left-0 right-0 h-3 -mt-1.5 cursor-pointer group"
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
-              const clickX = e.clientX - rect.left;
-              const percentage = (clickX / rect.width) * 100;
-              const maxProgress = hasUnlockedAudio ? 100 : FREE_PREVIEW_LIMIT;
-              setAudioProgress(Math.min(Math.max(0, percentage), maxProgress));
-            }}
-            onMouseDown={(e) => {
-              const handleDrag = (moveEvent: MouseEvent) => {
-                const rect = (e.target as HTMLElement).parentElement?.getBoundingClientRect();
-                if (rect) {
-                  const dragX = moveEvent.clientX - rect.left;
-                  const percentage = (dragX / rect.width) * 100;
-                  const maxProgress = hasUnlockedAudio ? 100 : FREE_PREVIEW_LIMIT;
-                  setAudioProgress(Math.min(Math.max(0, percentage), maxProgress));
-                }
-              };
-              const handleUp = () => {
-                document.removeEventListener('mousemove', handleDrag);
-                document.removeEventListener('mouseup', handleUp);
-              };
-              document.addEventListener('mousemove', handleDrag);
-              document.addEventListener('mouseup', handleUp);
+              const pct = ((e.clientX - rect.left) / rect.width) * 100;
+              seekAudio(pct);
             }}
           >
             <div className="absolute top-1/2 -translate-y-1/2 left-0 right-0 h-[3px] bg-gray-200 group-hover:h-[5px] transition-all">
@@ -1534,7 +1606,6 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                 className="h-full bg-gray-900 relative"
                 style={{ width: `${audioProgress}%` }}
               >
-                {/* 드래그 핸들 */}
                 <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-gray-900 rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-sm" />
               </div>
             </div>
@@ -1555,7 +1626,6 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                     className="w-full h-full object-cover"
                   />
                 </div>
-                {/* 재생 중 표시 */}
                 {isPlaying && (
                   <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-gray-900 rounded-full flex items-center justify-center">
                     <div className="flex items-end gap-[1.5px] h-2">
@@ -1565,42 +1635,50 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                     </div>
                   </div>
                 )}
+                {podcastLoading && (
+                  <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-amber-500 rounded-full flex items-center justify-center">
+                    <div className="w-2.5 h-2.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
               </div>
 
               {/* 재생 정보 */}
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-medium text-gray-900 truncate leading-tight">
-                  {currentPlayingArticle?.title || '오늘의 뉴스 브리핑'}
+                  {podcastLoading ? '오디오 생성 중...' :
+                   podcastError ? '오디오 생성 실패' :
+                   currentPlayingArticle?.title || '오늘의 뉴스 브리핑'}
                 </p>
                 <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[11px] text-gray-400 tabular-nums">
-                    {Math.floor(audioProgress * 3 / 100)}:{String(Math.floor((audioProgress * 180 / 100) % 60)).padStart(2, '0')}
-                    <span className="mx-0.5">/</span>
-                    {hasUnlockedAudio ? '3:00' : '1:00'}
-                  </span>
-                  {!hasUnlockedAudio && (
-                    <span className="text-[10px] font-medium text-amber-600">미리듣기</span>
+                  {podcastError ? (
+                    <button
+                      onClick={startAudioBriefing}
+                      className="text-[11px] text-blue-500 font-medium"
+                    >
+                      다시 시도
+                    </button>
+                  ) : (
+                    <>
+                      <span className="text-[11px] text-gray-400 tabular-nums">
+                        {formatTime(audioCurrentTime)}
+                        <span className="mx-0.5">/</span>
+                        {hasUnlockedAudio ? formatTime(audioDuration) : formatTime(Math.min(audioDuration, FREE_PREVIEW_SECONDS))}
+                      </span>
+                      {!hasUnlockedAudio && audioDuration > 0 && (
+                        <span className="text-[10px] font-medium text-amber-600">미리듣기</span>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
 
-              {/* 컨트롤 버튼 */}
+              {/* 컨트롤 */}
               <div className="flex items-center">
-                {/* 이전 콘텐츠 */}
-                <button className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">
-                  <svg className="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M6 6h2v12H6V6zm3.5 6l8.5 6V6l-8.5 6z" />
-                  </svg>
-                </button>
-
-                {/* 5초 뒤로 */}
                 <button
-                  onClick={() => {
-                    const newProgress = Math.max(0, audioProgress - (5 / 180) * 100);
-                    setAudioProgress(newProgress);
-                  }}
+                  onClick={() => skipAudio(-5)}
                   className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors relative"
                   title="5초 뒤로"
+                  disabled={podcastLoading}
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12.5 8V4L7 9l5.5 5v-4c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4.5c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
@@ -1608,12 +1686,16 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                   <span className="absolute text-[8px] font-bold" style={{ top: '52%', left: '50%', transform: 'translate(-50%, -50%)' }}>5</span>
                 </button>
 
-                {/* 재생/일시정지 */}
                 <button
-                  onClick={() => setIsPlaying(!isPlaying)}
-                  className="w-10 h-10 flex items-center justify-center rounded-full bg-blue-500 text-white hover:bg-blue-600 transition-all active:scale-95 mx-1"
+                  onClick={togglePlayPause}
+                  disabled={podcastLoading}
+                  className={`w-10 h-10 flex items-center justify-center rounded-full text-white transition-all active:scale-95 mx-1 ${
+                    podcastLoading ? 'bg-gray-300' : 'bg-blue-500 hover:bg-blue-600'
+                  }`}
                 >
-                  {isPlaying ? (
+                  {podcastLoading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : isPlaying ? (
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" />
                     </svg>
@@ -1624,19 +1706,11 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                   )}
                 </button>
 
-                {/* 5초 앞으로 */}
                 <button
-                  onClick={() => {
-                    const maxProgress = hasUnlockedAudio ? 100 : FREE_PREVIEW_LIMIT;
-                    const newProgress = Math.min(maxProgress, audioProgress + (5 / 180) * 100);
-                    setAudioProgress(newProgress);
-                    if (!hasUnlockedAudio && newProgress >= FREE_PREVIEW_LIMIT) {
-                      setIsPlaying(false);
-                      setShowPaywall(true);
-                    }
-                  }}
+                  onClick={() => skipAudio(5)}
                   className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors relative"
                   title="5초 앞으로"
+                  disabled={podcastLoading}
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M11.5 8V4l5.5 5-5.5 5v-4c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z"/>
@@ -1644,19 +1718,18 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                   <span className="absolute text-[8px] font-bold" style={{ top: '52%', left: '50%', transform: 'translate(-50%, -50%)' }}>5</span>
                 </button>
 
-                {/* 다음 콘텐츠 */}
-                <button className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors">
-                  <svg className="w-[18px] h-[18px]" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-                  </svg>
-                </button>
-
-                {/* 닫기 */}
                 <button
                   onClick={() => {
+                    if (audioRef.current) {
+                      audioRef.current.pause();
+                      audioRef.current.src = '';
+                    }
                     setShowAudioPlayer(false);
                     setIsPlaying(false);
                     setAudioProgress(0);
+                    setAudioCurrentTime(0);
+                    setPodcastLoading(false);
+                    setPodcastError(null);
                   }}
                   className="w-8 h-8 flex items-center justify-center rounded-full text-gray-300 hover:text-gray-600 hover:bg-gray-50 transition-all ml-1"
                 >
@@ -1668,7 +1741,6 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
             </div>
           </div>
 
-          {/* 이퀄라이저 애니메이션 스타일 */}
           <style>{`
             @keyframes soundbar1 {
               0%, 100% { height: 30%; }

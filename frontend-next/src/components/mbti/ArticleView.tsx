@@ -1,4 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
 import { useAuth } from "@/features/auth";
 import { recordArticleRead } from "@/shared/lib/userApi";
@@ -44,19 +46,9 @@ function formatDate(dateStr: string): string {
   });
 }
 
-// 본문을 문장 배열로 분리
-function parseSentences(body: string | string[]): string[] {
-  const text = Array.isArray(body) ? body.join(" ") : body;
-  // 마침표, 물음표, 느낌표로 문장 분리
-  const sentences = text
-    .replace(/\*\*/g, '') // 마크다운 bold 제거
-    .split(/(?<=[.?!])\s+/)
-    .map(s => s.trim())
-    .filter(s => s.length > 10) // 너무 짧은 건 제외
-    .filter(s => !s.startsWith('[') || !s.endsWith(']'))
-    .filter(s => !s.startsWith('■'))
-    .filter(s => !s.startsWith('---'));
-  return sentences;
+// 본문 텍스트 결합
+function getBodyText(body: string | string[]): string {
+  return Array.isArray(body) ? body.join("\n\n") : body;
 }
 
 export function ArticleView({ article: initialArticle, currentGroup, onClose, onArchiveSentence }: Props) {
@@ -71,9 +63,16 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
   const [toastMessage, setToastMessage] = useState("");
 
   const version = article.versions?.[currentGroup];
-  const sentences = version ? parseSentences(version.body) : [];
+  const bodyText = useMemo(
+    () => (version ? getBodyText(version.body) : ""),
+    [version]
+  );
+  const archiveItems = useMemo(
+    () => version?.key_points ?? [],
+    [version]
+  );
 
-  // 문장 선택 토글
+  // 핵심 정리 선택 토글
   const toggleSentence = (index: number) => {
     setSelectedSentences(prev => {
       const next = new Set(prev);
@@ -86,11 +85,12 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
     });
   };
 
-  // 선택된 문장들 가져오기
+  // 선택된 항목 가져오기
   const getSelectedText = () => {
     return Array.from(selectedSentences)
       .sort((a, b) => a - b)
-      .map(idx => sentences[idx])
+      .map(idx => archiveItems[idx])
+      .filter(Boolean)
       .join(" ");
   };
 
@@ -320,51 +320,35 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
             </div>
           )}
 
-          {/* 안내 문구 */}
-          <div className="mb-8 py-4 px-5 bg-white border border-gray-100 rounded-xl">
-            <p className="text-[14px] text-gray-500 flex items-center gap-2">
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
-              문장을 클릭하면 선택됩니다. 여러 문장을 선택해서 저장하세요.
-            </p>
+          {/* 본문 - Markdown 렌더링 */}
+          <div className="prose prose-gray max-w-none text-[17px] leading-[1.95] text-gray-800">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {bodyText}
+            </ReactMarkdown>
           </div>
 
-          {/* 본문 - 문장별로 클릭 가능 */}
-          <div className="text-[17px] leading-[1.95] text-gray-800">
-            {sentences.map((sentence, idx) => {
-              const isSelected = selectedSentences.has(idx);
-              return (
-                <span
-                  key={idx}
-                  onClick={() => toggleSentence(idx)}
-                  className={`
-                    cursor-pointer transition-all duration-150
-                    ${isSelected
-                      ? "bg-yellow-200 text-gray-900"
-                      : "hover:bg-yellow-50"
-                    }
-                  `}
-                >
-                  {sentence}{" "}
-                </span>
-              );
-            })}
-          </div>
-
-          {/* 핵심 포인트 */}
+          {/* 핵심 포인트 — 클릭하여 저장 */}
           {version.key_points && version.key_points.length > 0 && (
             <div className="mt-12 p-6 bg-white rounded-2xl border border-gray-100">
-              <p className="text-[14px] font-semibold text-gray-900 mb-5">핵심 정리</p>
+              <p className="text-[14px] font-semibold text-gray-900 mb-1">핵심 정리</p>
+              <p className="text-[12px] text-gray-400 mb-5">항목을 클릭하면 선택됩니다</p>
               <ul className="space-y-4">
-                {version.key_points.map((point, idx) => (
-                  <li
-                    key={idx}
-                    className="text-[15px] text-gray-700 leading-relaxed pl-5 border-l-2 border-gray-300"
-                  >
-                    {point}
-                  </li>
-                ))}
+                {version.key_points.map((point, idx) => {
+                  const isSelected = selectedSentences.has(idx);
+                  return (
+                    <li
+                      key={idx}
+                      onClick={() => toggleSentence(idx)}
+                      className={`text-[15px] text-gray-700 leading-relaxed pl-5 border-l-2 cursor-pointer transition-all duration-150 ${
+                        isSelected
+                          ? "border-yellow-400 bg-yellow-100"
+                          : "border-gray-300 hover:bg-yellow-50"
+                      }`}
+                    >
+                      {point}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}

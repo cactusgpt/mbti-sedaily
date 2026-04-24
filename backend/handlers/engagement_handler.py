@@ -1,7 +1,13 @@
 """
 Article Engagement Handler Lambda Function
 Handles reactions, ratings, and comments for articles.
-Data is stored in DynamoDB.
+
+Storage: sedaily-mbti-engagement-dev (separate table, PK=pk, SK=sk).
+This table is independent from the Article DB (DynamoDB pointer + S3 body)
+and the Personal DB. It stores engagement data keyed by article_id.
+
+No changes needed for the Article DB split — this handler never reads
+article body content, only uses article_id as a reference key.
 """
 import logging
 import boto3

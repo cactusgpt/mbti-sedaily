@@ -7,9 +7,18 @@ All hardcoded values should be defined here.
 # AWS Configuration
 # =============================================================================
 
-# DynamoDB
+# DynamoDB Tables
 DYNAMODB_TABLE_ARTICLES_DEV = 'sedaily-mbti-articles-dev'
 DYNAMODB_TABLE_ARTICLES_PROD = 'sedaily-mbti-articles'
+DYNAMODB_TABLE_PERSONAL_DEV = 'sedaily-mbti-personal-dev'
+DYNAMODB_TABLE_PODCAST_DEV = 'sedaily-mbti-podcast-dev'
+
+# S3 Article Body Storage (separated from DynamoDB for large text)
+S3_ARTICLE_BODY_BUCKET_DEV = 'sedaily-mbti-article-body-dev'
+S3_ARTICLE_BODY_PREFIX = 'articles'
+
+# S3 Audio Storage (podcast/TTS audio files)
+S3_AUDIO_BUCKET_DEV = 'sedaily-mbti-audio-dev'
 
 # AWS Regions
 AWS_REGION_DEFAULT = 'us-east-1'
@@ -18,6 +27,17 @@ AWS_REGION_S3 = 'ap-northeast-2'
 # GSI Names
 GSI_CATEGORY_DATE = 'category-published_at-index'
 GSI_SLUG = 'slug-index'
+
+# Fields stored in S3 body JSON (moved out of DynamoDB to reduce item size)
+S3_BODY_FIELDS = [
+    'content_ko',
+    'content_raw',
+    'content_blocks',
+    'version_NT',
+    'version_NF',
+    'version_ST',
+    'version_SF',
+]
 
 # =============================================================================
 # HTTP Timeouts (seconds)
@@ -56,13 +76,37 @@ NAVER_TV_URL_DEFAULT = NAVER_TV_DEFAULT_URL  # Alias for consistency
 # =============================================================================
 
 # AWS Bedrock Claude Models
-# Haiku 3.5 - Cost-effective model for chatbot
+# Haiku 3.5 — Cost-effective for transformations & chatbot
+# Cost: $0.25/$1.25 per 1M tokens (input/output)
 BEDROCK_MODEL_ID_DEFAULT = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
 BEDROCK_MODEL_ID_HAIKU = 'us.anthropic.claude-3-5-haiku-20241022-v1:0'
-# Sonnet 4 - High quality model for briefing generation
+# Sonnet 4 — Higher quality for complex rewriting (optional upgrade)
 BEDROCK_MODEL_ID_SONNET = 'us.anthropic.claude-sonnet-4-20250514-v1:0'
 
+# AWS Bedrock Nova Models
+# Nova Lite — Low-cost for simple classification/filtering (Steps 1, 2, 4, Supervisor)
+BEDROCK_MODEL_ID_NOVA_LITE = 'amazon.nova-lite-v1:0'
+# Nova Pro — Higher quality for complex classification
+BEDROCK_MODEL_ID_NOVA_PRO = 'amazon.nova-pro-v1:0'
+# Default Nova model (used by pipeline steps)
+BEDROCK_MODEL_ID_NOVA = BEDROCK_MODEL_ID_NOVA_LITE
+
+# AWS Bedrock Embedding Models
+# Titan Text Embeddings V2 — 1024-dim, up to 8192 tokens input
+# Cost: $0.00002 per 1K input tokens
+BEDROCK_EMBEDDING_MODEL_ID = 'amazon.titan-embed-text-v2:0'
+BEDROCK_EMBEDDING_DIMENSION = 1024
+BEDROCK_EMBEDDING_MAX_TOKENS = 8192
+# Approximate char-to-token ratio for Korean text (conservative)
+EMBEDDING_CHARS_PER_CHUNK = 6000
+
 BEDROCK_REGION = 'us-east-1'
+
+# =============================================================================
+# OpenSearch
+# =============================================================================
+
+OPENSEARCH_INDEX_DEFAULT = 'sedaily-articles'
 
 # =============================================================================
 # Categories
@@ -160,6 +204,44 @@ MBTI_GROUP_INFO = {
 }
 
 # =============================================================================
+# Podcast Configuration
+# =============================================================================
+
+# Polly Neural engine limit per call (characters)
+POLLY_MAX_CHARS = 2800
+
+# Maximum podcast script length (characters)
+PODCAST_MAX_SCRIPT_LENGTH = 3000
+
+# MBTI voice styles for podcast/TTS (Polly SSML prosody)
+PODCAST_VOICE_STYLES = {
+    'NT': {
+        'rate': '100%',
+        'pitch': 'medium',
+        'desc': '전문적이고 차분한',
+        'voice_id': 'Seoyeon',
+    },
+    'NF': {
+        'rate': '95%',
+        'pitch': 'medium',
+        'desc': '따뜻하고 사려 깊은',
+        'voice_id': 'Seoyeon',
+    },
+    'ST': {
+        'rate': '105%',
+        'pitch': 'low',
+        'desc': '명확하고 간결한',
+        'voice_id': 'Seoyeon',
+    },
+    'SF': {
+        'rate': '95%',
+        'pitch': 'high',
+        'desc': '친근하고 공감하는',
+        'voice_id': 'Seoyeon',
+    },
+}
+
+# =============================================================================
 # Default Values
 # =============================================================================
 
@@ -175,6 +257,10 @@ ITEM_TYPE_ARTICLE = 'article'
 ITEM_TYPE_SETTINGS = 'settings_config'
 ITEM_TYPE_COLLECTION_LOG = 'collection_log'
 ITEM_TYPE_ARTICLE_VERSION = 'article_version'
+ITEM_TYPE_USER_PROFILE = 'user_profile'
+ITEM_TYPE_ARCHIVED_SENTENCE = 'archived_sentence'
+ITEM_TYPE_READING_RECORD = 'reading_record'
+ITEM_TYPE_PODCAST = 'podcast'
 ITEM_TYPE_NEWS_BRIEFING = 'news_briefing'
 
 # =============================================================================

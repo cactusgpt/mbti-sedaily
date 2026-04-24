@@ -39,11 +39,26 @@ export const dailyQuestions = [
   },
 ];
 
+export interface DailyQuestionItem {
+  id: string;
+  question: string;
+  subtitle?: string;
+  options: {
+    id: string;
+    label: string;
+    desc?: string;
+    iconType?: keyof typeof questionIcons;
+    mbti?: MbtiGroupId;
+    category?: string;
+  }[];
+}
+
 interface Props {
   currentQuestionIndex: number;
   selectedAnswers: Record<string, string>;
   onSelectAnswer: (questionId: string, optionId: string, mbti?: MbtiGroupId) => void;
   onSkip: () => void;
+  questions?: DailyQuestionItem[];
 }
 
 export function QuestionTab({
@@ -51,15 +66,17 @@ export function QuestionTab({
   selectedAnswers,
   onSelectAnswer,
   onSkip,
+  questions,
 }: Props) {
-  const currentQuestion = dailyQuestions[currentQuestionIndex];
+  const activeQuestions = questions && questions.length > 0 ? questions : dailyQuestions;
+  const currentQuestion = activeQuestions[Math.min(currentQuestionIndex, activeQuestions.length - 1)];
 
   return (
     <div className="min-h-[calc(100vh-130px)] flex flex-col">
       {/* 진행 표시 - 상단 고정 */}
       <div className="max-w-[600px] w-full mx-auto px-6 pt-8">
         <div className="flex gap-2">
-          {dailyQuestions.map((_, idx) => (
+          {activeQuestions.map((_, idx) => (
             <div
               key={idx}
               className={`h-1.5 flex-1 rounded-full transition-all duration-300 ${
@@ -69,7 +86,7 @@ export function QuestionTab({
           ))}
         </div>
         <p className="text-[13px] text-gray-400 mt-3">
-          {currentQuestionIndex + 1} / {dailyQuestions.length}
+          {currentQuestionIndex + 1} / {activeQuestions.length}
         </p>
       </div>
 

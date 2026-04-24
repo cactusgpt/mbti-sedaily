@@ -12,6 +12,22 @@ from .article import (
     PaperInfo,
 )
 
+from .personal import (
+    ArchivedSentence,
+    UserProfile,
+    ReadingRecord,
+)
+
+from .podcast import Podcast
+
+from .ab_test import (
+    Experiment,
+    Assignment,
+    ABEvent,
+    ABExperiment,
+    ABAssignment,
+)
+
 __all__ = [
     'Article',
     'ArticleVersion',
@@ -20,4 +36,13 @@ __all__ = [
     'RelatedNews',
     'PushInfo',
     'PaperInfo',
+    'ArchivedSentence',
+    'UserProfile',
+    'ReadingRecord',
+    'Podcast',
+    'Experiment',
+    'Assignment',
+    'ABEvent',
+    'ABExperiment',
+    'ABAssignment',
 ]

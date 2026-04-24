@@ -12,8 +12,15 @@ from .constants import (
     AWS_REGION_DEFAULT,
     AWS_REGION_S3,
     DYNAMODB_TABLE_ARTICLES_DEV,
-    BIGKINDS_API_URL_DEFAULT,
+    DYNAMODB_TABLE_PERSONAL_DEV,
+    DYNAMODB_TABLE_PODCAST_DEV,
+    S3_ARTICLE_BODY_BUCKET_DEV,
+    S3_AUDIO_BUCKET_DEV,
+    OPENSEARCH_INDEX_DEFAULT,
     BEDROCK_MODEL_ID_DEFAULT,
+    BEDROCK_MODEL_ID_NOVA_LITE,
+    BEDROCK_EMBEDDING_MODEL_ID,
+    BIGKINDS_API_URL_DEFAULT,
     FRONTEND_URL_DEFAULT,
     CACHE_TTL_DEFAULT,
 )
@@ -27,36 +34,69 @@ class Settings:
     bigkinds_api_key: str = ''
     bigkinds_api_url: str = BIGKINDS_API_URL_DEFAULT
 
-    # Anthropic API
+    # Anthropic API (legacy direct API — prefer Bedrock)
     anthropic_api_key: str = ''
     anthropic_model_id: str = BEDROCK_MODEL_ID_DEFAULT
 
-    # AWS Configuration
+    # ── AWS General ──────────────────────────────────────────────────────────
+
     region: str = AWS_REGION_DEFAULT
     s3_region: str = AWS_REGION_S3
     aws_access_key_id: Optional[str] = None
     aws_secret_access_key: Optional[str] = None
 
-    # DynamoDB
-    dynamodb_table_articles: str = DYNAMODB_TABLE_ARTICLES_DEV
+    # ── DynamoDB Tables ──────────────────────────────────────────────────────
 
-    # Redis Cache
+    dynamodb_table_articles: str = DYNAMODB_TABLE_ARTICLES_DEV
+    dynamodb_table_personal: str = DYNAMODB_TABLE_PERSONAL_DEV
+    dynamodb_table_podcast: str = DYNAMODB_TABLE_PODCAST_DEV
+
+    # ── S3 Buckets ───────────────────────────────────────────────────────────
+
+    s3_article_body_bucket: str = S3_ARTICLE_BODY_BUCKET_DEV
+    s3_article_body_region: str = AWS_REGION_DEFAULT
+    s3_audio_bucket: str = S3_AUDIO_BUCKET_DEV
+
+    # ── AI Models (Bedrock) ──────────────────────────────────────────────────
+
+    claude_model_id: str = BEDROCK_MODEL_ID_DEFAULT
+    nova_model_id: str = BEDROCK_MODEL_ID_NOVA_LITE
+    embedding_model_id: str = BEDROCK_EMBEDDING_MODEL_ID
+
+    # ── OpenSearch ───────────────────────────────────────────────────────────
+
+    opensearch_endpoint: str = ''
+    opensearch_index: str = OPENSEARCH_INDEX_DEFAULT
+
+    # ── PostgreSQL (pgvector) ────────────────────────────────────────────────
+
+    pg_host: str = ''
+    pg_port: int = 5432
+    pg_database: str = 'ailens'
+    pg_user: str = 'ailens'
+    pg_password: str = ''
+
+    # ── Redis Cache ──────────────────────────────────────────────────────────
+
     redis_host: str = 'localhost'
     redis_port: int = 6379
     redis_password: Optional[str] = None
     redis_db: int = 0
     cache_ttl: int = CACHE_TTL_DEFAULT
 
-    # API Server
+    # ── API Server ───────────────────────────────────────────────────────────
+
     api_host: str = '0.0.0.0'
     api_port: int = 8000
     log_level: str = 'INFO'
 
-    # Frontend
+    # ── Frontend ─────────────────────────────────────────────────────────────
+
     frontend_url: str = FRONTEND_URL_DEFAULT
     revalidate_secret: Optional[str] = None
 
-    # Google Analytics
+    # ── Google Analytics ─────────────────────────────────────────────────────
+
     ga4_property_id: Optional[str] = None
     search_console_site_url: Optional[str] = None
     adsense_account_id: Optional[str] = None
@@ -70,18 +110,41 @@ class Settings:
             bigkinds_api_key=os.getenv('BIGKINDS_API_KEY', ''),
             bigkinds_api_url=os.getenv('BIGKINDS_API_URL', BIGKINDS_API_URL_DEFAULT),
 
-            # Anthropic
+            # Anthropic (legacy)
             anthropic_api_key=os.getenv('ANTHROPIC_API_KEY', ''),
             anthropic_model_id=os.getenv('ANTHROPIC_MODEL_ID', BEDROCK_MODEL_ID_DEFAULT),
 
-            # AWS
+            # AWS General
             region=os.getenv('AWS_REGION', os.getenv('REGION', AWS_REGION_DEFAULT)),
             s3_region=os.getenv('S3_REGION', AWS_REGION_S3),
             aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
 
-            # DynamoDB
+            # DynamoDB Tables
             dynamodb_table_articles=os.getenv('DYNAMODB_TABLE_ARTICLES', DYNAMODB_TABLE_ARTICLES_DEV),
+            dynamodb_table_personal=os.getenv('DYNAMODB_TABLE_PERSONAL', DYNAMODB_TABLE_PERSONAL_DEV),
+            dynamodb_table_podcast=os.getenv('DYNAMODB_TABLE_PODCAST', DYNAMODB_TABLE_PODCAST_DEV),
+
+            # S3 Buckets
+            s3_article_body_bucket=os.getenv('S3_ARTICLE_BODY_BUCKET', S3_ARTICLE_BODY_BUCKET_DEV),
+            s3_article_body_region=os.getenv('S3_ARTICLE_BODY_REGION', AWS_REGION_DEFAULT),
+            s3_audio_bucket=os.getenv('S3_AUDIO_BUCKET', S3_AUDIO_BUCKET_DEV),
+
+            # AI Models
+            claude_model_id=os.getenv('CLAUDE_MODEL_ID', BEDROCK_MODEL_ID_DEFAULT),
+            nova_model_id=os.getenv('NOVA_MODEL_ID', BEDROCK_MODEL_ID_NOVA_LITE),
+            embedding_model_id=os.getenv('EMBEDDING_MODEL_ID', BEDROCK_EMBEDDING_MODEL_ID),
+
+            # OpenSearch
+            opensearch_endpoint=os.getenv('OPENSEARCH_ENDPOINT', ''),
+            opensearch_index=os.getenv('OPENSEARCH_INDEX', OPENSEARCH_INDEX_DEFAULT),
+
+            # PostgreSQL (pgvector)
+            pg_host=os.getenv('PG_HOST', ''),
+            pg_port=int(os.getenv('PG_PORT', '5432')),
+            pg_database=os.getenv('PG_DATABASE', 'ailens'),
+            pg_user=os.getenv('PG_USER', 'ailens'),
+            pg_password=os.getenv('PG_PASSWORD', ''),
 
             # Redis
             redis_host=os.getenv('REDIS_HOST', 'localhost'),

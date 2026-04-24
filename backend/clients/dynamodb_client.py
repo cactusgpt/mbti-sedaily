@@ -1,13 +1,25 @@
 """
 DynamoDB Client
-Handles storage and retrieval of MBTI-transformed articles
+Handles storage and retrieval of MBTI-transformed articles.
+
+Article storage is split between DynamoDB (metadata + pointer) and S3 (body text):
+  - DynamoDB stores: news_id, title_ko, category, published_at, images, etc. + s3_body_uri
+  - S3 stores: content_ko, content_raw, content_blocks, version_NT/NF/ST/SF
+
+Legacy articles (no s3_body_uri) still have body fields in DynamoDB and are read directly.
 """
 import boto3
-from typing import Optional, Dict, Any
+import logging
+from typing import Optional, Dict, Any, TYPE_CHECKING
 from datetime import datetime
 from decimal import Decimal
-import sys
-import os
+
+from config.constants import S3_BODY_FIELDS
+
+if TYPE_CHECKING:
+    from clients.s3_article_client import S3ArticleClient
+
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_for_dynamodb(obj):
@@ -22,21 +34,154 @@ def _sanitize_for_dynamodb(obj):
 
 
 class DynamoDBClient:
-    """Client for DynamoDB operations"""
+    """
+    Client for DynamoDB operations.
 
-    def __init__(self, table_name: str = "sedaily-mbti-articles-dev", region: str = "us-east-1"):
+    When constructed with an S3ArticleClient, article body content is stored in S3
+    and only a pointer (s3_body_uri) is kept in DynamoDB. Without an S3ArticleClient,
+    all data is stored directly in DynamoDB (legacy behavior).
+    """
+
+    def __init__(
+        self,
+        table_name: str = "sedaily-mbti-articles-dev",
+        region: str = "us-east-1",
+        s3_article_client: Optional['S3ArticleClient'] = None,
+    ):
         self.table_name = table_name
         self.dynamodb = boto3.resource('dynamodb', region_name=region)
         self.table = self.dynamodb.Table(table_name)
-    
+        self._s3_article_client = s3_article_client
+
     async def get_article(self, news_id: str) -> Optional[Dict[str, Any]]:
-        """Get translated article from DynamoDB"""
+        """
+        Get full article (metadata + body) with unified retrieval.
+
+        For new articles (with s3_body_uri): fetches metadata from DynamoDB,
+        then body from S3, and merges them.
+        For legacy articles (no s3_body_uri): returns DynamoDB data as-is,
+        which already contains body fields.
+
+        Args:
+            news_id: Article ID
+
+        Returns:
+            Full article dict with both metadata and body, or None
+        """
+        metadata = await self.get_article_metadata(news_id)
+        if not metadata:
+            return None
+
+        s3_body_uri = metadata.get('s3_body_uri')
+
+        # New-style article: body is in S3
+        if s3_body_uri and self._s3_article_client:
+            body = self._s3_article_client.get_body(news_id)
+            if body:
+                metadata.update(body)
+            else:
+                logger.warning(
+                    f"Article {news_id} has s3_body_uri but S3 body fetch failed; "
+                    f"returning metadata only"
+                )
+
+        # Legacy article (no s3_body_uri): body fields already in DynamoDB metadata
+        return metadata
+
+    async def get_article_metadata(self, news_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get article metadata only from DynamoDB (no S3 fetch).
+
+        For new articles this excludes body text. For legacy articles this
+        returns everything including body (since it's all in DynamoDB).
+
+        Useful when you only need metadata for listing, search results, etc.
+
+        Args:
+            news_id: Article ID
+
+        Returns:
+            Article metadata dict, or None
+        """
         try:
             response = self.table.get_item(Key={'news_id': news_id})
             return response.get('Item')
         except Exception:
             return None
-    
+
+    async def get_transformed_articles_by_date(self, date_str: str, limit: int = 30) -> list:
+        """
+        Get all MBTI-transformed articles for a given date.
+
+        Queries ALL 7 categories via the GSI, filters to articles that have
+        s3_body_uri (meaning they were transformed by the pipeline), then
+        fetches body content from S3 for each article.
+
+        Args:
+            date_str: Date in YYYYMMDD format
+            limit: Maximum articles to return
+
+        Returns:
+            List of article dicts with MBTI versions merged from S3
+        """
+        import asyncio
+        from boto3.dynamodb.conditions import Key
+        from config.constants import CATEGORIES_KOREAN
+
+        start = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        end = f"{start}~"
+
+        def _query_category(category: str) -> list:
+            try:
+                response = self.table.query(
+                    IndexName='category-published_at-index',
+                    KeyConditionExpression=(
+                        Key('category').eq(category)
+                        & Key('published_at').between(start, end)
+                    ),
+                )
+                return response.get('Items', [])
+            except Exception as e:
+                logger.warning(
+                    f"Failed to query category '{category}' for {date_str}: {e}"
+                )
+                return []
+
+        category_results = await asyncio.gather(
+            *(asyncio.to_thread(_query_category, cat) for cat in CATEGORIES_KOREAN)
+        )
+
+        seen_ids: set = set()
+        articles: list = []
+        for items in category_results:
+            for item in items:
+                nid = item.get('news_id')
+                if not nid or nid in seen_ids:
+                    continue
+                seen_ids.add(nid)
+                articles.append(item)
+
+        articles = [a for a in articles if a.get('s3_body_uri')]
+        articles.sort(key=lambda a: a.get('published_at', ''), reverse=True)
+        articles = articles[:limit]
+
+        if not self._s3_article_client:
+            return articles
+
+        semaphore = asyncio.Semaphore(30)
+
+        async def _fetch_body(article: dict) -> dict:
+            async with semaphore:
+                body = await asyncio.to_thread(
+                    self._s3_article_client.get_body, article['news_id']
+                )
+            if body:
+                article.update(body)
+            return article
+
+        enriched = await asyncio.gather(*(_fetch_body(a) for a in articles))
+        return enriched
+
     async def get_naver_tv_url(self, published_at: str) -> str:
         """Get Naver TV URL from settings based on publication date"""
         try:
@@ -60,11 +205,20 @@ class DynamoDBClient:
 
     async def save_article(self, article: Dict[str, Any]) -> bool:
         """
-        Save MBTI-transformed article to DynamoDB
+        Save MBTI-transformed article.
+
+        When an S3ArticleClient is configured, body fields (content_ko, content_raw,
+        content_blocks, version_NT/NF/ST/SF) are stored in S3 and only a pointer
+        (s3_body_uri) is kept in DynamoDB. Without S3ArticleClient, all data goes
+        to DynamoDB (legacy behavior).
+
+        Args:
+            article: Full article dict including both metadata and body fields
+
+        Returns:
+            True if saved successfully, False otherwise
         """
-        import logging
         from utils.hash_utils import hash_content
-        logger = logging.getLogger(__name__)
 
         try:
             news_id = article['news_id']
@@ -76,7 +230,7 @@ class DynamoDBClient:
             if not content_hash and content_ko:
                 content_hash = hash_content(content_ko)
 
-            # Build item for MBTI article
+            # Build the full item with all fields
             item = {
                 # Core IDs
                 'news_id': news_id,
@@ -84,17 +238,9 @@ class DynamoDBClient:
                 'action': article.get('action', 'I'),
                 'press': article.get('press', '서울경제'),
 
-                # Original Korean content
+                # Title (kept in DynamoDB for search/display)
                 'title_ko': article.get('title_ko', ''),
                 'sub_title_ko': article.get('sub_title_ko', ''),
-                'content_ko': content_ko,
-                'content_raw': article.get('content_raw', ''),
-
-                # MBTI 4-style versions
-                'version_NT': article.get('version_NT', {}),
-                'version_NF': article.get('version_NF', {}),
-                'version_ST': article.get('version_ST', {}),
-                'version_SF': article.get('version_SF', {}),
 
                 # Author
                 'author': article.get('author', ''),
@@ -120,9 +266,6 @@ class DynamoDBClient:
                 'images': article.get('images', []),
                 'images_caption': article.get('images_caption', []),
 
-                # Content blocks (preserves image positions)
-                'content_blocks': article.get('content_blocks', []),
-
                 # Related news
                 'related_news': article.get('related_news', []),
 
@@ -138,6 +281,32 @@ class DynamoDBClient:
                 'transformed_at': article.get('transformed_at', datetime.utcnow().isoformat()),
                 'content_hash': content_hash,
             }
+
+            # Store body in S3 if client is configured
+            if self._s3_article_client:
+                from clients.s3_article_client import S3ArticleClient
+
+                body_data = S3ArticleClient.extract_body_fields(article)
+                if body_data:
+                    s3_uri = self._s3_article_client.put_body(news_id, body_data)
+                    item['s3_body_uri'] = s3_uri
+                    logger.info(f"Article {news_id} body stored in S3: {s3_uri}")
+            else:
+                # Legacy mode: store body fields directly in DynamoDB
+                item['content_ko'] = content_ko
+                item['content_raw'] = article.get('content_raw', '')
+                item['content_blocks'] = article.get('content_blocks', [])
+                item['version_NT'] = article.get('version_NT', {})
+                item['version_NF'] = article.get('version_NF', {})
+                item['version_ST'] = article.get('version_ST', {})
+                item['version_SF'] = article.get('version_SF', {})
+
+            # Copy through any extra fields not explicitly handled above
+            # (e.g., collected_at, slug, etc.)
+            known_keys = set(item.keys()) | set(S3_BODY_FIELDS)
+            for k, v in article.items():
+                if k not in known_keys:
+                    item[k] = v
 
             # Remove None values (DynamoDB doesn't accept None)
             item = {k: v for k, v in item.items() if v is not None}
@@ -163,8 +332,8 @@ class DynamoDBClient:
     
     async def article_exists(self, news_id: str) -> bool:
         """Check if article already exists in DynamoDB"""
-        article = await self.get_article(news_id)
-        return article is not None
+        metadata = await self.get_article_metadata(news_id)
+        return metadata is not None
     
     async def batch_check_exists(self, news_ids: list) -> set:
         """Check which articles exist in DynamoDB (batch operation)"""

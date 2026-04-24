@@ -123,6 +123,19 @@ CATEGORY_NORMALIZATION_MAP = {
     '국제,정치·사회': '국제',
     '국제,산업·기업': '국제',
     '국제,국제일반': '국제',
+
+    # Signal,Deal — capital markets coverage (corporate finance) → 경제
+    'Signal': '경제',
+    'Signal,Deal': '경제',
+    'Signal,Deal,DCM': '경제',
+    'Signal,Deal,ECM': '경제',
+    'Signal,Deal,M&A': '경제',
+
+    # 오피니언 — editorials and columns → 사회 (most discuss social/political topics)
+    '오피니언': '사회',
+    '오피니언,사설,사설': '사회',
+    '오피니언,사내칼럼,사내칼럼': '사회',
+    '오피니언,사외칼럼,사외칼럼': '사회',
 }
 
 
@@ -166,6 +179,8 @@ def normalize_category(raw_category: str) -> str:
         '증권': '경제',
         '부동산': '경제',
         '지역': '사회',
+        'Signal': '경제',  # Capital markets coverage
+        '오피니언': '사회',  # Editorials and columns
     }
 
     if first_part in top_level_map:
