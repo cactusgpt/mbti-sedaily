@@ -227,18 +227,33 @@
 
 ### TASK-2.5: v1 → v2 데이터 백필 스크립트 (일회성)
 - **종속성**: TASK-2.4
-- **Files to create**:
-  - `backend/v2/tools/backfill_from_v1.py`
-- **로직**:
-  1. v1 DynamoDB `sedaily-mbti-articles-dev`에서 최근 30일 기사 스캔
-  2. 이미 변환된 4 버전은 그대로 이전 (S3 body + pgvector rows)
-  3. 임베딩은 새로 생성 (Titan V2)
-  4. `status='transformed'` 마킹
+- **Files created**:
+  - `backend/v2/tools/__init__.py`
+  - `backend/v2/tools/backfill_from_v1.py` *(~330 lines)*
+  - `backend/v2/tests/test_backfill_from_v1.py` *(12 unit tests — extract_versions edge cases, S3 URI resolution, backfill_one dry-run + apply + metadata flag)*
+- **Files modified**:
+  - `backend/v2/tests/conftest.py` — `+test_v2_2_5_` prefix
+- **로직** (매칭 spec 1:1):
+  1. v1 DynamoDB `sedaily-mbti-articles-dev`를 `published_at >= now()-N일` 필터로 paginated scan
+  2. 이미 v2에 있는 `news_id`는 배치 dedup 후 skip (`filter_existing_news_ids`)
+  3. v1 S3 body fetch (`s3_body_uri` or default `articles/{news_id}/body.json`)
+  4. body에서 `version_NT/NF/ST/SF` 추출, 누락 시 해당 article 스킵 (Core 2 신규 변환 경로로)
+  5. 원본 + 4 버전 각각 Titan V2로 재임베딩 (1024-dim)
+  6. v2 S3에 `original.json` + `version_{NT,NF,ST,SF}.json` 업로드
+  7. v2 pg에 `articles` row (status='raw'로 insert) → `article_versions` × 4 → `update_article_status` 'transformed'
+     (mid-row abort 시 schema CHECK 만족 유지용 2-step)
+- **Execution environment**: VPC 내부 필수 (pgvector SG가 `sg-0cddc39619b1d69d9` 만 허용). CloudShell/EC2 bastion/임시 SG rule 중 선택. 스크립트 docstring에 명시.
 - **Definition of Done**:
-  - [ ] `--dry-run` 옵션 지원
-  - [ ] `--limit N` 옵션 (테스트용 소량 이전)
-  - [ ] 진행률 표시 (tqdm)
-  - [ ] 실패한 기사 건너뛰고 계속 진행 (리포트 출력)
+  - [x] `--dry-run` 옵션 지원 (Bedrock/S3/pg write 전부 스킵)
+  - [x] `--limit N` 옵션 (테스트용 소량 이전; scan 중간에 early-exit)
+  - [x] 진행률 표시 (tqdm; `import` 실패 시 passthrough로 degrade)
+  - [x] 실패한 기사 건너뛰고 계속 진행 (per-article try/except + 최종 report)
+  - [x] Report 4종 집계: candidates / duplicates / missing versions / failed (with reasons)
+  - [x] AWS 계정 검증 + 대화형 confirm (`--skip-confirm`로 bypass)
+  - [x] `--since-days N` 옵션 (기본 30일)
+  - [x] 12 unit tests PASS (v2 전체 284 tests passing; 248 before TASK-2.5)
+- **Notes**:
+  - **Re-embed instead of reusing v1 OpenSearch vectors**: v1 stored Titan V2 vectors in OpenSearch, not DynamoDB. Reading OpenSearch requires the optional endpoint; re-embedding from body text is simpler + deterministic + matches what a fresh Core 1+2 run would produce. Titan V2 cost ≈ $0.00002/article — negligible vs operational simplicity.
 
 ---
 
@@ -408,10 +423,10 @@
 |---|---|---|---|---|
 | Phase 0 | 3 | 3 | 0 | 0 |
 | Phase 1 | 4 | 4 | 0 | 0 |
-| Phase 2 | 5 | 4 | 0 | 1 |
+| Phase 2 | 5 | 5 | 0 | 0 |
 | Phase 3 | 5 | 0 | 0 | 5 |
 | Phase 4 | 6 | 0 | 0 | 6 |
 | Phase 5 | 8 | 0 | 0 | 8 |
-| **합계** | **31** | **11** | **0** | **20** |
+| **합계** | **31** | **12** | **0** | **19** |
 
 세션 시작 시 이 표 업데이트할 것.
