@@ -43,9 +43,9 @@ def test_schema_has_pgcrypto_extension() -> None:
 
 @pytest.mark.parametrize(
     "table",
-    ["articles", "article_versions", "user_profiles", "user_interactions"],
+    ["articles", "article_versions", "user_profiles", "user_interactions", "article_selections"],
 )
-def test_schema_has_four_tables(table: str) -> None:
+def test_schema_has_five_tables(table: str) -> None:
     sql = load_schema()
     assert f"CREATE TABLE IF NOT EXISTS {table}" in sql
 
@@ -111,10 +111,10 @@ def test_parse_statements_ignores_empty_fragments() -> None:
 
 
 def test_real_schema_parses_into_expected_count() -> None:
-    # 2 extensions + 4 CREATE TABLE + 8 indexes = 14
-    # (articles: 3, article_versions: 2, user_profiles: 1, user_interactions: 2)
+    # 2 extensions + 5 CREATE TABLE + 11 indexes = 18
+    # (articles: 3, article_versions: 2, user_profiles: 1, user_interactions: 2, article_selections: 3)
     stmts = parse_statements(load_schema())
-    assert len(stmts) == 14, f"expected 14 statements, got {len(stmts)}"
+    assert len(stmts) == 18, f"expected 18 statements, got {len(stmts)}"
 
 
 # ── validate_env ──────────────────────────────────────────────────────────────
@@ -240,7 +240,8 @@ def test_main_dry_run_prints_schema(capsys: pytest.CaptureFixture[str]) -> None:
     assert exit_code == 0
     assert "[DRY RUN]" in captured.out
     assert "CREATE TABLE IF NOT EXISTS articles" in captured.out
-    assert "14 statement" in captured.out  # count message
+    assert "14 statement" not in captured.out
+    assert "18 statement" in captured.out
 
 
 def test_main_dry_run_does_not_require_env(
@@ -267,4 +268,5 @@ def test_expected_tables_constant_matches_documented_set() -> None:
         "article_versions",
         "user_profiles",
         "user_interactions",
+        "article_selections",
     }

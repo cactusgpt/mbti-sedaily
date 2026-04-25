@@ -50,6 +50,7 @@ EXPECTED_TABLES = {
     "article_versions",
     "user_profiles",
     "user_interactions",
+    "article_selections",
 }
 
 

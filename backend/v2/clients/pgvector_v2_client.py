@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
@@ -803,4 +803,247 @@ class PgVectorV2Client:
             ]
         except Exception as exc:
             logger.warning(f"find_feed_candidates({user_mbti!r}) failed: {exc}")
+            return []
+
+    # =========================================================================
+    # article_selections (Phase 2.5 — Selection + Minimal Feed)
+    # =========================================================================
+
+    def upsert_selection_score(
+        self,
+        news_id: str,
+        mbti_type: str,
+        selection_date: date,
+        mbti_score: float,
+        composite_score: float,
+        quality_score: Optional[float] = None,
+    ) -> None:
+        """Insert or update one per-MBTI score row for a candidate article.
+
+        On re-run within the same day the three score columns and scored_at
+        are overwritten; selected and transformed_at are preserved so an
+        article that has already been transformed stays transformed when
+        its scores refresh. Accepts full MBTI (INTJ) or 2-char group (NT).
+        """
+        group = _normalize_mbti_group(mbti_type)
+        if not self._enabled:
+            return
+        try:
+            self.conn.run(
+                """
+                INSERT INTO article_selections
+                    (news_id, mbti_type, selection_date,
+                     mbti_score, quality_score, composite_score)
+                VALUES
+                    (:news_id, :mbti_type, :selection_date,
+                     :mbti_score, :quality_score, :composite_score)
+                ON CONFLICT (news_id, mbti_type, selection_date)
+                DO UPDATE SET
+                    mbti_score      = EXCLUDED.mbti_score,
+                    quality_score   = EXCLUDED.quality_score,
+                    composite_score = EXCLUDED.composite_score,
+                    scored_at       = now()
+                """,
+                news_id=news_id,
+                mbti_type=group,
+                selection_date=selection_date,
+                mbti_score=float(mbti_score),
+                quality_score=(
+                    float(quality_score) if quality_score is not None else None
+                ),
+                composite_score=float(composite_score),
+            )
+        except Exception as exc:
+            logger.warning(
+                f"upsert_selection_score({news_id!r},{group},{selection_date}) "
+                f"failed: {exc}"
+            )
+
+    def rerank_selections(
+        self,
+        selection_date: date,
+        mbti_type: str,
+        top_n: int = 20,
+    ) -> int:
+        """Re-rank (date, mbti) partition; flag top N selected, rest not.
+
+        Single SQL statement (CTE + UPDATE with RETURNING) so no transient
+        partial-flag state is visible. transformed_at is preserved across
+        selected flips — re-entering top N on a later same-day run skips
+        re-transform. Returns count left with selected=TRUE.
+        """
+        group = _normalize_mbti_group(mbti_type)
+        if not self._enabled:
+            return 0
+        try:
+            rows = self.conn.run(
+                """
+                WITH ranked AS (
+                    SELECT id,
+                           ROW_NUMBER() OVER (
+                               ORDER BY composite_score DESC, scored_at ASC
+                           ) AS rn
+                    FROM article_selections
+                    WHERE selection_date = :d AND mbti_type = :g
+                )
+                UPDATE article_selections s
+                   SET selected = (r.rn <= :n)
+                  FROM ranked r
+                 WHERE s.id = r.id
+             RETURNING s.selected
+                """,
+                d=selection_date,
+                g=group,
+                n=int(top_n),
+            )
+            return sum(1 for r in rows if r[0])
+        except Exception as exc:
+            logger.warning(
+                f"rerank_selections({selection_date},{group},top_n={top_n}) "
+                f"failed: {exc}"
+            )
+            return 0
+
+    def get_transform_queue(
+        self,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Return selected rows still awaiting transform, oldest-scored first.
+
+        JOIN articles for title/category/published_at/metadata so the
+        Transform worker gets everything in one round-trip. FIFO by
+        scored_at ASC; partial index idx_selections_transform_queue
+        keeps the scan at O(pending).
+        """
+        if not self._enabled:
+            return []
+        try:
+            rows = self.conn.run(
+                """
+                SELECT s.id, s.news_id, s.mbti_type, s.selection_date,
+                       s.composite_score, s.scored_at,
+                       a.title, a.category, a.published_at, a.metadata
+                FROM article_selections s
+                JOIN articles a ON a.news_id = s.news_id
+                WHERE s.selected = TRUE AND s.transformed_at IS NULL
+                ORDER BY s.scored_at ASC
+                LIMIT :n
+                """,
+                n=int(limit),
+            )
+            return [
+                {
+                    "selection_id": r[0],
+                    "news_id": r[1],
+                    "mbti_type": r[2],
+                    "selection_date": r[3],
+                    "composite_score": float(r[4]),
+                    "scored_at": r[5],
+                    "title": r[6],
+                    "category": r[7],
+                    "published_at": r[8],
+                    "article_metadata": r[9],
+                }
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.warning(f"get_transform_queue(limit={limit}) failed: {exc}")
+            return []
+
+    def mark_transformed(
+        self,
+        news_id: str,
+        mbti_type: str,
+        selection_date: date,
+    ) -> None:
+        """Stamp transformed_at = now() on one selection row.
+
+        Silent no-op if the row doesn't exist (race insurance against
+        re-rank between polling and completion). Errors go to logger.error
+        with exc_info because a missed stamp leaks a phantom pending row
+        forever — stricter than other warning-only swallows.
+        """
+        group = _normalize_mbti_group(mbti_type)
+        if not self._enabled:
+            return
+        try:
+            self.conn.run(
+                """
+                UPDATE article_selections
+                   SET transformed_at = now()
+                 WHERE news_id = :nid
+                   AND mbti_type = :g
+                   AND selection_date = :d
+                """,
+                nid=news_id,
+                g=group,
+                d=selection_date,
+            )
+        except Exception as exc:
+            logger.error(
+                f"mark_transformed({news_id!r},{group},{selection_date}) "
+                f"failed: {exc}",
+                exc_info=True,
+            )
+
+    def get_feed(
+        self,
+        mbti_type: str,
+        limit: int = 20,
+        since_date: Optional[date] = None,
+    ) -> List[Dict[str, Any]]:
+        """Return the feed payload for one MBTI group.
+
+        JOIN article_selections + articles + article_versions, filtered to
+        selected + transformed within since_date window (default: today
+        KST minus 7 days). ORDER BY selection_date DESC, composite_score
+        DESC. Empty list on error or when disabled.
+        """
+        group = _normalize_mbti_group(mbti_type)
+        if not self._enabled:
+            return []
+        if since_date is None:
+            kst = timezone(timedelta(hours=9))
+            since_date = datetime.now(kst).date() - timedelta(days=7)
+        try:
+            rows = self.conn.run(
+                """
+                SELECT s.news_id, s.mbti_type, s.selection_date,
+                       s.composite_score, s.transformed_at,
+                       a.category, a.published_at, a.metadata,
+                       av.title, av.body, av.metadata
+                FROM article_selections s
+                JOIN articles a ON a.news_id = s.news_id
+                JOIN article_versions av
+                     ON av.news_id = s.news_id
+                    AND av.mbti_type = s.mbti_type
+                WHERE s.selected = TRUE
+                  AND s.transformed_at IS NOT NULL
+                  AND s.mbti_type = :g
+                  AND s.selection_date >= :cutoff
+                ORDER BY s.selection_date DESC, s.composite_score DESC
+                LIMIT :n
+                """,
+                g=group,
+                cutoff=since_date,
+                n=int(limit),
+            )
+            return [
+                {
+                    "news_id": r[0],
+                    "mbti_type": r[1],
+                    "selection_date": r[2],
+                    "composite_score": float(r[3]),
+                    "transformed_at": r[4],
+                    "category": r[5],
+                    "published_at": r[6],
+                    "article_metadata": r[7],
+                    "version_title": r[8],
+                    "version_body": r[9],
+                    "version_metadata": r[10],
+                }
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.warning(f"get_feed({group},limit={limit}) failed: {exc}")
             return []

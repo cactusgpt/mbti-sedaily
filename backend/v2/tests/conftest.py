@@ -32,6 +32,7 @@ _TEST_PREFIXES: tuple[str, ...] = (
     "test_v2_2_3_",  # test_core2_transform.py, test_transform_v2_service.py — TASK-2.3
     "test_v2_2_4_",  # test_validator.py — TASK-2.4
     "test_v2_2_5_",  # test_backfill_from_v1.py — TASK-2.5
+    "test_v2_2_6_",  # test_pgvector_v2_client.py article_selections methods — TASK-2.6
 )
 
 
@@ -85,6 +86,7 @@ def _cleanup_test_prefixes():
                 for sql in (
                     f"DELETE FROM user_interactions WHERE news_id LIKE '{prefix}%'",
                     f"DELETE FROM user_profiles WHERE user_id LIKE '{prefix}%'",
+                    f"DELETE FROM article_selections WHERE news_id LIKE '{prefix}%'",
                     f"DELETE FROM article_versions WHERE news_id LIKE '{prefix}%'",
                     f"DELETE FROM articles WHERE news_id LIKE '{prefix}%'",
                 ):

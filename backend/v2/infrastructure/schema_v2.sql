@@ -117,3 +117,35 @@ CREATE INDEX IF NOT EXISTS idx_user_interactions_user_created
     ON user_interactions (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_interactions_news_created
     ON user_interactions (news_id, created_at DESC);
+
+-- 6. article_selections -----------------------------------------------------
+-- Phase 2.5 Selection layer. Selector Lambda writes per-MBTI scores per
+-- article per day; Transform Lambda polls selected=TRUE rows; Feed API
+-- serves selected=TRUE AND transformed_at IS NOT NULL rows.
+--
+-- A single article can be selected for multiple MBTI groups on the same
+-- day (different rows, one per (news_id, mbti_type, selection_date)).
+-- Multi-run merge-and-rerank within a day uses ON CONFLICT UPSERT on the
+-- UNIQUE constraint, then rerank_selections flips the selected flag.
+CREATE TABLE IF NOT EXISTS article_selections (
+    id                  UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    news_id             TEXT          NOT NULL REFERENCES articles(news_id) ON DELETE CASCADE,
+    mbti_type           CHAR(2)       NOT NULL CHECK (mbti_type IN ('NT','NF','ST','SF')),
+    selection_date      DATE          NOT NULL,
+    mbti_score          REAL          NOT NULL CHECK (mbti_score BETWEEN 0 AND 10),
+    quality_score       REAL          CHECK (quality_score IS NULL OR quality_score BETWEEN 0 AND 10),
+    composite_score     REAL          NOT NULL,
+    selected            BOOLEAN       NOT NULL DEFAULT FALSE,
+    scored_at           TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    transformed_at      TIMESTAMPTZ,
+    UNIQUE (news_id, mbti_type, selection_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_selections_ranking
+    ON article_selections (selection_date, mbti_type, composite_score DESC);
+CREATE INDEX IF NOT EXISTS idx_selections_transform_queue
+    ON article_selections (scored_at)
+    WHERE selected = TRUE AND transformed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_selections_feed
+    ON article_selections (mbti_type, selection_date DESC, composite_score DESC)
+    WHERE selected = TRUE AND transformed_at IS NOT NULL;

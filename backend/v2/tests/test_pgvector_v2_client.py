@@ -1321,3 +1321,475 @@ def test_perf_find_feed_candidates_p95(
             f"(ceiling {_PERF_P95_LOCAL_CEILING_S * 1000:.0f}ms, "
             f"baseline ~800ms)"
         )
+
+
+# =============================================================================
+# article_selections (TASK-2.6) — unit tests
+# =============================================================================
+
+IT_PREFIX_2_6 = "test_v2_2_6_it_"
+
+
+def test_disabled_upsert_selection_score_noop() -> None:
+    c = PgVectorV2Client(password="")
+    c.upsert_selection_score(
+        "n", "NT", date(2026, 4, 25), mbti_score=8.0, composite_score=7.5
+    )  # must not raise
+
+
+def test_disabled_rerank_selections_returns_zero() -> None:
+    c = PgVectorV2Client(password="")
+    assert c.rerank_selections(date(2026, 4, 25), "NT", top_n=20) == 0
+
+
+def test_disabled_get_transform_queue_returns_empty() -> None:
+    c = PgVectorV2Client(password="")
+    assert c.get_transform_queue() == []
+
+
+def test_disabled_mark_transformed_noop() -> None:
+    c = PgVectorV2Client(password="")
+    c.mark_transformed("n", "NT", date(2026, 4, 25))  # must not raise
+
+
+def test_disabled_get_feed_returns_empty() -> None:
+    c = PgVectorV2Client(password="")
+    assert c.get_feed("NT") == []
+
+
+# ── upsert_selection_score ───────────────────────────────────────────────────
+
+
+def test_upsert_selection_score_binds_params_and_normalizes_group() -> None:
+    c = _enabled()
+    c.upsert_selection_score(
+        "n1", "NT", date(2026, 4, 25),
+        mbti_score=8.2, composite_score=7.8, quality_score=7.0,
+    )
+    c._conn.run.assert_called_once()
+    sql = c._conn.run.call_args.args[0]
+    kwargs = c._conn.run.call_args.kwargs
+    assert "INSERT INTO article_selections" in sql
+    assert "ON CONFLICT (news_id, mbti_type, selection_date)" in sql
+    assert "scored_at       = now()" in sql
+    assert "selected" not in sql.split("DO UPDATE SET")[1]
+    assert "transformed_at" not in sql.split("DO UPDATE SET")[1]
+    assert kwargs == {
+        "news_id": "n1",
+        "mbti_type": "NT",
+        "selection_date": date(2026, 4, 25),
+        "mbti_score": 8.2,
+        "quality_score": 7.0,
+        "composite_score": 7.8,
+    }
+
+
+def test_upsert_selection_score_accepts_full_mbti() -> None:
+    c = _enabled()
+    c.upsert_selection_score(
+        "n1", "INTJ", date(2026, 4, 25),
+        mbti_score=8.0, composite_score=7.5,
+    )
+    kwargs = c._conn.run.call_args.kwargs
+    assert kwargs["mbti_type"] == "NT"
+
+
+def test_upsert_selection_score_allows_null_quality() -> None:
+    c = _enabled()
+    c.upsert_selection_score(
+        "n1", "NF", date(2026, 4, 25),
+        mbti_score=5.0, composite_score=5.0, quality_score=None,
+    )
+    kwargs = c._conn.run.call_args.kwargs
+    assert kwargs["quality_score"] is None
+
+
+def test_upsert_selection_score_swallows_exception() -> None:
+    c = _enabled()
+    c._conn.run.side_effect = RuntimeError("db down")
+    c.upsert_selection_score(
+        "n1", "NT", date(2026, 4, 25),
+        mbti_score=8.0, composite_score=7.5,
+    )  # must not raise
+
+
+# ── rerank_selections ────────────────────────────────────────────────────────
+
+
+def test_rerank_selections_binds_params_and_uses_row_number() -> None:
+    c = _enabled()
+    c._conn.run.return_value = []
+    result = c.rerank_selections(date(2026, 4, 25), "NT", top_n=20)
+    sql = c._conn.run.call_args.args[0]
+    kwargs = c._conn.run.call_args.kwargs
+    assert "WITH ranked AS" in sql
+    assert "ROW_NUMBER() OVER" in sql
+    assert "composite_score DESC" in sql
+    assert "scored_at ASC" in sql
+    assert "UPDATE article_selections s" in sql
+    assert "r.rn <= :n" in sql
+    assert kwargs == {"d": date(2026, 4, 25), "g": "NT", "n": 20}
+    assert result == 0
+
+
+def test_rerank_selections_counts_selected_from_returning() -> None:
+    c = _enabled()
+    c._conn.run.return_value = [(True,), (True,), (True,), (False,), (False,)]
+    assert c.rerank_selections(date(2026, 4, 25), "NT", top_n=3) == 3
+
+
+def test_rerank_selections_normalizes_mbti() -> None:
+    c = _enabled()
+    c._conn.run.return_value = []
+    c.rerank_selections(date(2026, 4, 25), "ESFP", top_n=20)
+    assert c._conn.run.call_args.kwargs["g"] == "SF"
+
+
+def test_rerank_selections_swallows_exception() -> None:
+    c = _enabled()
+    c._conn.run.side_effect = RuntimeError("db down")
+    assert c.rerank_selections(date(2026, 4, 25), "NT", top_n=20) == 0
+
+
+# ── get_transform_queue ──────────────────────────────────────────────────────
+
+
+def test_get_transform_queue_binds_params_and_filters_correctly() -> None:
+    c = _enabled()
+    c._conn.run.return_value = []
+    c.get_transform_queue(limit=15)
+    sql = c._conn.run.call_args.args[0]
+    assert "WHERE s.selected = TRUE AND s.transformed_at IS NULL" in sql
+    assert "ORDER BY s.scored_at ASC" in sql
+    assert "JOIN articles a ON a.news_id = s.news_id" in sql
+    assert c._conn.run.call_args.kwargs == {"n": 15}
+
+
+def test_get_transform_queue_parses_row_shape() -> None:
+    c = _enabled()
+    sel_id = uuid.uuid4()
+    sel_date = date(2026, 4, 25)
+    scored_at = datetime(2026, 4, 25, 10, 0, tzinfo=timezone.utc)
+    pub_at = datetime(2026, 4, 25, 9, 0, tzinfo=timezone.utc)
+    c._conn.run.return_value = [
+        (sel_id, "n1", "NT", sel_date, 7.8, scored_at,
+         "제목", "경제", pub_at, {"reporter": "lee"}),
+    ]
+    result = c.get_transform_queue(limit=20)
+    assert len(result) == 1
+    row = result[0]
+    assert row["selection_id"] == sel_id
+    assert row["news_id"] == "n1"
+    assert row["mbti_type"] == "NT"
+    assert row["selection_date"] == sel_date
+    assert row["composite_score"] == 7.8
+    assert row["scored_at"] == scored_at
+    assert row["title"] == "제목"
+    assert row["category"] == "경제"
+    assert row["published_at"] == pub_at
+    assert row["article_metadata"] == {"reporter": "lee"}
+
+
+def test_get_transform_queue_swallows_exception() -> None:
+    c = _enabled()
+    c._conn.run.side_effect = RuntimeError("db down")
+    assert c.get_transform_queue() == []
+
+
+# ── mark_transformed ─────────────────────────────────────────────────────────
+
+
+def test_mark_transformed_binds_params_and_normalizes() -> None:
+    c = _enabled()
+    c.mark_transformed("n1", "INFP", date(2026, 4, 25))
+    sql = c._conn.run.call_args.args[0]
+    kwargs = c._conn.run.call_args.kwargs
+    assert "UPDATE article_selections" in sql
+    assert "SET transformed_at = now()" in sql
+    assert kwargs == {"nid": "n1", "g": "NF", "d": date(2026, 4, 25)}
+
+
+def test_mark_transformed_swallows_exception() -> None:
+    c = _enabled()
+    c._conn.run.side_effect = RuntimeError("db down")
+    c.mark_transformed("n1", "NT", date(2026, 4, 25))  # must not raise
+
+
+# ── get_feed ─────────────────────────────────────────────────────────────────
+
+
+def test_get_feed_default_cutoff_is_7_days_kst() -> None:
+    c = _enabled()
+    c._conn.run.return_value = []
+    before = datetime.now(timezone(timedelta(hours=9))).date() - timedelta(days=7)
+    c.get_feed("NT", limit=20)
+    after = datetime.now(timezone(timedelta(hours=9))).date() - timedelta(days=7)
+    cutoff = c._conn.run.call_args.kwargs["cutoff"]
+    assert before <= cutoff <= after
+
+
+def test_get_feed_respects_explicit_since_date() -> None:
+    c = _enabled()
+    c._conn.run.return_value = []
+    custom = date(2026, 3, 1)
+    c.get_feed("NT", limit=20, since_date=custom)
+    assert c._conn.run.call_args.kwargs["cutoff"] == custom
+
+
+def test_get_feed_binds_params_and_joins_versions() -> None:
+    c = _enabled()
+    c._conn.run.return_value = []
+    c.get_feed("ESFP", limit=10, since_date=date(2026, 4, 18))
+    sql = c._conn.run.call_args.args[0]
+    kwargs = c._conn.run.call_args.kwargs
+    assert "JOIN article_versions av" in sql
+    assert "WHERE s.selected = TRUE" in sql
+    assert "AND s.transformed_at IS NOT NULL" in sql
+    assert "ORDER BY s.selection_date DESC, s.composite_score DESC" in sql
+    assert kwargs == {"g": "SF", "cutoff": date(2026, 4, 18), "n": 10}
+
+
+def test_get_feed_parses_row_shape() -> None:
+    c = _enabled()
+    sel_date = date(2026, 4, 25)
+    xformed_at = datetime(2026, 4, 25, 11, 0, tzinfo=timezone.utc)
+    pub_at = datetime(2026, 4, 25, 9, 0, tzinfo=timezone.utc)
+    c._conn.run.return_value = [
+        ("n1", "NT", sel_date, 8.1, xformed_at,
+         "경제", pub_at, {"source": "xml"},
+         "NT 제목", "NT 본문", {"prompt_version": "v1"}),
+    ]
+    result = c.get_feed("NT", limit=10)
+    assert len(result) == 1
+    row = result[0]
+    assert row["news_id"] == "n1"
+    assert row["mbti_type"] == "NT"
+    assert row["composite_score"] == 8.1
+    assert row["version_title"] == "NT 제목"
+    assert row["version_body"] == "NT 본문"
+    assert row["version_metadata"] == {"prompt_version": "v1"}
+
+
+def test_get_feed_swallows_exception() -> None:
+    c = _enabled()
+    c._conn.run.side_effect = RuntimeError("db down")
+    assert c.get_feed("NT") == []
+
+
+# =============================================================================
+# article_selections (TASK-2.6) — integration tests
+# =============================================================================
+
+
+def _seed_article(client: PgVectorV2Client, news_id: str, *, status: str = "raw") -> None:
+    """Insert a minimal article row for selection FK reference."""
+    client.insert_article(
+        news_id, {"title": f"T-{news_id}", "category": "경제"}, _embedding()
+    )
+    if status != "raw":
+        client.update_article_status(news_id, status)
+
+
+def _seed_version(
+    client: PgVectorV2Client, news_id: str, mbti: str
+) -> None:
+    """Insert a minimal article_versions row so get_feed JOIN returns it."""
+    client.insert_article_version(
+        news_id, mbti,
+        {"title": f"{mbti} 제목 {news_id}", "body": f"{mbti} 본문"},
+        _embedding(0.2),
+    )
+
+
+@pytest.mark.integration
+def test_integration_upsert_selection_score_roundtrip(pg_client: PgVectorV2Client) -> None:
+    nid = f"{IT_PREFIX_2_6}rt1"
+    _seed_article(pg_client, nid)
+    sel_date = date(2026, 4, 25)
+    pg_client.upsert_selection_score(
+        nid, "NT", sel_date,
+        mbti_score=8.0, composite_score=7.5, quality_score=7.0,
+    )
+    rows = pg_client.conn.run(
+        "SELECT news_id, mbti_type, selection_date, mbti_score, "
+        "quality_score, composite_score, selected, transformed_at "
+        "FROM article_selections WHERE news_id = :n",
+        n=nid,
+    )
+    assert len(rows) == 1
+    r = rows[0]
+    assert r[0] == nid
+    assert r[1] == "NT"
+    assert r[2] == sel_date
+    assert float(r[3]) == 8.0
+    assert float(r[4]) == 7.0
+    assert float(r[5]) == 7.5
+    assert r[6] is False
+    assert r[7] is None
+
+
+@pytest.mark.integration
+def test_integration_upsert_selection_score_updates_scores_on_conflict(
+    pg_client: PgVectorV2Client,
+) -> None:
+    nid = f"{IT_PREFIX_2_6}upd"
+    _seed_article(pg_client, nid)
+    sel_date = date(2026, 4, 25)
+    pg_client.upsert_selection_score(
+        nid, "NT", sel_date, mbti_score=5.0, composite_score=5.0,
+    )
+    pg_client.conn.run(
+        "UPDATE article_selections SET selected = TRUE, transformed_at = now() "
+        "WHERE news_id = :n", n=nid,
+    )
+    pg_client.upsert_selection_score(
+        nid, "NT", sel_date,
+        mbti_score=9.0, composite_score=8.5, quality_score=8.0,
+    )
+    rows = pg_client.conn.run(
+        "SELECT mbti_score, composite_score, quality_score, selected, "
+        "transformed_at IS NOT NULL "
+        "FROM article_selections WHERE news_id = :n", n=nid,
+    )
+    r = rows[0]
+    assert float(r[0]) == 9.0
+    assert float(r[1]) == 8.5
+    assert float(r[2]) == 8.0
+    assert r[3] is True
+    assert r[4] is True
+
+
+@pytest.mark.integration
+def test_integration_rerank_selections_flags_top_n(pg_client: PgVectorV2Client) -> None:
+    sel_date = date(2026, 4, 25)
+    for i in range(5):
+        nid = f"{IT_PREFIX_2_6}rk{i}"
+        _seed_article(pg_client, nid)
+        pg_client.upsert_selection_score(
+            nid, "NT", sel_date,
+            mbti_score=10.0 - i, composite_score=10.0 - i,
+        )
+    count = pg_client.rerank_selections(sel_date, "NT", top_n=3)
+    assert count == 3
+    rows = pg_client.conn.run(
+        "SELECT news_id, selected FROM article_selections "
+        "WHERE news_id LIKE :p ORDER BY composite_score DESC",
+        p=f"{IT_PREFIX_2_6}rk%",
+    )
+    flags = [r[1] for r in rows]
+    assert flags == [True, True, True, False, False]
+
+
+@pytest.mark.integration
+def test_integration_rerank_preserves_transformed_at(pg_client: PgVectorV2Client) -> None:
+    """Flipping selected TRUE -> FALSE must NOT clear transformed_at.
+
+    Race insurance: an article re-entering selection on a later same-day
+    run must skip re-transform.
+    """
+    sel_date = date(2026, 4, 25)
+    winner = f"{IT_PREFIX_2_6}win"
+    loser = f"{IT_PREFIX_2_6}lose"
+    for nid, score in ((winner, 9.0), (loser, 1.0)):
+        _seed_article(pg_client, nid)
+        pg_client.upsert_selection_score(
+            nid, "NT", sel_date, mbti_score=score, composite_score=score,
+        )
+    pg_client.rerank_selections(sel_date, "NT", top_n=2)
+    pg_client.mark_transformed(loser, "NT", sel_date)
+    pg_client.rerank_selections(sel_date, "NT", top_n=1)
+    rows = pg_client.conn.run(
+        "SELECT news_id, selected, transformed_at IS NOT NULL "
+        "FROM article_selections WHERE news_id LIKE :p ORDER BY news_id",
+        p=f"{IT_PREFIX_2_6}%",
+    )
+    by_id = {r[0]: (r[1], r[2]) for r in rows}
+    assert by_id[winner] == (True, False)
+    assert by_id[loser] == (False, True)
+
+
+@pytest.mark.integration
+def test_integration_get_transform_queue_fifo_and_filters(
+    pg_client: PgVectorV2Client,
+) -> None:
+    sel_date = date(2026, 4, 25)
+    ids = [f"{IT_PREFIX_2_6}q{i}" for i in range(4)]
+    for nid in ids:
+        _seed_article(pg_client, nid)
+    for i, nid in enumerate(ids):
+        pg_client.upsert_selection_score(
+            nid, "NT", sel_date,
+            mbti_score=9.0 - i, composite_score=9.0 - i,
+        )
+    pg_client.rerank_selections(sel_date, "NT", top_n=10)
+    pg_client.mark_transformed(ids[3], "NT", sel_date)
+    queue = pg_client.get_transform_queue(limit=10)
+    queue_ids = [q["news_id"] for q in queue if q["news_id"].startswith(IT_PREFIX_2_6)]
+    assert queue_ids == ids[:3]
+
+
+@pytest.mark.integration
+def test_integration_mark_transformed_idempotent(pg_client: PgVectorV2Client) -> None:
+    nid = f"{IT_PREFIX_2_6}mt"
+    sel_date = date(2026, 4, 25)
+    _seed_article(pg_client, nid)
+    pg_client.upsert_selection_score(
+        nid, "NT", sel_date, mbti_score=8.0, composite_score=8.0,
+    )
+    pg_client.rerank_selections(sel_date, "NT", top_n=5)
+    pg_client.mark_transformed(nid, "NT", sel_date)
+    pg_client.mark_transformed(nid, "NT", sel_date)
+    rows = pg_client.conn.run(
+        "SELECT transformed_at IS NOT NULL FROM article_selections "
+        "WHERE news_id = :n", n=nid,
+    )
+    assert rows[0][0] is True
+
+
+@pytest.mark.integration
+def test_integration_mark_transformed_nonexistent_row_is_silent(
+    pg_client: PgVectorV2Client,
+) -> None:
+    pg_client.mark_transformed(
+        f"{IT_PREFIX_2_6}ghost", "NT", date(2026, 4, 25),
+    )
+
+
+@pytest.mark.integration
+def test_integration_get_feed_returns_only_selected_and_transformed(
+    pg_client: PgVectorV2Client,
+) -> None:
+    sel_date = date(2026, 4, 25)
+    a, b, c = (f"{IT_PREFIX_2_6}fd{x}" for x in "abc")
+    for nid in (a, b, c):
+        _seed_article(pg_client, nid)
+    pg_client.upsert_selection_score(a, "NT", sel_date, mbti_score=9.0, composite_score=9.0)
+    pg_client.upsert_selection_score(b, "NT", sel_date, mbti_score=8.0, composite_score=8.0)
+    pg_client.upsert_selection_score(c, "NT", sel_date, mbti_score=1.0, composite_score=1.0)
+    pg_client.rerank_selections(sel_date, "NT", top_n=2)
+    _seed_version(pg_client, a, "NT")
+    _seed_version(pg_client, c, "NT")
+    pg_client.mark_transformed(a, "NT", sel_date)
+    pg_client.mark_transformed(c, "NT", sel_date)
+    feed = pg_client.get_feed("NT", limit=10, since_date=sel_date)
+    feed_ids = [f["news_id"] for f in feed if f["news_id"].startswith(IT_PREFIX_2_6)]
+    assert feed_ids == [a]
+
+
+@pytest.mark.integration
+def test_integration_get_feed_respects_since_date(pg_client: PgVectorV2Client) -> None:
+    old_date = date(2026, 4, 10)
+    recent = date(2026, 4, 25)
+    old_id = f"{IT_PREFIX_2_6}old"
+    new_id = f"{IT_PREFIX_2_6}new"
+    for nid, d in ((old_id, old_date), (new_id, recent)):
+        _seed_article(pg_client, nid)
+        pg_client.upsert_selection_score(
+            nid, "NT", d, mbti_score=9.0, composite_score=9.0,
+        )
+        pg_client.rerank_selections(d, "NT", top_n=5)
+        _seed_version(pg_client, nid, "NT")
+        pg_client.mark_transformed(nid, "NT", d)
+    feed = pg_client.get_feed("NT", limit=10, since_date=date(2026, 4, 20))
+    feed_ids = [f["news_id"] for f in feed if f["news_id"].startswith(IT_PREFIX_2_6)]
+    assert feed_ids == [new_id]
