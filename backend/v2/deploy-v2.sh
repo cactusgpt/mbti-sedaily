@@ -15,6 +15,7 @@
 #   ./v2/deploy-v2.sh                  — all registered v2 functions
 #   ./v2/deploy-v2.sh api              — /api/v2/* handlers (health, ...)
 #   ./v2/deploy-v2.sh collector        — Core 1 (TASK-2.1+)
+#   ./v2/deploy-v2.sh selector         — Core 1.5 (TASK-4-B)
 #   ./v2/deploy-v2.sh transform        — Core 2 (TASK-2.3+)
 #   ./v2/deploy-v2.sh personalization  — Core 3 (TASK-3.4+)
 #   ./v2/deploy-v2.sh chat-agent       — defers to Docker/ECR path (Phase 4)
@@ -42,6 +43,9 @@ API_V2_FUNCTIONS=(
 CORE1_FUNCTIONS=(
   "sedaily-mbti-v2-collector-dev"  # TASK-2.1
 )
+CORE1_5_FUNCTIONS=(
+  "sedaily-mbti-v2-selector-dev"  # TASK-4-B
+)
 CORE2_FUNCTIONS=(
   "sedaily-mbti-v2-transform-dev"  # TASK-2.3
   # TASK-2.4 will add sedaily-mbti-v2-validator-dev
@@ -60,6 +64,9 @@ case "$DEPLOY_TARGET" in
   collector)
     FUNCTIONS=("${CORE1_FUNCTIONS[@]}")
     ;;
+  selector)
+    FUNCTIONS=("${CORE1_5_FUNCTIONS[@]}")
+    ;;
   transform)
     FUNCTIONS=("${CORE2_FUNCTIONS[@]}")
     ;;
@@ -75,13 +82,14 @@ case "$DEPLOY_TARGET" in
     FUNCTIONS=(
       "${API_V2_FUNCTIONS[@]}"
       "${CORE1_FUNCTIONS[@]}"
+      "${CORE1_5_FUNCTIONS[@]}"
       "${CORE2_FUNCTIONS[@]}"
       "${CORE3_FUNCTIONS[@]}"
     )
     ;;
   *)
     echo "Unknown target: $DEPLOY_TARGET"
-    echo "Use: all | api | collector | transform | personalization | chat-agent"
+    echo "Use: all | api | collector | selector | transform | personalization | chat-agent"
     exit 1
     ;;
 esac
