@@ -809,6 +809,82 @@ class PgVectorV2Client:
     # article_selections (Phase 2.5 — Selection + Minimal Feed)
     # =========================================================================
 
+    def find_unscored_articles(
+        self,
+        selection_date: date,
+        limit: int = 200,
+    ) -> List[Dict[str, Any]]:
+        """Return raw articles created on ``selection_date`` (KST) that have
+        NO scoring rows yet for any MBTI on that date.
+
+        Used by the Selector at the start of each run. Excludes:
+          * articles already scored on this date (any MBTI) — selection
+            is per-day, so once an article is scored today the Selector
+            never re-scores it (Q4 = (B), TASKS.md Phase 2.5).
+          * articles whose status has moved past raw (transformed/failed)
+            — those have been processed by Core 2 already.
+
+        Date filter
+        -----------
+        ``DATE(created_at AT TIME ZONE 'Asia/Seoul') = :sel_date``
+        materializes the KST calendar day at query time. Cheaper than a
+        separate kst_date column and uses no functional index — at the
+        target traffic (a few thousand raws/day) the seq scan is bounded
+        and fast.
+
+        Returns
+        -------
+        List of dicts identical to ``get_articles_by_status('raw')``
+        output shape, plus ``content_preview`` extracted from
+        ``metadata->>'content_preview'`` for direct use by the Selector
+        without a second JSONB hop. Articles whose metadata lacks
+        ``content_preview`` come back with an empty string — the
+        Selector handler must skip those (Q5 = (A), pre-TASK-4-A
+        backlog will be empty until the next collector cycle fills it).
+        """
+        if not self._enabled:
+            return []
+        try:
+            rows = self.conn.run(
+                """
+                SELECT a.news_id, a.status, a.title, a.category,
+                       a.published_at, a.metadata, a.created_at, a.updated_at,
+                       COALESCE(a.metadata->>'content_preview', '') AS preview
+                FROM articles a
+                WHERE a.status = 'raw'
+                  AND DATE(a.created_at AT TIME ZONE 'Asia/Seoul') = :sel_date
+                  AND NOT EXISTS (
+                      SELECT 1 FROM article_selections s
+                      WHERE s.news_id = a.news_id
+                        AND s.selection_date = :sel_date
+                  )
+                ORDER BY a.created_at ASC
+                LIMIT :lim
+                """,
+                sel_date=selection_date,
+                lim=int(limit),
+            )
+            return [
+                {
+                    "news_id": r[0],
+                    "status": r[1],
+                    "title": r[2],
+                    "category": r[3],
+                    "published_at": r[4],
+                    "metadata": r[5],
+                    "created_at": r[6],
+                    "updated_at": r[7],
+                    "content_preview": r[8],
+                }
+                for r in rows
+            ]
+        except Exception as exc:
+            logger.warning(
+                f"find_unscored_articles({selection_date},limit={limit}) "
+                f"failed: {exc}"
+            )
+            return []
+
     def upsert_selection_score(
         self,
         news_id: str,
