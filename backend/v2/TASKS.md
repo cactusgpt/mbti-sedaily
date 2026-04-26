@@ -181,7 +181,7 @@
   4. S3에 `version_{NT|NF|ST|SF}.json` 업로드 (4 parallel)
   5. `insert_article_version` × 4 (db_lock 직렬화 — pg8000 thread-unsafe)
   6. `update_article_status(news_id, 'transformed')`
-  7. 부분 실패 (<4 versions) 또는 예외 시 `status='failed'` (strict policy)
+  7. 부분 실패 (<4 versions) 또는 예외 시 `status='failed'` (strict policy) (TASK-5 commit 9b188c5에서 (article × MBTI) 단위로 분리 — partial Bedrock 성공은 더 이상 article-level 실패가 아님. 자세한 의미는 Phase 2.5 TASK-5 섹션 참조.)
   8. Wave 사이 `context.get_remaining_time_in_millis()` 체크, < `WAVE_DEADLINE_BUFFER_S` (90s) 시 나머지 articles 스킵 (status='raw' 유지, 다음 fire pickup)
 - **Definition of Done**:
   - [x] 함수명 `sedaily-mbti-v2-transform-dev` *(빈 Lambda 사용자 생성됨, Phase C에서 Handler=`v2.handlers.core2_transform.lambda_handler` / VPC `vpc-07a3a75110d6594aa` / Timeout=900s / Memory=1024MB / 7 env vars / Reserved concurrency=1 / IAM `+BedrockOpus46Invoke` 완료)*
@@ -363,6 +363,48 @@ Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이
   - **Lambda update race**: 첫 시도에서 `update-function-code` 직후 invoke가 옛 코드를 hit. `aws lambda wait function-updated`로 해결. v2 deploy 운영 패턴에 추가 필요.
   - **Inline IAM policy 검증**: Selector가 Bedrock Nova Lite invoke 성공 → Collector role의 inline policy에 `BedrockNovaLiteInvoke`(TASK-2.4 추가)가 존재. 별도 statement 추가 불필요.
   - **잔재 3 raw**: Step 6-B 첫 시도 (race) 시점에 옛 코드로 적재된 raw 3개는 `content_preview` 없음. 운영 무영향 (skip 대상). 다음 EventBridge fire에서 새 raw로 교체됨.
+
+### TASK-5: Transform이 article_selections.selected=TRUE 폴링 + per-MBTI 변환
+- **종속성**: TASK-4-C
+- **커밋**: `9b188c5`
+- **Files modified**:
+  - `backend/v2/clients/transform_v2_service.py` *(+115 lines, transform_article_for_groups 메서드 추가)*
+  - `backend/v2/handlers/core2_transform.py` *(~150 lines changed; lambda_handler / _run_with_deadline / _process_one_article 모두 article-group 단위로 재작성, _group_queue_by_article helper 추가, MBTI_GROUPS import 제거)*
+  - `backend/v2/tests/test_core2_transform.py` *(~70 lines changed; _install_client_mocks queue-row expand, 5 테스트 assertion 갱신, 1 테스트 함수명 변경)*
+- **로직** (TASK-2.3 → TASK-5 변경):
+  - **Polling source**: `articles.status='raw'` → `article_selections.selected=TRUE AND transformed_at IS NULL`
+  - **Grouping**: 같은 news_id의 selected MBTI rows를 하나의 Lambda task로 grouping. earliest scored_at으로 FIFO.
+  - **Transform 호출**: `transform_article` (4 MBTI 강제) → `transform_article_for_groups(groups=requested)` (1~4 MBTI subset). v1 transform_single_group을 직접 N번 parallel 호출. Opus prompt-cache hit 보존.
+  - **성공 처리**: `update_article_status('transformed')` 제거. 대신 변환된 각 (news_id, mbti, selection_date)에 `mark_transformed` 호출 → `transformed_at=now()` stamp.
+  - **실패 정책**:
+    - Partial (≥1 group 성공): `transform_partial_failure` 로그만, status 변경 X. 실패한 group의 selection row는 transformed_at=NULL 유지 → 다음 fire가 재시도.
+    - Full (모든 group 실패): `articles.status='failed'` (Q4=B로 v1 흐름 일부 보존).
+- **결정 사항** (사용자 답변):
+  - Q1=B: article 단위 grouping + selected MBTI subset만 변환
+  - Q2=A: articles.status='transformed' 흐름 deprecate (truth-source는 article_selections.transformed_at)
+  - Q3=A+C: 옛 raw backlog 무시, 데모 후 cleanup (TASK-4-Z)
+  - Q4=B: 'failed'는 articles.status로 유지, 'transformed'만 deprecate
+- **Live verification (2026-04-26 19:27 KST)**:
+  - deploy-v2.sh transform → CodeSha256=0rs/2YD1... 갱신됨
+  - In-flight OLD invocation + Reserved concurrency=1 contention으로 manual invoke는 throttled. EventBridge 자연 fire로 NEW 코드 검증.
+  - CloudWatch evidence: `{queue_rows: 4, article_groups: 1, completed_articles: 1, completed_ids: ['2KBA6I5K9J']}` — TASK-4-C에서 selected했던 어제 사이버 룸살롱 기사가 NEW 코드로 변환됨.
+  - RDS SQL 7-Q 검증 PASS:
+    - article_selections (NT/NF/ST/SF): selected=1, transformed=1 (4/4 모두 mark_transformed)
+    - article_versions에 4 row 생성 (per-MBTI 본문)
+    - transformed_at populated, lag (scored→transformed) 8597.6s ≈ 2.4h
+    - articles.status: {'raw': 140, 'transformed': 0} ← TASK-5 design 확인
+    - sel_done=4 == av_count=4 (per-MBTI 짝매칭 일관)
+  - 1h cache TTL 작동 확인: in-flight invocation의 transform_complete 이벤트에서 cache_read_input_tokens=9070 (warm hit).
+- **Definition of Done**:
+  - [x] transform_v2_service.transform_article_for_groups 추가 (선정 MBTI subset만 변환)
+  - [x] core2_transform.py를 article_selections 폴링으로 재작성 + grouping + mark_transformed
+  - [x] 358 unit tests passing (회귀 0건)
+  - [x] Live invoke로 EventBridge 자연 fire에서 NEW 코드 동작 확인
+  - [x] article_selections.transformed_at + article_versions row 일관 검증 (per-MBTI 짝매칭)
+- **Notes**:
+  - **Reserved concurrency=1 + Lambda update race**: 배포 직후 manual invoke는 옛 in-flight invocation 때문에 throttle될 수 있음. EventBridge 자연 fire에 맡기는 게 안전. (TASK-4-C에서 본 update race와 별개 현상 — 이건 concurrency contention.)
+  - **OLD/NEW transition 흔적**: CloudWatch에 OLD 코드의 마지막 fire (`batch_size=20, completed=17`)와 NEW 코드의 첫 fire (`queue_rows=4, article_groups=1`)가 같은 log group에 시간순으로 남음. 키 이름 차이가 자연스러운 transition marker.
+  - **Q5 SQL artifact**: article_versions.body는 dedicated column (metadata JSONB 아님). 검증 SQL이 metadata->>'body'로 조회해서 None — 데이터는 정상 (Q6의 av_count=4가 reverse-confirm).
 
 ### TASK-4-Z (post-demo): 보안/위생 정리
 - **종속성**: 데모 후
