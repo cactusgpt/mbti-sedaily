@@ -39,12 +39,16 @@ observable via the ``cache_hit`` metric in handler JSON logs.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+import asyncio
+import logging
+from typing import Any, Dict, List, Optional
 
 import boto3
 from botocore.config import Config
 
 from clients.mbti_transform_service import MbtiTransformService
+
+logger = logging.getLogger(__name__)
 
 
 # Matches v1 ``BEDROCK_CONFIG`` (mbti_transform_service.py line 24-28) so
@@ -98,6 +102,119 @@ class TransformV2Service:
         Raises ``TransformError`` if all 4 groups fail.
         """
         return await self._svc.transform_article(*args, **kwargs)
+
+    async def transform_article_for_groups(
+        self,
+        title: str,
+        subtitle: str,
+        content: str,
+        category: str,
+        groups: List[str],
+    ) -> Dict[str, Any]:
+        """Transform article into ONLY the specified MBTI groups.
+
+        Phase 2.5 / TASK-5 entry point. v1 ``transform_article`` always runs
+        all 4 MBTI groups in parallel; this method calls the inner
+        ``transform_single_group`` directly for each requested group only,
+        skipping the ones not in ``groups``. Saves Bedrock cost when the
+        Selector chose <4 groups for an article.
+
+        Same parallel-asyncio.gather semantics as v1 ``transform_article``
+        so prompt-cache hits across groups within one Lambda invocation
+        are preserved (Opus 4.6 ``ttl=1h``, applied in commit 0830c1f).
+
+        Per-group failures are reported via ``failed_groups`` instead of
+        raising, mirroring v1 graceful-degradation philosophy. Caller
+        decides whether partial success is acceptable. Raises
+        ``TransformError`` only when every requested group fails AND at
+        least one group was requested.
+
+        Args:
+            title, subtitle, content, category: original article fields.
+            groups: subset of ``{"NT","NF","ST","SF"}``. Empty list returns
+                empty versions and zero usage without any Bedrock call.
+
+        Returns:
+            Dict with:
+              - ``versions``: ``{group: version_dict}`` only for groups that
+                succeeded (subset of ``groups``).
+              - ``usage``: aggregated tokens (input/output/cache_creation/
+                cache_read) summed across calls.
+              - ``failed_groups``: list of groups that raised; caller logs
+                or marks them failed downstream.
+        """
+        # Defensive normalization. Selector writes uppercase 2-char codes,
+        # but accept lowercase / dupes / unknowns and filter to the canonical
+        # set so a stray value doesn't crash transform_single_group.
+        VALID = {"NT", "NF", "ST", "SF"}
+        normalized = []
+        seen = set()
+        for g in groups:
+            up = (g or "").upper().strip()
+            if up in VALID and up not in seen:
+                normalized.append(up)
+                seen.add(up)
+
+        if not normalized:
+            return {
+                "versions": {},
+                "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "cache_creation_input_tokens": 0,
+                },
+                "failed_groups": [],
+            }
+
+        # Parallel calls — mirrors v1 transform_article structure but only
+        # for the requested subset. transform_single_group exists in v1
+        # (mbti_transform_service.py line 140) and is the same primitive
+        # v1 transform_article uses internally — calling it directly stays
+        # within "import v1, never modify" rule (.clauderules #1).
+        tasks = [
+            self._svc.transform_single_group(
+                group=g,
+                title=title,
+                subtitle=subtitle,
+                content=content,
+                category=category,
+            )
+            for g in normalized
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        versions: Dict[str, Dict[str, Any]] = {}
+        total_usage = {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation_input_tokens": 0,
+        }
+        failed_groups: List[str] = []
+
+        for group, result in zip(normalized, results):
+            if isinstance(result, Exception):
+                logger.warning(
+                    f"transform_article_for_groups: {group} failed: "
+                    f"{type(result).__name__}: {result}"
+                )
+                failed_groups.append(group)
+            else:
+                versions[group] = result["version"]
+                for key in total_usage:
+                    total_usage[key] += result["usage"].get(key, 0)
+
+        # Don't raise on full failure — caller (Transform handler) decides
+        # how to mark per-(article × MBTI) selection rows. Returning
+        # failed_groups lets the handler stamp transformed_at=NULL but a
+        # separate "tried and failed" signal (Q4=B: articles.status='failed'
+        # at article level only when ALL requested groups fail).
+        return {
+            "versions": versions,
+            "usage": total_usage,
+            "failed_groups": failed_groups,
+        }
 
     async def close(self) -> None:
         """Close the wrapped v1 service (no-op in v1 — Bedrock client needs no tear-down)."""

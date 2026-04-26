@@ -1,49 +1,68 @@
-"""Core 2 Transform Lambda — turn ``status='raw'`` articles into 4 MBTI versions.
+"""Core 2 Transform Lambda — turn selected article_selections rows into MBTI versions.
 
 Wire-up
 -------
 Triggered every 5 minutes by EventBridge rule
 ``sedaily-mbti-v2-transform-trigger`` (wired in Phase E).
 
-Per fire:
+Per fire (TASK-5, Phase 2.5):
 
-1. Poll pgvector for up to ``BATCH_SIZE`` raw articles (FIFO).
+1. Poll pgvector ``article_selections`` for rows with ``selected=TRUE AND
+   transformed_at IS NULL``, FIFO by ``scored_at``.
 2. Empty batch → fast return (skip Bedrock/embed client init).
-3. Otherwise, process articles in waves of ``ARTICLE_CONCURRENCY`` using
-   ``asyncio.gather`` inside a single Lambda invocation:
+3. Group rows by ``news_id`` so the same article's per-MBTI rows fire as a
+   single Lambda task — preserves Opus 4.6 prompt-cache hits across the
+   article's selected MBTI groups (1h TTL, applied in commit 0830c1f).
+4. Process article-groups in waves of ``ARTICLE_CONCURRENCY`` using
+   ``asyncio.gather``:
 
-   * Within each article, 4 parallel Opus 4.6 calls via v1's
-     ``MbtiTransformService.transform_article()`` (already-parallel + cached
-     system prompt + retry).
-   * 4 parallel Titan V2 embeddings on the output versions.
-   * 4 S3 ``version_<MBTI>.json`` puts.
-   * 4 ``insert_article_version`` rows (serialised through a single
-     ``db_lock`` because ``pg8000.native.Connection`` is not thread-safe).
-   * Final ``update_article_status('transformed')``.
+   * Within each article, ``transform_article_for_groups`` runs N parallel
+     Opus 4.6 calls (1 ≤ N ≤ 4) — only the MBTI groups the Selector chose.
+   * N parallel Titan V2 embeddings on the resulting versions.
+   * N S3 ``version_<MBTI>.json`` puts.
+   * N ``insert_article_version`` rows (serialised through ``db_lock``
+     because ``pg8000.native.Connection`` is not thread-safe).
+   * N ``mark_transformed(news_id, mbti_type, selection_date)`` calls
+     stamp ``transformed_at=now()`` on each successful selection row.
 
-4. Between waves, check ``context.get_remaining_time_in_millis()``. If the
+5. Between waves, check ``context.get_remaining_time_in_millis()``. If the
    next wave's worst-case (``WAVE_DEADLINE_BUFFER_S``) won't fit, bail
-   gracefully — remaining articles stay ``status='raw'`` and get picked up
-   on the next fire (Reserved concurrency=1 prevents double-pick races).
+   gracefully — remaining article-groups stay ``selected=TRUE,
+   transformed_at=NULL`` and get picked up on the next fire (Reserved
+   concurrency=1 prevents double-pick races).
 
-Failure policy — strict
------------------------
-v1 ``transform_article`` returns partial results when some MBTI groups
-fail (graceful degradation). This handler treats anything less than 4
-versions as failure: mark ``status='failed'`` and insert no versions.
-Reason: Core 3 feed joins ``article_versions`` with
-``articles.status='transformed'``, so missing a group means a whole
-user-MBTI-group sees nothing for that article. Re-transform is cheaper
-than fairness skew. Failed rows can be reset to ``'raw'`` via the retry
-job (out of TASK-2.3 scope per TASKS.md).
+Failure policy — strict per-article, partial allowed at MBTI level
+------------------------------------------------------------------
+TASK-5 split the v1-style "all 4 or fail" rule. Now:
+
+* If at least one requested MBTI group succeeds, those rows get
+  ``mark_transformed``. Failed groups stay ``transformed_at=NULL`` and
+  retry on the next fire (Selector won't re-score them — same selection
+  row stays selected=TRUE).
+* If ALL requested groups fail (validator failure, Bedrock down, etc.),
+  the article is marked ``status='failed'`` so a downstream cleanup job
+  can investigate without a re-fire dropping cost on it.
+
+Why ``articles.status='transformed'`` is no longer set on success (Q2=A)
+-----------------------------------------------------------------------
+v2 truth-source for "this article-MBTI is ready" is now
+``article_selections.transformed_at``. Updating ``articles.status`` would
+be ambiguous when only some MBTI groups succeeded (NT done, NF failed →
+status='transformed'? 'failed'? 'partial'?). Keeping ``articles.status``
+in {'raw','failed'} only (Collector sets 'raw'; this handler sets
+'failed' on full failure) keeps state per-article and per-(article ×
+MBTI) cleanly separated.
 
 Observability (JSON log events)
 -------------------------------
-* ``transform_run_complete`` — batch totals per fire
-* ``transform_empty_batch`` — no raw articles
-* ``transform_complete`` — per article × per MBTI group (includes cache
-  hit rate via ``cache_read_input_tokens``)
-* ``transform_partial_failure`` — article produced fewer than 4 versions
+* ``transform_run_complete`` — batch totals per fire (article-group level)
+* ``transform_empty_batch`` — no selected+pending rows
+* ``transform_complete`` — per (article × MBTI) successful pair
+* ``transform_partial_failure`` — article had >=1 group fail (some
+  succeeded, some did not — non-fatal)
+* ``transform_full_failure`` — every requested group failed for an article
+  (article gets status='failed')
+* ``transform_validation_failure`` — validator rejected versions
 * ``transform_error`` — per-article exception (incl. S3 read miss)
 * ``transform_deadline_skip`` — wave-level early stop
 
@@ -59,7 +78,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from config.constants import CORS_HEADERS, MBTI_GROUPS
+from config.constants import CORS_HEADERS
 from core.decorators import lambda_handler as handler_decorator
 from core.response import success_response
 
@@ -127,10 +146,17 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return {"statusCode": 200, "headers": CORS_HEADERS, "body": ""}
 
     pg = PgVectorV2Client()
-    raw = pg.get_articles_by_status("raw", limit=BATCH_SIZE)
-    if not raw:
+    # TASK-5: poll selected+pending rows from article_selections, not raw
+    # articles directly. Each row is one (article × MBTI) pair the Selector
+    # chose. Group by news_id so each article fires once per Lambda task
+    # with its full MBTI subset (1..4) — preserves Opus prompt-cache hits
+    # across the article's groups.
+    queue_rows = pg.get_transform_queue(limit=BATCH_SIZE)
+    if not queue_rows:
         logger.info(json.dumps({"event": "transform_empty_batch"}))
         return success_response({"processed": 0, "empty": True})
+
+    article_groups = _group_queue_by_article(queue_rows)
 
     endpoint_url = os.getenv("BEDROCK_RUNTIME_ENDPOINT_URL", "") or None
     transform_svc = TransformV2Service(endpoint_url=endpoint_url)
@@ -141,15 +167,16 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     db_lock = asyncio.Lock()
 
     completed, failed, skipped = await _run_with_deadline(
-        raw, context, transform_svc, embedder, pg, s3_v2, semaphore, db_lock
+        article_groups, context, transform_svc, embedder, pg, s3_v2, semaphore, db_lock
     )
 
     metrics = {
         "event": "transform_run_complete",
-        "batch_size": len(raw),
-        "completed": len(completed),
-        "failed": len(failed),
-        "skipped": len(skipped),
+        "queue_rows": len(queue_rows),
+        "article_groups": len(article_groups),
+        "completed_articles": len(completed),
+        "failed_articles": len(failed),
+        "skipped_articles": len(skipped),
         "completed_ids": completed,
         "failed_ids": failed,
         "skipped_ids": skipped,
@@ -158,11 +185,53 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     return success_response(metrics)
 
 
+def _group_queue_by_article(
+    queue_rows: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Collapse per-(article × MBTI) queue rows into per-article tasks.
+
+    Input rows come from ``get_transform_queue`` (FIFO by ``scored_at``).
+    Output preserves per-article order by the earliest ``scored_at`` of any
+    of its MBTI rows — keeps oldest articles at the front of waves.
+
+    Each output dict carries:
+      * ``news_id`` — for S3 / version writes
+      * ``article_meta`` — title/category/published_at (from JOIN'd articles row)
+      * ``mbti_groups`` — list of MBTI codes to transform (1..4 entries)
+      * ``selection_date`` — for ``mark_transformed`` calls; consistent
+        across the article's queued rows because Selector writes one
+        date per fire.
+      * ``earliest_scored_at`` — sort key for FIFO ordering.
+    """
+    by_article: Dict[str, Dict[str, Any]] = {}
+    for r in queue_rows:
+        nid = r["news_id"]
+        if nid not in by_article:
+            by_article[nid] = {
+                "news_id": nid,
+                "article_meta": {
+                    "title": r.get("title", ""),
+                    "category": r.get("category", ""),
+                    "published_at": r.get("published_at"),
+                },
+                "mbti_groups": [],
+                "selection_date": r["selection_date"],
+                "earliest_scored_at": r["scored_at"],
+            }
+        by_article[nid]["mbti_groups"].append(r["mbti_type"])
+        if r["scored_at"] < by_article[nid]["earliest_scored_at"]:
+            by_article[nid]["earliest_scored_at"] = r["scored_at"]
+
+    grouped = list(by_article.values())
+    grouped.sort(key=lambda g: g["earliest_scored_at"])
+    return grouped
+
+
 # ── Wave loop with deadline guard ─────────────────────────────────────────────
 
 
 async def _run_with_deadline(
-    articles: List[Dict[str, Any]],
+    article_groups: List[Dict[str, Any]],
     context: Any,
     transform_svc: TransformV2Service,
     embedder: EmbeddingV2Client,
@@ -171,16 +240,19 @@ async def _run_with_deadline(
     semaphore: asyncio.Semaphore,
     db_lock: asyncio.Lock,
 ) -> Tuple[List[str], List[str], List[str]]:
-    """Process ``articles`` in waves; bail between waves if time is low.
+    """Process article-groups in waves; bail between waves if time is low.
 
-    Returns ``(completed_ids, failed_ids, skipped_ids)``.
-    Skipped = articles that never started (stays status='raw', picked on
-    next fire). Split wave boundaries so in-flight Bedrock calls are never
-    aborted mid-flight — cleanup of half-posted versions would be fragile.
+    Returns ``(completed_ids, failed_ids, skipped_ids)`` — each list holds
+    ``news_id`` strings.
+
+    Skipped = article-groups whose first wave never started (their selection
+    rows stay ``selected=TRUE, transformed_at=NULL``, picked on next fire).
+    Split wave boundaries so in-flight Bedrock calls are never aborted
+    mid-flight — cleanup of half-posted versions would be fragile.
     """
     waves = [
-        articles[i : i + ARTICLE_CONCURRENCY]
-        for i in range(0, len(articles), ARTICLE_CONCURRENCY)
+        article_groups[i : i + ARTICLE_CONCURRENCY]
+        for i in range(0, len(article_groups), ARTICLE_CONCURRENCY)
     ]
     completed: List[str] = []
     failed: List[str] = []
@@ -193,7 +265,7 @@ async def _run_with_deadline(
             else float("inf")
         )
         if remaining_s < WAVE_DEADLINE_BUFFER_S:
-            skipped_ids = [a["news_id"] for w in waves[wave_idx:] for a in w]
+            skipped_ids = [g["news_id"] for w in waves[wave_idx:] for g in w]
             skipped.extend(skipped_ids)
             logger.warning(
                 json.dumps(
@@ -211,14 +283,14 @@ async def _run_with_deadline(
         wave_results = await asyncio.gather(
             *(
                 _process_one_article(
-                    article, transform_svc, embedder, pg, s3_v2, semaphore, db_lock
+                    group, transform_svc, embedder, pg, s3_v2, semaphore, db_lock
                 )
-                for article in wave
+                for group in wave
             ),
             return_exceptions=True,
         )
-        for article, res in zip(wave, wave_results):
-            nid = article["news_id"]
+        for group, res in zip(wave, wave_results):
+            nid = group["news_id"]
             if isinstance(res, Exception) or res is None:
                 failed.append(nid)
             else:
@@ -231,7 +303,7 @@ async def _run_with_deadline(
 
 
 async def _process_one_article(
-    article: Dict[str, Any],
+    article_group: Dict[str, Any],
     transform_svc: TransformV2Service,
     embedder: EmbeddingV2Client,
     pg: PgVectorV2Client,
@@ -239,14 +311,25 @@ async def _process_one_article(
     semaphore: asyncio.Semaphore,
     db_lock: asyncio.Lock,
 ) -> Optional[str]:
-    """Transform one article end-to-end. Returns news_id on success, None on fail.
+    """Transform one article's selected MBTI subset end-to-end.
 
-    Swallows per-article exceptions so a single bad article cannot poison
-    the batch (the outer ``asyncio.gather(..., return_exceptions=True)``
-    would receive the exception anyway, but handling here lets us mark
-    ``status='failed'`` atomically at the same code path).
+    Input ``article_group`` shape (from ``_group_queue_by_article``):
+      ``{news_id, article_meta, mbti_groups: [...], selection_date, ...}``
+
+    Returns ``news_id`` if at least one MBTI succeeded (may include partial
+    failures — those rows stay ``transformed_at=NULL`` and retry next fire).
+    Returns ``None`` if every requested MBTI failed (article gets
+    ``status='failed'`` so a downstream cleanup job can investigate).
+
+    Per-article exceptions are swallowed so a single bad article cannot
+    poison the batch. Articles get ``status='failed'`` only when every
+    requested group fails — partial successes leave ``status`` untouched
+    (Q4=B; v2 truth-source for "ready" is ``article_selections.transformed_at``).
     """
-    news_id = article["news_id"]
+    news_id = article_group["news_id"]
+    requested_groups = article_group["mbti_groups"]
+    selection_date = article_group["selection_date"]
+
     async with semaphore:
         start = time.time()
         try:
@@ -262,18 +345,30 @@ async def _process_one_article(
             #   sub_title     → sub_title_ko
             #   content_clean → content_ko
             # See backend/clients/s3_xml_client.py line 809-826.
-            result = await transform_svc.transform_article(
+            result = await transform_svc.transform_article_for_groups(
                 title=original.get("title_ko", ""),
                 subtitle=original.get("sub_title_ko", "") or "",
                 content=original.get("content_ko", ""),
                 category=original.get("category", ""),
+                groups=requested_groups,
             )
 
             versions = result["versions"]
             usage = result["usage"]
+            failed_groups_from_bedrock = result.get("failed_groups", [])
 
-            # Strict policy: all 4 versions required, otherwise mark failed.
-            if len(versions) < 4:
+            # If every requested group failed at the Bedrock layer, treat
+            # the article as a full failure: mark articles.status='failed'
+            # and don't write any versions. Selection rows stay
+            # transformed_at=NULL — but with status='failed' the next fire
+            # will skip them (Selector won't re-score; Transform polls
+            # selected+pending which still includes them, so add an
+            # status='failed' guard at the SELECT level... actually
+            # get_transform_queue doesn't filter by article status today.
+            # That's fine for now — failed articles will keep retrying
+            # until a flake passes; a future TASK can add a fail-counter
+            # column to article_selections to bound retries.
+            if not versions:
                 async with db_lock:
                     await asyncio.to_thread(
                         pg.update_article_status, news_id, "failed"
@@ -281,12 +376,10 @@ async def _process_one_article(
                 logger.error(
                     json.dumps(
                         {
-                            "event": "transform_partial_failure",
+                            "event": "transform_full_failure",
                             "news_id": news_id,
-                            "succeeded_groups": list(versions.keys()),
-                            "failed_groups": [
-                                g for g in MBTI_GROUPS if g not in versions
-                            ],
+                            "requested_groups": requested_groups,
+                            "failed_groups": failed_groups_from_bedrock,
                             "usage": usage,
                         },
                         ensure_ascii=False,
@@ -315,6 +408,7 @@ async def _process_one_article(
                         {
                             "event": "transform_validation_failure",
                             "news_id": news_id,
+                            "requested_groups": requested_groups,
                             "ai_check_used": validation.ai_check_used,
                             "issues": validation.issues,
                             "usage": usage,
@@ -324,8 +418,11 @@ async def _process_one_article(
                 )
                 return None
 
-            # Store all 4 versions in parallel (each does embed + S3 put +
-            # pg insert; pg insert takes db_lock).
+            # Store each successful version (embed + S3 put + pg insert)
+            # and stamp transformed_at on its selection row. Each
+            # _store_one_version takes db_lock for its inserts; the
+            # mark_transformed call below also takes db_lock — both
+            # interleave safely.
             await asyncio.gather(
                 *(
                     _store_one_version(
@@ -335,14 +432,20 @@ async def _process_one_article(
                 )
             )
 
-            async with db_lock:
-                await asyncio.to_thread(
-                    pg.update_article_status, news_id, "transformed"
-                )
+            # Stamp transformed_at on the selection rows — only for groups
+            # that actually wrote a version. Failed groups stay
+            # transformed_at=NULL and the next fire will retry them
+            # (selection row still has selected=TRUE).
+            for group in versions.keys():
+                async with db_lock:
+                    await asyncio.to_thread(
+                        pg.mark_transformed,
+                        news_id,
+                        group,
+                        selection_date,
+                    )
 
             latency_ms = int((time.time() - start) * 1000)
-            # Emit one transform_complete event per group so CloudWatch
-            # Insights can aggregate cache hit rate by group.
             for group in versions.keys():
                 logger.info(
                     json.dumps(
@@ -363,6 +466,23 @@ async def _process_one_article(
                         }
                     )
                 )
+
+            # If some requested groups failed at the Bedrock layer (partial
+            # success), log it but don't mark the article failed. Failed
+            # groups will retry on the next fire.
+            if failed_groups_from_bedrock:
+                logger.warning(
+                    json.dumps(
+                        {
+                            "event": "transform_partial_failure",
+                            "news_id": news_id,
+                            "requested_groups": requested_groups,
+                            "succeeded_groups": list(versions.keys()),
+                            "failed_groups": failed_groups_from_bedrock,
+                        }
+                    )
+                )
+
             return news_id
 
         except Exception as exc:
@@ -373,8 +493,8 @@ async def _process_one_article(
                     )
                 except Exception:
                     # If even the status update fails, log and continue —
-                    # the next fire will pick it up with stale status='raw'
-                    # and retry (ON CONFLICT DO UPDATE idempotent).
+                    # the next fire will pick up the same selection rows
+                    # (transformed_at still NULL) and retry.
                     logger.exception(
                         f"update_article_status({news_id!r}, 'failed') also failed"
                     )

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -28,6 +29,13 @@ import pytest
 # =============================================================================
 # Helpers — builders for mocked client instances + context
 # =============================================================================
+
+
+# Default values for the auto-generated queue rows in _install_client_mocks.
+# Tests that need to assert on these can import them; tests building queue
+# rows directly via _make_queue_row override as needed.
+_DEFAULT_SELECTION_DATE = date(2026, 4, 27)
+_DEFAULT_SCORED_AT = datetime(2026, 4, 27, 0, 0, 0, tzinfo=timezone.utc)
 
 
 def _make_context(remaining_ms: int = 900_000) -> MagicMock:
@@ -93,24 +101,67 @@ def _install_client_mocks(
 ) -> Dict[str, Any]:
     """Construct patches + instance mocks for all four v2 clients + validator.
 
+    TASK-5 update: ``raw_rows`` is now interpreted as the Selector-side
+    queue (``article_selections`` rows JOIN ``articles``). Each ``raw_row``
+    is automatically expanded into 4 queue entries (one per MBTI) so
+    existing tests written for "all 4 MBTI" still work without rewriting.
+    Tests that need a partial-MBTI subset construct ``queue_rows``
+    directly via ``_make_queue_row`` and pass via the ``queue_rows`` kwarg
+    (added below).
+
     Returns a dict of ``{class_patcher, instance}`` per client plus a
     combined ``context_manager_stack`` caller chains into a ``with
     ExitStack`` block. Kept explicit (no fixture magic) so per-test setup
     reads top-to-bottom.
     """
     pg_instance = MagicMock()
+    # TASK-5: Transform handler now polls get_transform_queue, not
+    # get_articles_by_status. Auto-expand each "raw row" into 4 MBTI
+    # queue entries so existing 4-MBTI tests don't need to be rewritten.
+    queue_rows = []
+    for r in raw_rows:
+        for mbti in ("NT", "NF", "ST", "SF"):
+            queue_rows.append({
+                "selection_id": f"sel-{r['news_id']}-{mbti}",
+                "news_id": r["news_id"],
+                "mbti_type": mbti,
+                "selection_date": _DEFAULT_SELECTION_DATE,
+                "composite_score": 7.5,
+                "scored_at": _DEFAULT_SCORED_AT,
+                "title": r.get("title", ""),
+                "category": r.get("category", ""),
+                "published_at": r.get("published_at"),
+                "article_metadata": {},
+            })
+    pg_instance.get_transform_queue.return_value = queue_rows
+    # Backward-compat: leave get_articles_by_status defined as no-op return
+    # so any stray test referring to it doesn't NoneType-crash.
     pg_instance.get_articles_by_status.return_value = raw_rows
     pg_instance.insert_article_version.return_value = "version-uuid"
     pg_instance.update_article_status.return_value = None
+    pg_instance.mark_transformed.return_value = None
 
     transform_instance = MagicMock()
     if transform_exception is not None:
+        transform_instance.transform_article_for_groups = AsyncMock(
+            side_effect=transform_exception
+        )
+        # Keep the older method too so legacy tests calling it don't break.
         transform_instance.transform_article = AsyncMock(side_effect=transform_exception)
     else:
-        transform_instance.transform_article = AsyncMock(
-            return_value=transform_result
-            or {"versions": _make_full_versions(), "usage": _make_usage()}
+        default_result = transform_result or {
+            "versions": _make_full_versions(),
+            "usage": _make_usage(),
+            "failed_groups": [],
+        }
+        # Ensure failed_groups key exists even if caller passed an old-style
+        # dict without it.
+        if "failed_groups" not in default_result:
+            default_result = {**default_result, "failed_groups": []}
+        transform_instance.transform_article_for_groups = AsyncMock(
+            return_value=default_result
         )
+        transform_instance.transform_article = AsyncMock(return_value=default_result)
 
     embed_instance = MagicMock()
     embed_instance.embed_text.return_value = [0.01] * 1024
@@ -205,9 +256,9 @@ def test_v2_2_3_full_success_marks_transformed_and_inserts_4_versions() -> None:
     )
 
     body = json.loads(response["body"])
-    assert body["completed"] == 1
-    assert body["failed"] == 0
-    assert body["skipped"] == 0
+    assert body["completed_articles"] == 1
+    assert body["failed_articles"] == 0
+    assert body["skipped_articles"] == 0
     assert body["completed_ids"] == ["test_v2_2_3_art1"]
 
     # 4 versions inserted (one per MBTI group)
@@ -217,10 +268,22 @@ def test_v2_2_3_full_success_marks_transformed_and_inserts_4_versions() -> None:
     }
     assert inserted_groups == {"NT", "NF", "ST", "SF"}
 
-    # Status transitioned to 'transformed'
-    instances["pg"].update_article_status.assert_called_with(
-        "test_v2_2_3_art1", "transformed"
+    # TASK-5: success no longer calls update_article_status('transformed').
+    # Truth-source for "ready" is article_selections.transformed_at, set by
+    # mark_transformed × N (one per successful MBTI group).
+    transformed_calls = [
+        c for c in instances["pg"].update_article_status.call_args_list
+        if len(c.args) >= 2 and c.args[1] == "transformed"
+    ]
+    assert transformed_calls == [], (
+        "update_article_status('transformed') should NOT be called in TASK-5 flow"
     )
+    assert instances["pg"].mark_transformed.call_count == 4
+    marked_groups = {
+        call.args[1] if len(call.args) >= 2 else call.kwargs.get("mbti_type")
+        for call in instances["pg"].mark_transformed.call_args_list
+    }
+    assert marked_groups == {"NT", "NF", "ST", "SF"}
 
     # 4 S3 puts (version_NT.json, ..., version_SF.json) + 0 gets beyond
     # the original fetch — actually 1 get (original.json).
@@ -239,14 +302,23 @@ def test_v2_2_3_full_success_marks_transformed_and_inserts_4_versions() -> None:
     assert instances["embed"].embed_text.call_count == 4
 
 
-def test_v2_2_3_partial_success_marks_failed_no_versions_inserted() -> None:
-    """3 of 4 versions returned → strict policy marks status='failed'."""
+def test_v2_2_3_partial_success_marks_partial_failure_log_no_status_change() -> None:
+    """TASK-5 (was 'partial_success_marks_failed'): partial Bedrock success
+    is non-fatal. 3 of 4 groups succeed → those 3 get inserted + marked
+    transformed; the 4th is logged as transform_partial_failure and stays
+    transformed_at=NULL (Selection row still selected=TRUE → next fire retries).
+    Article-level status NOT changed (Q4=B: 'failed' only on full failure).
+    """
     partial_versions = {
         g: _make_version(g) for g in ("NT", "NF", "ST")  # SF missing
     }
     instances = _install_client_mocks(
         raw_rows=[_make_raw_row("test_v2_2_3_art_partial")],
-        transform_result={"versions": partial_versions, "usage": _make_usage()},
+        transform_result={
+            "versions": partial_versions,
+            "usage": _make_usage(),
+            "failed_groups": ["SF"],
+        },
     )
 
     response = _patched_handler_call(
@@ -254,16 +326,26 @@ def test_v2_2_3_partial_success_marks_failed_no_versions_inserted() -> None:
     )
 
     body = json.loads(response["body"])
-    assert body["completed"] == 0
-    assert body["failed"] == 1
+    # Article-group level: this article succeeded (≥1 MBTI ok)
+    assert body["completed_articles"] == 1
+    assert body["failed_articles"] == 0
 
-    # No versions inserted (strict policy)
-    instances["pg"].insert_article_version.assert_not_called()
+    # 3 versions inserted (NT/NF/ST), SF skipped
+    assert instances["pg"].insert_article_version.call_count == 3
+    inserted_groups = {
+        call.args[1] for call in instances["pg"].insert_article_version.call_args_list
+    }
+    assert inserted_groups == {"NT", "NF", "ST"}
 
-    # Status marked failed
-    instances["pg"].update_article_status.assert_called_with(
-        "test_v2_2_3_art_partial", "failed"
-    )
+    # mark_transformed called 3 times (only successful groups)
+    assert instances["pg"].mark_transformed.call_count == 3
+
+    # update_article_status('failed') NOT called — partial success ≠ article failure
+    failed_status_calls = [
+        c for c in instances["pg"].update_article_status.call_args_list
+        if len(c.args) >= 2 and c.args[1] == "failed"
+    ]
+    assert failed_status_calls == []
 
 
 def test_v2_2_3_total_failure_marks_failed() -> None:
@@ -278,10 +360,11 @@ def test_v2_2_3_total_failure_marks_failed() -> None:
     )
 
     body = json.loads(response["body"])
-    assert body["failed"] == 1
-    assert body["completed"] == 0
+    assert body["failed_articles"] == 1
+    assert body["completed_articles"] == 0
 
     instances["pg"].insert_article_version.assert_not_called()
+    instances["pg"].mark_transformed.assert_not_called()
     instances["pg"].update_article_status.assert_called_with(
         "test_v2_2_3_art_err", "failed"
     )
@@ -321,9 +404,9 @@ def test_v2_2_3_deadline_check_skips_remaining_waves() -> None:
     response = _patched_handler_call({"httpMethod": "POST"}, ctx, instances)
 
     body = json.loads(response["body"])
-    assert body["completed"] == 5  # wave 1 succeeded
-    assert body["skipped"] == 5  # wave 2 skipped
-    assert body["failed"] == 0
+    assert body["completed_articles"] == 5  # wave 1 succeeded
+    assert body["skipped_articles"] == 5  # wave 2 skipped
+    assert body["failed_articles"] == 0
 
 
 def test_v2_2_3_logs_transform_complete_with_cache_metrics(
@@ -417,8 +500,8 @@ def test_v2_2_3_validation_failure_marks_failed_no_versions_inserted() -> None:
     )
 
     body = json.loads(response["body"])
-    assert body["failed"] == 1
-    assert body["completed"] == 0
+    assert body["failed_articles"] == 1
+    assert body["completed_articles"] == 0
 
     instances["pg"].insert_article_version.assert_not_called()
     instances["pg"].update_article_status.assert_called_with(
@@ -527,13 +610,15 @@ def test_v2_2_3_integration_end_to_end_with_real_pgvector() -> None:
         response = lambda_handler({"httpMethod": "POST"}, _make_context())
 
     body = json.loads(response["body"])
-    assert body["completed"] == 1
+    assert body["completed_articles"] == 1
 
     # Real pg assertions
     versions = pg.get_article_versions(news_id)
     assert set(versions.keys()) == {"NT", "NF", "ST", "SF"}
-    # status field requires a direct query since there's no dedicated getter.
+    # TASK-5: articles.status no longer set to 'transformed' on success.
+    # Truth-source for "ready" is article_selections.transformed_at.
+    # status stays 'raw' until something else (failure path) overwrites it.
     rows = pg.conn.run(
         "SELECT status FROM articles WHERE news_id = :nid", nid=news_id
     )
-    assert rows and rows[0][0] == "transformed"
+    assert rows and rows[0][0] == "raw"
