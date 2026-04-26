@@ -185,7 +185,7 @@
   8. Wave 사이 `context.get_remaining_time_in_millis()` 체크, < `WAVE_DEADLINE_BUFFER_S` (90s) 시 나머지 articles 스킵 (status='raw' 유지, 다음 fire pickup)
 - **Definition of Done**:
   - [x] 함수명 `sedaily-mbti-v2-transform-dev` *(빈 Lambda 사용자 생성됨, Phase C에서 Handler=`v2.handlers.core2_transform.lambda_handler` / VPC `vpc-07a3a75110d6594aa` / Timeout=900s / Memory=1024MB / 7 env vars / Reserved concurrency=1 / IAM `+BedrockOpus46Invoke` 완료)*
-  - [~] **프롬프트 캐싱 활성화** *(v1 `cache_control: {"type": "ephemeral"}` 상속 — 하지만 `verify_opus_baseline.py` 실측 결과 Opus 4.6는 default ephemeral에 cache 0% 반환. **1h TTL만 작동**함. v2 버전에서 1h TTL 적용은 v1 `transform_single_group` 수정 필요 → `.clauderules` #1 위반 → 별도 follow-up TASK로 defer. Option Z.)*
+  - [x] **프롬프트 캐싱 활성화** *(TASK-2.6 commit 0830c1f에서 `ttl="1h"` 적용 완료. v1 `MbtiTransformService` 라인 191 / 329 두 곳에 `{"type": "ephemeral", "ttl": "1h"}` 명시. v2는 `TransformV2Service` wrapper로 자동 혜택. 예상 절감 ~$2000/month. Option Z resolved.)*
   - [x] 4 병렬 호출 (asyncio.gather) *(v1 재사용)*
   - [x] Bedrock 스로틀링 시 exponential backoff 재시도 *(v1 5회 재시도 그대로 상속. spec 3회보다 보수적)*
   - [x] 실패한 기사는 재처리 가능 (`status='failed'` → 별도 잡으로 재시도) *(`ON CONFLICT (news_id, mbti_type) DO UPDATE` for version rows; status 재설정은 수동 SQL 또는 별도 retry job)*
@@ -254,6 +254,127 @@
   - [x] 12 unit tests PASS (v2 전체 284 tests passing; 248 before TASK-2.5)
 - **Notes**:
   - **Re-embed instead of reusing v1 OpenSearch vectors**: v1 stored Titan V2 vectors in OpenSearch, not DynamoDB. Reading OpenSearch requires the optional endpoint; re-embedding from body text is simpler + deterministic + matches what a fresh Core 1+2 run would produce. Titan V2 cost ≈ $0.00002/article — negligible vs operational simplicity.
+
+---
+
+## Phase 2.5: Selection + Minimal Feed (Phase 1 시연용)
+
+데드라인 압박으로 Phase 3 (개인화) 전에 **최소한의 운영 가능한 시연 환경**을 만들기 위해 신설된 단계. v1 `step1_select`의 MBTI별 점수 매김 로직을 v2로 포팅하고, EventBridge 자동 스케줄까지 연결해서 "기사 수집 → 점수 매김 → 변환"이 사용자 개입 없이 돌아가게 만든다.
+
+Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이 단계의 산출물은 Phase 3 등장 후에도 그대로 유지된다.
+
+### TASK-2.6: article_selections 테이블 + 5개 client 메서드
+- **종속성**: TASK-1.3 (PgVectorV2Client), TASK-2.1 (Collector)
+- **커밋**: `1aecdcd`
+- **Files modified**:
+  - `backend/v2/infrastructure/schema_v2.sql` — section 6 추가 (table + 3 partial indexes)
+  - `backend/v2/infrastructure/init_pgvector_v2.py` — `EXPECTED_TABLES` 5개로
+  - `backend/v2/clients/pgvector_v2_client.py` — `+upsert_selection_score`, `+rerank_selections`, `+get_transform_queue`, `+mark_transformed`, `+get_feed`
+  - `backend/v2/tests/test_pgvector_v2_client.py` — `+22 unit + +9 integration`
+  - `backend/v2/tests/test_init_pgvector_v2.py` — 4-table → 5-table 카운트 갱신
+  - `backend/v2/tests/conftest.py` — `+test_v2_2_6_` prefix + `article_selections` DELETE
+- **Schema**:
+  - `article_selections (news_id, mbti_type, selection_date)` UNIQUE
+  - 한 기사가 여러 MBTI에 동시 선정 가능 (rows 분리)
+  - `selected` flag는 `rerank_selections` 단일 SQL UPDATE가 atomic하게 flip
+  - `transformed_at` preservation: rerank로 selected=FALSE 떨어져도 timestamp 보존 (재선정 시 재변환 방지)
+  - 3 partial indexes: ranking / transform_queue (selected+pending) / feed (selected+transformed)
+- **DDL 적용 (수동, RDS 직접)**: 2026-04-26 완료. 5 tables 모두 present, 회귀 0건.
+- **Definition of Done**:
+  - [x] schema_v2.sql 추가 (additive only — `IF NOT EXISTS`)
+  - [x] 5 client methods 구현 (UPSERT 시 selected/transformed_at 보존, rerank 시 단일 atomic SQL)
+  - [x] 22 unit tests + 9 integration tests
+  - [x] DDL을 실제 RDS에 적용 (사용자 수동, VPC + IP 임시 SG)
+- **Notes**:
+  - **통합 테스트 9개 실측 검증은 deferred** — VPC SG 재오픈 비용 vs 가치 trade-off로 데모 직전에 일괄 처리. 코드는 unit tests로 충분히 검증됨.
+
+### TASK-4-A: Collector가 metadata.content_preview 200자 저장
+- **종속성**: TASK-2.6
+- **커밋**: `e3316d4`
+- **Files modified**:
+  - `backend/v2/handlers/core1_collector.py` — `+_CONTENT_PREVIEW_CHARS = 200`, `_build_metadata`에 `content_preview` 한 줄 추가
+  - `backend/v2/tests/test_core1_collector.py` — `+3 unit tests`
+- **목적**: Selector(TASK-4-B)가 본문 200자 미리보기를 점수 매김에 사용. `articles.metadata.content_preview` 필드 신설. v1 `step1_select.CONTENT_PREVIEW_CHARS = 200` 그대로 따름 (Nova Lite prompt-token 예산 동일 유지).
+- **Backlog 정책**: TASK-4-A 적용 이전에 적재된 raw 기사들은 `content_preview` 없음. Selector가 자동 skip — 별도 백필 안 함 (Q5=A: 자연 roll-off, 데모 시점엔 새 기사 위주).
+- **Definition of Done**:
+  - [x] `_build_metadata`에 `content_preview` 추가 (200자 truncate)
+  - [x] 3 unit tests (장문 truncate, 짧은 본문, edge case)
+  - [x] Production Collector 재배포 (TASK-4-C 검증 시 deploy-v2.sh collector 실행)
+- **Notes**:
+  - 회귀 0건 (기존 23 → 26 unit tests)
+  - 정확히 같은 zip이 여러 v2 Lambda에 공유됨 (Selector 배포할 때 Collector zip도 같이 갱신됨 — `lambda_package_v2.zip` 단일 키)
+
+### TASK-4-B: Selector Lambda 코드 (`v2.handlers.core1_5_selector`)
+- **종속성**: TASK-4-A
+- **커밋**: `6eb64f5`
+- **Files created**:
+  - `backend/v2/clients/selector_service.py` *(326 lines — Bedrock Nova Lite scoring)*
+  - `backend/v2/handlers/core1_5_selector.py` *(263 lines — Lambda handler)*
+  - `backend/v2/tests/test_selector_service.py` *(32 unit tests)*
+  - `backend/v2/tests/test_core1_5_selector.py` *(15 unit tests)*
+- **Files modified**:
+  - `backend/v2/clients/pgvector_v2_client.py` — `+find_unscored_articles` (KST today 기준, NOT EXISTS in article_selections)
+- **로직**:
+  1. event date 또는 today KST 결정
+  2. `find_unscored_articles(sel_date, limit=BATCH_SIZE=200)` — status='raw' AND not yet in article_selections
+  3. content_preview 없는 row 자동 skip (Q5=A)
+  4. `score_articles` — Nova Lite 호출, batch=20 / max_concurrency=5
+  5. 각 (article × MBTI) `upsert_selection_score`
+  6. 각 MBTI `rerank_selections(top_n=20)` — atomic single-SQL CTE+UPDATE
+- **Composite score**: `0.7 * mbti_score + 0.3 * quality_score` (v1 `step1_select` 가중치 그대로)
+- **결정 사항** (사용자 답변):
+  - Q1: category quota 버림 (순수 composite top-20)
+  - Q2: Collector가 content_preview 200자 metadata 저장 (TASK-4-A)
+  - Q3: KST today `created_at` 기준 raw 기사
+  - Q4: 미평가 raw만 (article_selections row 있으면 skip; 같은 날 재실행 시 신규 raw만 추가 점수)
+  - Q5: pre-TASK-4-A backlog는 자연 skip (content_preview 없음)
+- **Definition of Done**:
+  - [x] selector_service.py + core1_5_selector.py 구현 (default-to-mid on Nova failure)
+  - [x] 47 unit tests PASS (311 → 358)
+  - [x] composite_score 공식 v1 그대로 (0.7/0.3)
+  - [x] rerank가 transformed_at 보존 (재선정 시 재변환 방지)
+
+### TASK-4-C: Selector Lambda 배포 + 1회 invoke 검증
+- **종속성**: TASK-4-B
+- **커밋**: `e516479` (deploy-v2.sh + setup_selector_trigger.sh)
+- **Files modified**:
+  - `backend/v2/deploy-v2.sh` — `+CORE1_5_FUNCTIONS` 배열, `selector` 라우팅
+- **Files created**:
+  - `backend/v2/infrastructure/setup_selector_trigger.sh` *(316 lines, setup_transform_trigger.sh 패턴)*
+- **AWS resources created** (수동 by user, `.clauderules` #5):
+  - Lambda `sedaily-mbti-v2-selector-dev` (python3.11, 1024 MB, 5min timeout, Collector role 공유)
+  - VPC `vpc-07a3a75110d6594aa`, 2 subnets, SG `sg-0cddc39619b1d69d9` (Collector/Transform 동일)
+  - 7 env vars (Collector/Transform과 100% 동일)
+- **Verification (2026-04-27 Step 6 검증 결과)**:
+  - Step 6-A: 빈 invoke → today empty (`processed: 0, empty: true`)
+  - Step 6-A2: 어제 backlog → all skip (`skipped_no_preview: 143` — pre-TASK-4-A 적재분)
+  - Step 6-B: Collector 재배포 + invoke → 새 raw 1개 적재 (`content_preview` 포함)
+  - Step 6-B-3: Selector 재invoke → `scored=1, upserts=4, rerank: {NT:1, NF:1, ST:1, SF:1}`
+  - Step 6-C: RDS 직접 SELECT 7개 검증 모두 PASS (composite formula diff 0.0000, FK join, NULL transformed_at, MBTI score 분산 sanity)
+- **Definition of Done**:
+  - [x] deploy-v2.sh selector 라우팅 + setup_selector_trigger.sh
+  - [x] Lambda 콘솔 생성 + 13개 config 항목 검증
+  - [x] update-function-code 성공 (Step 5 [OK] Updated)
+  - [x] Manual invoke로 Bedrock + pgvector + rerank 전 경로 작동 확인
+  - [x] article_selections 실 row 7개 SQL 검증 PASS
+  - [ ] EventBridge selector trigger 생성 (Step 7-B에서)
+  - [ ] EventBridge rule `--enable` (데모 직전 사용자 결정)
+- **Notes**:
+  - **Lambda update race**: 첫 시도에서 `update-function-code` 직후 invoke가 옛 코드를 hit. `aws lambda wait function-updated`로 해결. v2 deploy 운영 패턴에 추가 필요.
+  - **Inline IAM policy 검증**: Selector가 Bedrock Nova Lite invoke 성공 → Collector role의 inline policy에 `BedrockNovaLiteInvoke`(TASK-2.4 추가)가 존재. 별도 statement 추가 불필요.
+  - **잔재 3 raw**: Step 6-B 첫 시도 (race) 시점에 옛 코드로 적재된 raw 3개는 `content_preview` 없음. 운영 무영향 (skip 대상). 다음 EventBridge fire에서 새 raw로 교체됨.
+
+### TASK-4-Z (post-demo): 보안/위생 정리
+- **종속성**: 데모 후
+- **항목**:
+  - PG_V2_PASSWORD rotation (TASK-4-A 수행 중 Claude Code↔사용자 대화에 노출)
+    - RDS 콘솔 ailens 사용자 비밀번호 변경
+    - .env.v2 갱신 + Collector/Transform/Selector 3 Lambda 환경변수 갱신
+  - .env.v2 ↔ Lambda env 정합성 정리 (현재 .env.v2는 3개만, Lambda는 7개)
+  - v2/CLAUDE.md의 `sedaily-mbti-v2-lambda-role` 언급 → 실제 `sedaily-mbti-v2-collector-dev-role-nbf99tic` (콘솔 자동 생성 service role)로 정정
+  - TASK-2.6 통합 테스트 9개 VPC 실측 (DDL 적용 완료, 코드 적용 완료, 실 검증만 남음)
+- **Notes**:
+  - 운영 영향 없음 — 정리 차원. 데모 시연 흐름과 분리.
 
 ---
 
