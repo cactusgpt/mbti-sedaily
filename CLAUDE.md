@@ -38,7 +38,7 @@ cd frontend-next
 npm install
 npm run dev          # http://localhost:3000
 npm run build        # production build (static export → out/)
-npx next lint        # lint
+npm run lint         # eslint (package.json script — `next lint` is deprecated in Next 15+)
 npx tsc --noEmit     # type check
 ```
 
