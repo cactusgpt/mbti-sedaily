@@ -263,6 +263,34 @@ def test_build_metadata_handles_empty_sub_title() -> None:
     assert _build_metadata(article)["sub_title"] == ""
 
 
+def test_build_metadata_includes_content_preview_truncated_to_200() -> None:
+    """Selector Lambda relies on metadata.content_preview to score articles
+    without re-fetching the S3 XML. 200 chars matches v1's
+    step1_select.CONTENT_PREVIEW_CHARS so Nova Lite prompt budget is preserved."""
+    long_body = "한" * 500
+    article = _make_article(content_clean=long_body)
+    meta = _build_metadata(article)
+    assert "content_preview" in meta
+    assert meta["content_preview"] == "한" * 200
+    assert len(meta["content_preview"]) == 200
+
+
+def test_build_metadata_content_preview_keeps_short_body_intact() -> None:
+    body = "짧은 본문" * 60  # 360 chars — over _MIN_BODY_LENGTH (300), under 200
+    article = _make_article(content_clean=body)
+    preview = _build_metadata(article)["content_preview"]
+    # 360 char body truncated to 200
+    assert len(preview) == 200
+    assert preview == body[:200]
+
+
+def test_build_metadata_content_preview_handles_under_200() -> None:
+    short_body = "짧" * 350  # 350 chars (still over MIN 300)
+    article = _make_article(content_clean=short_body)
+    preview = _build_metadata(article)["content_preview"]
+    assert len(preview) == 200  # truncated; never exceeds 200
+
+
 # =============================================================================
 # Unit — handler dispatch (sync entry; decorator wraps asyncio.run internally)
 # =============================================================================

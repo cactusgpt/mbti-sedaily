@@ -70,6 +70,12 @@ _EMBED_MAX_BODY_CHARS = 6000
 # snippets that get replaced by a longer follow-up, or raw-feed stubs.
 _MIN_BODY_LENGTH = 300
 
+# Body preview stored in metadata for the Selector Lambda. 200 chars is the
+# v1 step1_select.CONTENT_PREVIEW_CHARS value — preserves the prompt-token
+# budget Nova Lite was tuned against. Longer previews don't help selection
+# accuracy and inflate Bedrock cost linearly.
+_CONTENT_PREVIEW_CHARS = 200
+
 # Korean newspaper convention: personnel announcements ([인사]) and
 # obituaries ([부고]) are news items by XML format but not news to read.
 _GARBAGE_TITLE_MARKERS = ("[인사]", "[부고]")
@@ -138,6 +144,7 @@ def _build_metadata(article: S3Article) -> Dict[str, Any]:
         "author_email": article.author_email,
         "press": article.press,
         "sub_title": article.sub_title or "",
+        "content_preview": article.content_clean[:_CONTENT_PREVIEW_CHARS],
     }
 
 
