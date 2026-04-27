@@ -46,6 +46,54 @@ interface Article {
   versions?: Record<string, MbtiVersion>;
 }
 
+// ─── v2 → v1 shape 어댑터 (TASK-7) ─────────────────────────────────────
+// v2 Feed API 응답 (items[]) 을 기존 컴포넌트들이 기대하는 v1-shape Article로
+// 매핑. v1 필드명 일부가 v2에서 rename됐고, 일부 필드는 v2에 없음:
+//   provider     ← v2.press
+//   original_link ← v2.url
+//   content      ← v2.body_preview (200자, ArticleView에서 전체 본문 fetch)
+//   image_url    ← v2엔 없음 (Collector v2 미수집). null 두면 ArticleCard가
+//                  ImagePlaceholder로 자동 fallback (코드 변경 0).
+//   versions     ← v2엔 없음 (Article API 4-parallel fetch가 채움)
+//
+// sub_title은 v2에서 raw HTML <br/> 포함 가능. 카드는 첫 줄만 보이므로
+// 첫 <br/> 이전까지 자름 (XSS 안전, 데모 시각 임팩트 보존).
+function adaptV2FeedItem(v2: Record<string, unknown>): Article {
+  const subTitleRaw = (v2.sub_title as string | null) || '';
+  const subTitleClean = subTitleRaw.split(/<br\s*\/?>/i)[0] || '';
+  const bodyPreview = (v2.body_preview as string | null) || '';
+
+  return {
+    news_id: v2.news_id as string,
+    title: (v2.title as string) || '',
+    sub_title: subTitleClean,
+    published_at: (v2.published_at as string) || '',
+    category: (v2.category as string) || '',
+    provider: (v2.press as string) || '',
+    byline: (v2.byline as string) || '',
+    image_url: null,
+    content: bodyPreview,
+    original_link: (v2.url as string) || '',
+    versions: undefined,
+  };
+}
+
+// v2 Article API의 version 객체를 MbtiVersion shape로 변환.
+// v1의 tone 필드가 v2엔 없어서 빈 문자열로 채움. v1 frontend 컴포넌트는 tone을
+// 표시 용도로만 쓰며, 빈 문자열이면 단순히 안 보임 (data-driven hide 패턴).
+function adaptV2Version(v2Version: Record<string, unknown>): MbtiVersion {
+  return {
+    title: (v2Version.title as string) || '',
+    subtitle: (v2Version.subtitle as string) || '',
+    body: (v2Version.body as string) || '',
+    key_points: Array.isArray(v2Version.key_points)
+      ? (v2Version.key_points as string[])
+      : [],
+    closing_line: (v2Version.closing_line as string) || '',
+    tone: '',
+  };
+}
+
 interface Props {
   selectedGroup: MbtiGroupId;
   onChangeGroup: () => void;
@@ -611,6 +659,11 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   // 프리페칭
   const prefetchingRef = useRef<Set<string>>(new Set());
 
+  // Prefetch (TASK-7) — v2 4-parallel.
+  // ArticleView가 진입 시 4 MBTI를 병렬 fetch해서 versions를 채울 거지만,
+  // hover/scroll 트리거로 미리 받아두면 카드 클릭 직후 첫 표시 latency를
+  // 더 줄일 수 있음. 4 fetch 모두 성공해야 캐시 저장 (부분 실패면 ArticleView
+  // 진입 시 다시 시도).
   const prefetchArticle = useCallback((article: Article) => {
     const id = article.news_id;
     if (id.startsWith('mock-')) return;
@@ -618,27 +671,34 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
     if (article.versions && Object.keys(article.versions).length === 4) return;
 
     prefetchingRef.current.add(id);
-    // 먼저 S3에서 상세 정보 가져오기 시도
-    fetch(`${API_URL}/s3-article/${id}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.error) {
-          // S3에 없으면 기존 API로 fallback
-          return fetch(`${API_URL}/api/article/${id}`).then(r => r.json());
+    const groups = ['NT', 'NF', 'ST', 'SF'] as const;
+    Promise.all(
+      groups.map((g) =>
+        fetch(`${API_URL}/api/v2/article/${id}?mbti=${g}`).then((r) =>
+          r.ok ? r.json() : null
+        )
+      )
+    )
+      .then((results) => {
+        const versions: Record<string, MbtiVersion> = {};
+        let allOk = true;
+        results.forEach((r, i) => {
+          if (r && r.version) {
+            versions[groups[i]] = adaptV2Version(r.version as Record<string, unknown>);
+          } else {
+            allOk = false;
+          }
+        });
+        if (allOk) {
+          // Article shape 그대로 보존 (openArticle이 setViewArticle(cached ||
+          // article) 흐름이라 Article로 저장돼야 함). versions만 채워넣고
+          // 나머지 필드는 카드의 기존 article 그대로.
+          prefetchCache.set(id, { ...article, versions });
         }
-        return data;
       })
-      .then(data => {
-        const enrichedArticle: Article = {
-          ...article,
-          content: data.content_ko || article.content,
-          ...(data.version_NT?.body && data.version_NF?.body && data.version_ST?.body && data.version_SF?.body
-            ? { versions: { NT: data.version_NT, NF: data.version_NF, ST: data.version_ST, SF: data.version_SF } }
-            : {}),
-        };
-        prefetchCache.set(id, enrichedArticle);
+      .catch(() => {
+        // silent — ArticleView will retry on actual click
       })
-      .catch(() => {})
       .finally(() => prefetchingRef.current.delete(id));
   }, []);
 
@@ -681,46 +741,29 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
     if (viewArticle) window.history.back();
   }, [viewArticle]);
 
-  // 기사 로드 - MBTI 변환된 기사 우선, 없으면 S3 XML → 검색 API 순으로 fallback
+  // 기사 로드 (TASK-7) — v2 단일 endpoint /api/v2/feed.
+  // 3-tier fallback (v1 articles/s3-articles/search)은 제거. v2 백엔드는
+  // Selector + Transform이 자동 fire 중이라 안정적이고, 빈 응답은 "오늘
+  // 선정된 기사 없음" empty state로 graceful 처리.
+  // selectedDate는 NewsFeedTab가 hide된 지금 의미가 없으므로 since 파라미터로
+  // 매핑하지 않고 기본값(서버: 오늘 KST - 7일)에 맡김. selectedDate 의존성은
+  // 유지해서 향후 picker 부활 시 재연결 쉬움.
   useEffect(() => {
     async function fetchArticles() {
       try {
         setLoading(true);
-        const dateStr = formatDateStr(selectedDate);
-
-        // Primary: MBTI-transformed articles from pipeline DB (versions pre-loaded)
-        const res = await fetch(`${API_URL}/api/articles?date=${dateStr}&mbti_group=${selectedGroup}&limit=30`);
+        const url = `${API_URL}/api/v2/feed?mbti=${selectedGroup}&limit=30`;
+        const res = await fetch(url);
+        if (!res.ok) {
+          console.warn(`v2 feed returned ${res.status}`);
+          setArticles([]);
+          return;
+        }
         const data = await res.json();
-        if (data.articles?.length > 0) {
-          setArticles(data.articles);
-          return;
-        }
-
-        // Fallback 1: raw S3 XML articles (for dates before pipeline was active)
-        const xmlRes = await fetch(`${API_URL}/s3-articles?date=${dateStr}&limit=30`);
-        const xmlData = await xmlRes.json();
-        if (xmlData.articles?.length > 0) {
-          setArticles(xmlData.articles);
-          return;
-        }
-
-        // Fallback 2: search API
-        const targetDate = selectedDate.toISOString().slice(0, 10);
-        const nextDay = new Date(selectedDate);
-        nextDay.setDate(nextDay.getDate() + 1);
-        const searchRes = await fetch(`${API_URL}/api/search`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            query: "*",
-            filters: { published_from: targetDate, published_until: nextDay.toISOString().slice(0, 10) },
-            page: 1,
-            page_size: 30,
-          }),
-        });
-        const searchData = await searchRes.json();
-        setArticles(searchData.articles?.length > 0 ? searchData.articles : []);
-      } catch {
+        const items = Array.isArray(data?.items) ? data.items : [];
+        setArticles(items.map(adaptV2FeedItem));
+      } catch (err) {
+        console.warn('v2 feed fetch failed', err);
         setArticles([]);
       } finally {
         setLoading(false);

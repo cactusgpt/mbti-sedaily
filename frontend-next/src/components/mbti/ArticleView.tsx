@@ -30,6 +30,24 @@ interface Article {
   versions?: Record<string, MbtiVersion>;
 }
 
+// v2 Article API의 version 객체를 MbtiVersion shape로 변환.
+// FeedPage.tsx의 동일 함수와 의도적으로 복제 — ArticleView의 MbtiVersion은
+// image_url 필드 없고 FeedPage 것은 있어서 (interface drift) shared 모듈로
+// 옮기면 type 충돌. 데모 후 TASK-4-Z에서 interface 통합 + adapter shared
+// 이전 예정.
+function adaptV2Version(v2Version: Record<string, unknown>): MbtiVersion {
+  return {
+    title: (v2Version.title as string) || '',
+    subtitle: (v2Version.subtitle as string) || '',
+    body: (v2Version.body as string) || '',
+    key_points: Array.isArray(v2Version.key_points)
+      ? (v2Version.key_points as string[])
+      : [],
+    closing_line: (v2Version.closing_line as string) || '',
+    tone: '',
+  };
+}
+
 interface Props {
   article: Article;
   currentGroup: MbtiGroupId;
@@ -94,32 +112,46 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
       .join(" ");
   };
 
-  // API에서 MBTI 버전 가져오기
+  // TASK-7: v2 4-parallel fetch.
+  // v1은 한 호출에 4 versions를 받았지만 v2 Article API는 mbti 단일 variant만
+  // 반환. 진입 시 4 MBTI 병렬 호출, 모두 성공해야 versions set (부분 성공은
+  // FeedPage prefetch와 정책 일관 — 깜빡거림 방지).
+  // 실패 시 fallback render (line 152의 !version 분기)로 fallthrough.
+  // FeedPage prefetchCache가 같은 어댑터 결과를 미리 채워뒀을 수 있지만
+  // ArticleView는 prefetchCache를 직접 보지 않음 (FeedPage의 openArticle이
+  // 이미 cached article을 setViewArticle해서 versions가 들어온 상태로 props
+  // 받음). 즉 prefetch hit 케이스는 line 99 가드로 fetch 자체가 skip됨.
   useEffect(() => {
     if (!version && !isLoadingContent) {
       setIsLoadingContent(true);
-      fetch(`${API_URL}/api/article/${article.news_id}`)
-        .then((res) => {
-          if (!res.ok) throw new Error(`API error: ${res.status}`);
-          return res.json();
+      const groups = ['NT', 'NF', 'ST', 'SF'] as const;
+      Promise.all(
+        groups.map((g) =>
+          fetch(`${API_URL}/api/v2/article/${article.news_id}?mbti=${g}`).then(
+            (r) => (r.ok ? r.json() : null)
+          )
+        )
+      )
+        .then((results) => {
+          const nextVersions: Record<string, MbtiVersion> = {};
+          let allOk = true;
+          results.forEach((r, i) => {
+            if (r && r.version) {
+              nextVersions[groups[i]] = adaptV2Version(
+                r.version as Record<string, unknown>
+              );
+            } else {
+              allOk = false;
+            }
+          });
+          if (allOk) {
+            setArticle((prev) => ({ ...prev, versions: nextVersions }));
+          }
+          // !allOk 케이스: setArticle 안 함 → version 그대로 undefined →
+          // line 152 fallback render. 어댑터가 content를 body_preview로
+          // 이미 채워뒀으니 200자라도 표시됨.
         })
-        .then((data) => {
-          setArticle((prev) => ({
-            ...prev,
-            content: data.content_ko || prev.content,
-            ...(data.version_NT?.body && data.version_NF?.body && data.version_ST?.body && data.version_SF?.body
-              ? {
-                  versions: {
-                    NT: data.version_NT,
-                    NF: data.version_NF,
-                    ST: data.version_ST,
-                    SF: data.version_SF,
-                  },
-                }
-              : {}),
-          }));
-        })
-        .catch((err) => console.error("Failed to load content:", err))
+        .catch((err) => console.error('Failed to load v2 versions:', err))
         .finally(() => setIsLoadingContent(false));
     }
   }, [article.news_id, version]);
