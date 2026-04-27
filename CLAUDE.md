@@ -23,11 +23,11 @@ AI LENS — 서울경제신문의 MBTI 맞춤형 경제 뉴스 서비스. 원본
 The repo currently holds two backend stacks side by side:
 
 - **v1** — everything in `backend/` **outside** `backend/v2/`. This is the production backend serving `mbti.sedaily.ai` today. The rest of this CLAUDE.md describes v1 unless explicitly noted.
-- **v2** — `backend/v2/`. A parallel redesign on branch `feature/backend-redesign` (recent commits are tagged `[v2]`). pgvector-centric storage hub; whole-corpus ingest followed by a **Core 1.5 Selector** that uses Nova Lite to score raw articles per MBTI and flag a top-N subset in the `article_selections` table; **Core 2 Transform** polls `article_selections.selected=TRUE AND transformed_at IS NULL` (not `articles.status='raw'`) so Opus 4.6 only runs on the selected subset; then per-user personalization and a Chat Agent on Bedrock AgentCore Runtime. Nothing in v2 is in production yet.
+- **v2** — `backend/v2/`. A parallel redesign on branch `feature/backend-redesign` (recent commits are tagged `[v2]`). pgvector-centric storage hub; whole-corpus ingest followed by a **Core 1.5 Selector** that uses Nova Lite to score raw articles per MBTI and flag a top-N subset in the `article_selections` table; **Core 2 Transform** polls `article_selections.selected=TRUE AND transformed_at IS NULL` (not `articles.status='raw'`) so Opus 4.6 only runs on the selected subset; **Core 3** exposes per-user reads via the Feed and Article Detail Lambdas (TASK-6, just landed) — the recommend agent and chat-agent personalization layers come later; Chat Agent will run on Bedrock AgentCore Runtime. Nothing in v2 is in production yet.
 
 **If you're doing v2 work, read `backend/v2/CLAUDE.md` and `backend/v2/.clauderules` first — they override this file for v2-scoped changes.** Hard rules from `.clauderules` worth knowing even from outside v2: v2 work must not modify v1 files (including this CLAUDE.md, `deploy.sh`, or anything in `handlers/`, `clients/`, `core/`, `services/`, `config/`); AWS resource creation is conditional — allowed only after a documented plan with cost estimate, explicit user approval, and stop-on-anomaly + ID tracking, while Lambda function create/delete and any secret env-var writes (e.g. `PG_V2_PASSWORD`) remain always-manual; `update-function-code` and non-secret config updates on existing Lambdas are the only fully-automated path. Commit trailer must read exactly `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>` — no model-capability suffix like "(1M context)" (GitHub parses author identity from the email, and parentheticals break the author-count stats).
 
-v2 resources are namespaced `sedaily-mbti-v2-*-dev` (Lambda — `v2` goes in the middle, e.g. `sedaily-mbti-v2-collector-dev`, `sedaily-mbti-v2-selector-dev`, `sedaily-mbti-v2-transform-dev`, `sedaily-mbti-v2-health-dev`), `sedaily-mbti-pgvector-v2-dev` (RDS), `sedaily-mbti-article-body-v2-dev` (S3 — these two keep `v2` at the end) and ship via `backend/v2/deploy-v2.sh` (builds `lambda_package_v2.zip` that bundles v1 source so v2 handlers can `from clients.xxx import ...`). The authoritative v2 function list is `API_V2_FUNCTIONS` / `CORE1_FUNCTIONS` / `CORE1_5_FUNCTIONS` / `CORE2_FUNCTIONS` / `CORE3_FUNCTIONS` in `deploy-v2.sh`. The v1 `./deploy.sh` never includes `v2/`.
+v2 resources are namespaced `sedaily-mbti-v2-*-dev` (Lambda — `v2` goes in the middle, e.g. `sedaily-mbti-v2-collector-dev`, `sedaily-mbti-v2-selector-dev`, `sedaily-mbti-v2-transform-dev`, `sedaily-mbti-v2-feed-dev`, `sedaily-mbti-v2-article-dev`, `sedaily-mbti-v2-health-dev`), `sedaily-mbti-pgvector-v2-dev` (RDS), `sedaily-mbti-article-body-v2-dev` (S3 — these two keep `v2` at the end) and ship via `backend/v2/deploy-v2.sh` (builds `lambda_package_v2.zip` that bundles v1 source so v2 handlers can `from clients.xxx import ...`). The authoritative v2 function list is `API_V2_FUNCTIONS` / `CORE1_FUNCTIONS` / `CORE1_5_FUNCTIONS` / `CORE2_FUNCTIONS` / `CORE3_FUNCTIONS` in `deploy-v2.sh`. The v1 `./deploy.sh` never includes `v2/`.
 
 ## Commands
 
@@ -77,6 +77,11 @@ aws cloudfront create-invalidation --distribution-id E1QS7PY350VHF6 --paths "/*"
 The backend deploy script builds a single Lambda zip (runtime deps only — `fastapi`/`pytest` and `infrastructure/` are excluded), uploads to `s3://sedaily-mbti-lambda-packages-dev/`, and calls `update-function-code` on each of 23 Lambda functions (18 API + 5 Pipeline). Functions that don't exist in AWS are skipped gracefully (`[SKIP] Function not found`). The authoritative function list is `API_FUNCTIONS` / `PIPELINE_FUNCTIONS` in `deploy.sh`.
 
 Lambda names don't match handler filenames: `article_handler.py` → `sedaily-mbti-article-dev` (no `handler` suffix), `step1_select.py` → `sedaily-mbti-pipeline-step1-dev`, `supervisor.py` → `sedaily-mbti-pipeline-supervisor-dev`. Use `deploy.sh` as the source of truth for the mapping.
+
+Two one-shot setup scripts live alongside `deploy.sh` and are deliberately *not* invoked by it — run them manually only when standing up the infrastructure they own:
+
+- `backend/setup-briefing-lambda.sh` — creates `sedaily-mbti-briefing-dev` Lambda + the daily 07:00 KST EventBridge rule (`sedaily-mbti-daily-briefing`). After it runs once, ongoing code updates flow through `deploy.sh` like any other API function.
+- `backend/setup-lambda-warming.sh` — registers a 5-minute CloudWatch Events rule (`sedaily-mbti-lambda-warming`) that pings `search`, `article`, and `post` Lambdas with `{"warmup": true}` to keep them warm.
 
 ## Architecture
 
@@ -365,6 +370,7 @@ The frontend calls these endpoints (do not change paths or response shapes):
 |------|---------|
 | `AWS_BACKEND_ARCHITECTURE.md` | Verified production AWS inventory — account, ARNs, 62 API routes, 23 Lambda configs, Step Functions state details, cost estimates. Use this when you need exact resource names/IDs. |
 | `FULL_PROJECT_SPEC.md` | Complete codebase spec (all files, APIs, schemas, code examples) |
+| `PROJECT_DOCUMENTATION.md` | Korean-language project spec — service overview, editor personas, data flow. Last refreshed 2026-04-07 so individual values may have drifted; verify against this CLAUDE.md or the source before relying on specifics. |
 | `ai-lens-backend-architecture.md` | To-Be architecture design document |
 | `ARTICLE_PIPELINE.md` | Step Functions pipeline walkthrough (current chained-Map design) |
 | `frontend-next/CLAUDE.md` | Target FSD architecture rules, naming conventions, dependency direction |
