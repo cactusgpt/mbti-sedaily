@@ -1123,3 +1123,76 @@ class PgVectorV2Client:
         except Exception as exc:
             logger.warning(f"get_feed({group},limit={limit}) failed: {exc}")
             return []
+
+    def get_article_with_version(
+        self,
+        news_id: str,
+        mbti_type: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Return one article + its specific MBTI variant in a single JOIN.
+
+        Used by the Article Detail API (TASK-6). Different from
+        ``get_article_versions(news_id)`` which returns all 4 MBTI variants
+        without article-level metadata; this method returns a single (news_id
+        × MBTI) pair plus the original article's metadata fields needed to
+        render a detail page (category, published_at, press, url, original
+        title).
+
+        Returns ``None`` when:
+          * the article does not exist, OR
+          * the article exists but has no version for the requested MBTI
+            (e.g. the Selector did not pick this article for that group, or
+            transform failed for that group only).
+
+        Callers (the Article Detail handler) treat ``None`` as 404. The
+        partial-MBTI failure semantics from TASK-5 mean a 404 here can
+        legitimately mean "this article was selected for other MBTIs but
+        not for yours" — the handler returns a clear "no version available"
+        rather than synthesizing one.
+
+        Returns a dict with both the article's source metadata and the
+        version's transformed fields. Keeping them flat (vs. nested) so
+        the handler can pick exactly the keys the API contract exposes
+        without re-shaping nested dicts.
+        """
+        group = _normalize_mbti_group(mbti_type)
+        if not self._enabled:
+            return None
+        try:
+            rows = self.conn.run(
+                """
+                SELECT a.news_id, a.title AS original_title, a.category,
+                       a.published_at, a.metadata AS article_metadata,
+                       av.mbti_type, av.title AS version_title,
+                       av.body AS version_body, av.metadata AS version_metadata,
+                       av.created_at AS version_created_at
+                FROM articles a
+                JOIN article_versions av
+                     ON av.news_id = a.news_id
+                    AND av.mbti_type = :g
+                WHERE a.news_id = :nid
+                LIMIT 1
+                """,
+                nid=news_id,
+                g=group,
+            )
+            if not rows:
+                return None
+            r = rows[0]
+            return {
+                "news_id": r[0],
+                "original_title": r[1],
+                "category": r[2],
+                "published_at": r[3],
+                "article_metadata": r[4],
+                "mbti_type": r[5],
+                "version_title": r[6],
+                "version_body": r[7],
+                "version_metadata": r[8],
+                "version_created_at": r[9],
+            }
+        except Exception as exc:
+            logger.warning(
+                f"get_article_with_version({news_id!r},{group}) failed: {exc}"
+            )
+            return None

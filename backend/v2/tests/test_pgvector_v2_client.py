@@ -1577,6 +1577,99 @@ def test_get_feed_swallows_exception() -> None:
 
 
 # =============================================================================
+# get_article_with_version (TASK-6) — unit tests
+# =============================================================================
+
+
+def test_v2_2_6_get_article_with_version_returns_none_when_disabled() -> None:
+    c = PgVectorV2Client(host="", password="")
+    assert c.get_article_with_version("nid-1", "NT") is None
+
+
+def test_v2_2_6_get_article_with_version_normalizes_full_mbti() -> None:
+    """4-char MBTI (e.g. 'INTJ') gets reduced to 2-char group ('NT') via
+    the shared _normalize_mbti_group util. Used by the Article API when
+    a stored user mbti_type is passed straight through."""
+    c = _enabled()
+    c._conn.run.return_value = []
+    c.get_article_with_version("nid-1", "INTJ")
+    bound = c._conn.run.call_args.kwargs
+    assert bound["g"] == "NT"
+
+
+def test_v2_2_6_get_article_with_version_rejects_invalid_mbti() -> None:
+    """Lowercase / unknown / wrong-length values are rejected by the shared
+    normalizer (strict — handler validates user input before calling)."""
+    c = _enabled()
+    with pytest.raises(ValueError):
+        c.get_article_with_version("nid-1", "nt")
+    with pytest.raises(ValueError):
+        c.get_article_with_version("nid-1", "XX")
+    with pytest.raises(ValueError):
+        c.get_article_with_version("nid-1", "INVALID")
+
+
+def test_v2_2_6_get_article_with_version_returns_none_on_no_match() -> None:
+    """No row returned (article missing OR no version for that MBTI) → None.
+    Caller (Article API handler) treats None as 404."""
+    c = _enabled()
+    c._conn.run.return_value = []  # empty result set
+    assert c.get_article_with_version("nid-missing", "NT") is None
+
+
+def test_v2_2_6_get_article_with_version_parses_row_shape() -> None:
+    """Verify the returned dict carries both article-level and version-level
+    fields, flat (not nested), with correct keys for the API contract."""
+    from datetime import datetime, timezone as _tz
+    c = _enabled()
+    pub_at = datetime(2026, 4, 26, 13, 0, tzinfo=_tz.utc)
+    created = datetime(2026, 4, 27, 2, 0, tzinfo=_tz.utc)
+    c._conn.run.return_value = [
+        (
+            "nid-1",                               # news_id
+            "원본 제목",                           # original_title
+            "사회",                                # category
+            pub_at,                                # published_at
+            {"press": "서울경제", "url": "u1"},    # article_metadata
+            "NT",                                  # mbti_type
+            "NT 톤 제목",                          # version_title
+            "NT 본문 전체...",                     # version_body
+            {"key_points": ["p1", "p2"]},          # version_metadata
+            created,                               # version_created_at
+        )
+    ]
+    result = c.get_article_with_version("nid-1", "NT")
+    assert result is not None
+    assert result["news_id"] == "nid-1"
+    assert result["original_title"] == "원본 제목"
+    assert result["category"] == "사회"
+    assert result["published_at"] == pub_at
+    assert result["article_metadata"] == {"press": "서울경제", "url": "u1"}
+    assert result["mbti_type"] == "NT"
+    assert result["version_title"] == "NT 톤 제목"
+    assert result["version_body"] == "NT 본문 전체..."
+    assert result["version_metadata"] == {"key_points": ["p1", "p2"]}
+    assert result["version_created_at"] == created
+
+
+def test_v2_2_6_get_article_with_version_swallows_exception() -> None:
+    """DB exception → None (handler shows 404, not 500)."""
+    c = _enabled()
+    c._conn.run.side_effect = RuntimeError("db connection lost")
+    assert c.get_article_with_version("nid-1", "NT") is None
+
+
+def test_v2_2_6_get_article_with_version_binds_news_id_and_mbti() -> None:
+    """SQL :nid and :g bind to function args exactly."""
+    c = _enabled()
+    c._conn.run.return_value = []
+    c.get_article_with_version("very-specific-nid", "SF")
+    bound = c._conn.run.call_args.kwargs
+    assert bound["nid"] == "very-specific-nid"
+    assert bound["g"] == "SF"
+
+
+# =============================================================================
 # article_selections (TASK-2.6) — integration tests
 # =============================================================================
 

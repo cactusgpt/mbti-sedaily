@@ -17,7 +17,9 @@
 #   ./v2/deploy-v2.sh collector        — Core 1 (TASK-2.1+)
 #   ./v2/deploy-v2.sh selector         — Core 1.5 (TASK-4-B)
 #   ./v2/deploy-v2.sh transform        — Core 2 (TASK-2.3+)
-#   ./v2/deploy-v2.sh personalization  — Core 3 (TASK-3.4+)
+#   ./v2/deploy-v2.sh personalization  — Core 3 (TASK-6 + TASK-3.4)
+#   ./v2/deploy-v2.sh feed             — Core 3 Feed API only (TASK-6)
+#   ./v2/deploy-v2.sh article          — Core 3 Article Detail API only (TASK-6)
 #   ./v2/deploy-v2.sh chat-agent       — defers to Docker/ECR path (Phase 4)
 
 set -e
@@ -50,7 +52,11 @@ CORE2_FUNCTIONS=(
   "sedaily-mbti-v2-transform-dev"  # TASK-2.3
   # TASK-2.4 will add sedaily-mbti-v2-validator-dev
 )
-CORE3_FUNCTIONS=()  # TASK-3.4 → feed, article, event, consolidation
+CORE3_FUNCTIONS=(
+  "sedaily-mbti-v2-feed-dev"     # TASK-6 Feed API
+  "sedaily-mbti-v2-article-dev"  # TASK-6 Article Detail API
+  # TASK-3.4 will add: event, consolidation handlers
+)
 
 # chat-agent deploys via Docker + ECR + agentcore CLI — not in this list.
 
@@ -73,6 +79,12 @@ case "$DEPLOY_TARGET" in
   personalization)
     FUNCTIONS=("${CORE3_FUNCTIONS[@]}")
     ;;
+  feed)
+    FUNCTIONS=("sedaily-mbti-v2-feed-dev")
+    ;;
+  article)
+    FUNCTIONS=("sedaily-mbti-v2-article-dev")
+    ;;
   chat-agent)
     echo "Chat Agent deploys via Docker build + ECR push + agentcore CLI."
     echo "See backend/v2/agents/chat_agent/deploy.sh (TASK-4.2)."
@@ -89,7 +101,7 @@ case "$DEPLOY_TARGET" in
     ;;
   *)
     echo "Unknown target: $DEPLOY_TARGET"
-    echo "Use: all | api | collector | selector | transform | personalization | chat-agent"
+    echo "Use: all | api | collector | selector | transform | personalization | feed | article | chat-agent"
     exit 1
     ;;
 esac
