@@ -406,6 +406,67 @@ Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이
   - **OLD/NEW transition 흔적**: CloudWatch에 OLD 코드의 마지막 fire (`batch_size=20, completed=17`)와 NEW 코드의 첫 fire (`queue_rows=4, article_groups=1`)가 같은 log group에 시간순으로 남음. 키 이름 차이가 자연스러운 transition marker.
   - **Q5 SQL artifact**: article_versions.body는 dedicated column (metadata JSONB 아님). 검증 SQL이 metadata->>'body'로 조회해서 None — 데이터는 정상 (Q6의 av_count=4가 reverse-confirm).
 
+### TASK-6: Feed/Article Detail API (Core 3 read-side)
+- **종속성**: TASK-5
+- **커밋**: `3619adf` (코드) + post-deploy commit (이 작업)
+- **Files modified**:
+  - `backend/v2/clients/pgvector_v2_client.py` *(+~60 lines, get_article_with_version 메서드 추가)*
+  - `backend/v2/handlers/core3_feed.py` *(NEW, ~205 lines)*
+  - `backend/v2/handlers/core3_article.py` *(NEW, ~200 lines)*
+  - `backend/v2/tests/test_pgvector_v2_client.py` *(+95 lines, +7 unit tests)*
+  - `backend/v2/tests/test_core3_feed.py` *(NEW, ~380 lines, 30 unit tests)*
+  - `backend/v2/tests/test_core3_article.py` *(NEW, ~380 lines, 25 unit tests)*
+  - `backend/v2/deploy-v2.sh` *(+15/-3, CORE3_FUNCTIONS 채움 + feed/article sub-targets)*
+- **Endpoints**:
+  - `GET /api/v2/feed?mbti=NT&limit=20&since=YYYY-MM-DD&user_id=...` — 메타 + body_preview 200자
+  - `GET /api/v2/article/{news_id}?mbti=NT&user_id=...` — 전체 본문 + version metadata
+- **결정 사항** (사용자 답변 — 모두 "권고"):
+  - Q1=C: Feed 메타 + body_preview 200자, 전체 body는 Article API
+  - Q2=NONE: AuthorizationType: NONE (v1 일관)
+  - Q3=B: 같은 API Gateway chzwwtjtgk, 새 path /api/v2/...
+  - Q4=B: v2 신규 응답 형식 (composite_score 등 내부 점수 미노출)
+  - Q5=A: Article API에 article_selections 메타 미포함
+  - user_id: optional query param (Phase 3에서 활용, 지금 무시)
+- **Critical invariant — Per-MBTI variant**:
+  같은 article이 여러 MBTI에 selected될 때, 사용자가 누른 MBTI에 따라 다른 본문 반환.
+  `article_versions UNIQUE(news_id, mbti_type)` + handler에서 mbti 필터로 보장.
+  Article API는 요청 MBTI에 version 없으면 404 반환 (다른 MBTI fallback 안 함).
+- **Live verification (2026-04-27 06:31 UTC, endpoint deploy)**:
+  - 7개 검증 모두 PASS:
+    - V1 Feed NT: 200, 1.96s, count=2
+    - V2 Feed NF/ST/SF: 모두 200, MBTI별 톤 명확
+    - V3 Article NT: 200, 1.74s, body 1682 chars, key_points 3개
+    - **V4 (핵심) — 같은 news_id 2KBAJ2JGQ8을 4 MBTI로 조회 → 4개 완전히 다른 본문**:
+      - NT: "韓 잠재성장률 1.5%대 추락…" (애널리스트 리포트)
+      - NF: "'성장률 1%대'라는 숫자가 말하지 않는 것…" (칼럼/에세이)
+      - ST: "내년 韓 잠재성장률 1.57%로 사상 최저…" (팩트시트 표)
+      - SF: "우리나라 성장 잠재력, 내년엔 역대 최저라는데… 🤔" (친구 톡)
+    - V5 Edge cases: 400 (mbti 누락/invalid/article에서 mbti 누락) + 404 (nonexistent news_id) 모두 정확
+    - V6 INTJ → NT 정규화 정상
+    - V7 CORS preflight: 204, Allow-Origin *, Allow-Methods GET/OPTIONS/POST
+  - cold start 후 응답 1.7-2.0s, 5xx 0건
+- **AWS 리소스 (이번 세션 신규 생성)**:
+  - Lambda `sedaily-mbti-v2-feed-dev` (1024MB / 30s, handler v2.handlers.core3_feed.lambda_handler, VPC + SG/role/env vars Selector와 공유)
+  - Lambda `sedaily-mbti-v2-article-dev` (동일 spec, handler v2.handlers.core3_article.lambda_handler)
+  - API Gateway HTTP API chzwwtjtgk:
+    - Integration `pf7fqpb` (Feed AWS_PROXY)
+    - Integration `gb5v1oj` (Article AWS_PROXY)
+    - Route `j3sekxs` (GET /api/v2/feed)
+    - Route `xkce062` (GET /api/v2/article/{news_id})
+  - Lambda permissions: `ApiGatewayInvokeFeedV2`, `ApiGatewayInvokeArticleV2`
+- **Definition of Done**:
+  - [x] pgvector_v2_client.get_article_with_version 추가 + 단위 테스트
+  - [x] core3_feed.py + core3_article.py 핸들러 작성
+  - [x] 62 신규 unit tests (358 → 420)
+  - [x] deploy-v2.sh에 두 함수 등록 + sub-targets
+  - [x] 두 Lambda 콘솔 신규 생성 (사용자, .clauderules #5)
+  - [x] API Gateway routes + integrations + permissions 자동 생성 (사용자 Q3=B 승인)
+  - [x] live curl 검증 7개 PASS
+  - [x] **per-MBTI variant invariant production 통과** (V4 핵심 검증)
+- **Notes**:
+  - **Article handler 오타 race**: 첫 콘솔 생성 시 Article Lambda의 Handler가 v2.handlers.core3_feed.lambda_handler로 잘못 입력된 상태였음 (Feed 값 그대로 복사). 검증 단계에서 잡아서 update-function-configuration으로 수정. 향후 두 함수 동시 콘솔 생성 시 Handler 검증 우선 권장.
+  - **Status: null 응답**: HTTP API v2의 get-deployments는 REST API와 달리 Status 필드 미사용. AutoDeploy 흐름에서 stage DeploymentId 즉시 교체로 lifecycle 관리 — 정상 동작.
+
 ### TASK-4-Z (post-demo): 보안/위생 정리
 - **종속성**: 데모 후
 - **항목**:
