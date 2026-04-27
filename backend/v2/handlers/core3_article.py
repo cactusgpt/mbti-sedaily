@@ -110,13 +110,19 @@ def _build_article_response(row: Dict[str, Any]) -> Dict[str, Any]:
     payload.
 
     Public shape (matches Q4=B v2 schema):
-      news_id, mbti_type, category, published_at, press, url,
-      original_title, version: {title, subtitle, body, key_points, closing_line},
+      news_id, mbti_type, category, published_at, press, url, byline,
+      original_title, original_sub_title,
+      version: {title, subtitle, body, key_points, closing_line},
       transformed_at
 
     Internal fields explicitly excluded:
       composite_score, embedding, raw metadata blobs from the JSONB
       columns that aren't part of the contract.
+
+    Note on missing image_url: Collector v2 doesn't currently capture
+    image_url from source articles, so neither this endpoint nor Feed
+    expose one. Frontend handles by rendering a category-based
+    placeholder image. To fix at root, see TASK-4-Z.
     """
     article_meta = row.get("article_metadata") or {}
     version_meta = row.get("version_metadata") or {}
@@ -128,7 +134,9 @@ def _build_article_response(row: Dict[str, Any]) -> Dict[str, Any]:
         "published_at": _isoformat_or_none(row.get("published_at")),
         "press": article_meta.get("press"),
         "url": article_meta.get("url"),
+        "byline": article_meta.get("author_name"),
         "original_title": row.get("original_title"),
+        "original_sub_title": article_meta.get("sub_title"),
         "version": {
             "title": row.get("version_title"),
             "subtitle": version_meta.get("subtitle", ""),

@@ -113,7 +113,12 @@ def test_build_article_response_full_shape() -> None:
         "original_title": "원본 제목",
         "category": "사회",
         "published_at": pub_at,
-        "article_metadata": {"press": "서울경제", "url": "https://sedaily.com/x"},
+        "article_metadata": {
+            "press": "서울경제",
+            "url": "https://sedaily.com/x",
+            "author_name": "홍길동 기자",
+            "sub_title": "원본 부제",
+        },
         "mbti_type": "NT",
         "version_title": "NT 톤 제목",
         "version_body": "NT 본문 전체...",
@@ -131,7 +136,9 @@ def test_build_article_response_full_shape() -> None:
     assert response["published_at"] == pub_at.isoformat()
     assert response["press"] == "서울경제"
     assert response["url"] == "https://sedaily.com/x"
+    assert response["byline"] == "홍길동 기자"
     assert response["original_title"] == "원본 제목"
+    assert response["original_sub_title"] == "원본 부제"
     assert response["version"]["title"] == "NT 톤 제목"
     assert response["version"]["body"] == "NT 본문 전체..."
     assert response["version"]["subtitle"] == "NT 부제"

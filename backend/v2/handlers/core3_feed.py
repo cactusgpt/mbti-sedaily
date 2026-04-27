@@ -137,10 +137,19 @@ def _build_feed_item(row: Dict[str, Any]) -> Dict[str, Any]:
     Strips internal fields (composite_score, version_metadata's body etc.)
     and truncates ``version_body`` to ``BODY_PREVIEW_CHARS``. The output
     is what the API contract exposes; nothing else escapes.
+
+    article_metadata (a.metadata JSONB from articles table) is included
+    flat at the top level — Collector writes ``url``, ``press``,
+    ``sub_title``, ``author_name``, ``author_email``, ``content_preview``
+    keys here. Frontend uses them for card rendering (byline, source
+    link, subtitle). ``image_url`` is NOT in this metadata today —
+    Collector doesn't capture it from the source. Frontend handles
+    that via category-based placeholder, not via this field.
     """
     body = row.get("version_body") or ""
     preview = body[:BODY_PREVIEW_CHARS]
     selection_date = row.get("selection_date")
+    article_metadata = row.get("article_metadata") or {}
     return {
         "news_id": row.get("news_id"),
         "category": row.get("category"),
@@ -149,6 +158,10 @@ def _build_feed_item(row: Dict[str, Any]) -> Dict[str, Any]:
         "transformed_at": _isoformat_or_none(row.get("transformed_at")),
         "title": row.get("version_title"),
         "body_preview": preview,
+        "press": article_metadata.get("press"),
+        "sub_title": article_metadata.get("sub_title"),
+        "url": article_metadata.get("url"),
+        "byline": article_metadata.get("author_name"),
     }
 
 
