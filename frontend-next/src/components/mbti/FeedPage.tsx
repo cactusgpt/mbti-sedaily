@@ -71,7 +71,7 @@ function adaptV2FeedItem(v2: Record<string, unknown>): Article {
     category: (v2.category as string) || '',
     provider: (v2.press as string) || '',
     byline: (v2.byline as string) || '',
-    image_url: null,
+    image_url: (v2.image_url as string) || null,
     content: bodyPreview,
     original_link: (v2.url as string) || '',
     versions: undefined,
