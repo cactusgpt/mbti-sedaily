@@ -119,10 +119,12 @@ def _build_article_response(row: Dict[str, Any]) -> Dict[str, Any]:
       composite_score, embedding, raw metadata blobs from the JSONB
       columns that aren't part of the contract.
 
-    Note on ``image_url``: standalone <image> tag from source XML
-    (Collector picks ``article.images[0].url`` per TASK-7-Z fix).
-    Articles ingested before that fix have None; frontend renders a
-    category-based placeholder.
+    Note on ``image_url``: lives in per-version ``version_metadata``
+    (Path 2 — Transform extracts it from S3 ``original.json`` only for
+    articles that actually transform, avoiding wasted work on the 87%
+    of raw articles that never surface). Same value across all 4 MBTI
+    variants of an article. Versions written before the Path 2 fix
+    have None; frontend renders a category-based placeholder.
     """
     article_meta = row.get("article_metadata") or {}
     version_meta = row.get("version_metadata") or {}
@@ -135,7 +137,7 @@ def _build_article_response(row: Dict[str, Any]) -> Dict[str, Any]:
         "press": article_meta.get("press"),
         "url": article_meta.get("url"),
         "byline": article_meta.get("author_name"),
-        "image_url": article_meta.get("image_url"),
+        "image_url": version_meta.get("image_url"),
         "original_title": row.get("original_title"),
         "original_sub_title": article_meta.get("sub_title"),
         "version": {

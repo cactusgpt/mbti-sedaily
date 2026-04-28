@@ -140,18 +140,20 @@ def _build_feed_item(row: Dict[str, Any]) -> Dict[str, Any]:
 
     article_metadata (a.metadata JSONB from articles table) is included
     flat at the top level — Collector writes ``url``, ``press``,
-    ``sub_title``, ``author_name``, ``author_email``, ``content_preview``,
-    ``image_url`` keys here. Frontend uses them for card rendering
-    (byline, source link, subtitle, thumbnail).
+    ``sub_title``, ``author_name``, ``author_email``, ``content_preview``
+    keys here. Frontend uses them for card rendering (byline, source
+    link, subtitle).
 
-    ``image_url`` joins articles only after the Collector image-capture
-    fix (TASK-7-Z); rows ingested before that fix have None and the
-    frontend falls back to the category-based ImagePlaceholder.
+    ``image_url`` lives in the per-version ``version_metadata`` (Path 2
+    design — Transform extracts it at the same time it produces variants,
+    keeping the "only do work for selected articles" pattern). Same
+    value across all 4 MBTI variants of an article.
     """
     body = row.get("version_body") or ""
     preview = body[:BODY_PREVIEW_CHARS]
     selection_date = row.get("selection_date")
     article_metadata = row.get("article_metadata") or {}
+    version_metadata = row.get("version_metadata") or {}
     return {
         "news_id": row.get("news_id"),
         "category": row.get("category"),
@@ -164,7 +166,7 @@ def _build_feed_item(row: Dict[str, Any]) -> Dict[str, Any]:
         "sub_title": article_metadata.get("sub_title"),
         "url": article_metadata.get("url"),
         "byline": article_metadata.get("author_name"),
-        "image_url": article_metadata.get("image_url"),
+        "image_url": version_metadata.get("image_url"),
     }
 
 

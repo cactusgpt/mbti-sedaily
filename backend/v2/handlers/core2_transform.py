@@ -302,6 +302,45 @@ async def _run_with_deadline(
 # ── Per-article processing ────────────────────────────────────────────────────
 
 
+def _extract_image_url(original: Dict[str, Any]) -> Optional[str]:
+    """Pick the article's hero/thumbnail image URL from S3 ``original.json``.
+
+    3-tier resolution mirrors v1's ``_derive_image_url`` (per the
+    2026-04-28 SEOdaily-ENG image-pipeline reference):
+
+    1. ``images[0].url`` — standalone ``<image>`` XML tag, the highest
+       signal source (these are explicitly the hero/thumbnail in the
+       feed XML format).
+    2. First image-type entry in ``content_blocks`` — inline image
+       inside the body. Used when the article has no standalone tag
+       but does contain inline images.
+    3. ``None`` — no image at all (frontend renders a category-based
+       placeholder).
+
+    Path 2 design (TASK-7-Z reshape): we extract here at Transform
+    rather than at Collector because only ~13% of raw articles ever
+    surface to users (selected → transformed). Doing this work for
+    every raw article was wasted effort.
+    """
+    images = original.get("images") or []
+    if images:
+        first = images[0]
+        if isinstance(first, dict):
+            url = first.get("url")
+            if url:
+                return url
+
+    for block in original.get("content_blocks") or []:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "image":
+            url = block.get("url")
+            if url:
+                return url
+
+    return None
+
+
 async def _process_one_article(
     article_group: Dict[str, Any],
     transform_svc: TransformV2Service,
@@ -338,6 +377,12 @@ async def _process_one_article(
             )
             if not original:
                 raise RuntimeError(f"original.json missing for {news_id}")
+
+            # Path 2: extract hero/thumbnail image_url from original.json
+            # right here (only happens for selected+being-transformed
+            # articles). image_url is article-level; same value flows to
+            # every MBTI variant.
+            image_url = _extract_image_url(original)
 
             # Field mapping — v1 article_to_dict() renames Python dataclass
             # fields to Korean-suffixed JSON keys at the S3 boundary:
@@ -426,7 +471,7 @@ async def _process_one_article(
             await asyncio.gather(
                 *(
                     _store_one_version(
-                        news_id, group, version_dict, embedder, pg, s3_v2, db_lock
+                        news_id, group, version_dict, image_url, embedder, pg, s3_v2, db_lock
                     )
                     for group, version_dict in versions.items()
                 )
@@ -518,6 +563,7 @@ async def _store_one_version(
     news_id: str,
     group: str,
     version_dict: Dict[str, Any],
+    image_url: Optional[str],
     embedder: EmbeddingV2Client,
     pg: PgVectorV2Client,
     s3_v2: S3ArticleV2Client,
@@ -530,6 +576,12 @@ async def _store_one_version(
     (see ``_build_group_system_prompt`` line 131-138 of v1
     ``mbti_transform_service.py``). ``title`` and ``body`` are promoted to
     pgvector columns; the rest land in ``metadata`` JSONB.
+
+    ``image_url`` is the article-level hero image (same value for all 4
+    MBTI variants — image doesn't differ per persona). Stored in each
+    version's ``metadata`` JSONB; small constant duplication (~50 bytes
+    × 4 variants) traded for SoC simplicity (Transform owns
+    ``article_versions`` writes, doesn't UPDATE ``articles``).
     """
     body_text = f"{version_dict.get('title','')}\n\n{version_dict.get('body','')}"
     embedding = await asyncio.to_thread(embedder.embed_text, body_text)
@@ -544,6 +596,7 @@ async def _store_one_version(
         "subtitle": version_dict.get("subtitle", ""),
         "key_points": version_dict.get("key_points", []),
         "closing_line": version_dict.get("closing_line", ""),
+        "image_url": image_url,
     }
     async with db_lock:
         await asyncio.to_thread(

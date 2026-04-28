@@ -145,9 +145,10 @@ def test_build_feed_item_omits_internal_fields() -> None:
 
 
 def test_build_feed_item_exposes_article_metadata_fields() -> None:
-    """B3-a: article_metadata's flat-noise public fields (press, sub_title,
-    url, byline, image_url) are surfaced at top level so the frontend card
-    can render without a second fetch."""
+    """B3-a + Path 2: press/sub_title/url/byline come from article_metadata,
+    image_url comes from version_metadata (Transform-time extraction).
+    All surfaced at top level so the frontend card renders without a
+    second fetch."""
     row = {
         "news_id": "n1",
         "category": "경제",
@@ -163,7 +164,12 @@ def test_build_feed_item_exposes_article_metadata_fields() -> None:
             "author_name": "홍길동 기자",
             "author_email": "hong@sedaily.com",
             "content_preview": "원본 200자",
+        },
+        "version_metadata": {
             "image_url": "https://wimg.sedaily.com/news/cms/.../P1.jpg",
+            "subtitle": "NT 부제",
+            "key_points": ["p1"],
+            "closing_line": "마무리",
         },
     }
     item = _build_feed_item(row)
@@ -177,9 +183,10 @@ def test_build_feed_item_exposes_article_metadata_fields() -> None:
     assert "content_preview" not in item
 
 
-def test_build_feed_item_image_url_none_when_collector_did_not_capture() -> None:
-    """Articles ingested before TASK-7-Z Collector fix have no image_url.
-    Frontend renders the category-based ImagePlaceholder for those rows."""
+def test_build_feed_item_image_url_none_when_pre_path2_version() -> None:
+    """Versions written before Path 2 (image extraction at Transform)
+    have no image_url in version_metadata. Frontend renders the
+    category-based ImagePlaceholder for those rows."""
     row = {
         "news_id": "n1",
         "category": "경제",
@@ -190,7 +197,10 @@ def test_build_feed_item_image_url_none_when_collector_did_not_capture() -> None
         "version_body": "B",
         "article_metadata": {
             "press": "서울경제",
-            # no image_url key — pre-fix article
+        },
+        "version_metadata": {
+            # no image_url key — pre-Path-2 version
+            "subtitle": "NT 부제",
         },
     }
     item = _build_feed_item(row)

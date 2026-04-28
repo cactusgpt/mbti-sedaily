@@ -275,69 +275,6 @@ def test_build_metadata_includes_content_preview_truncated_to_200() -> None:
     assert len(meta["content_preview"]) == 200
 
 
-def test_build_metadata_image_url_from_standalone_images() -> None:
-    """When article.images[0].url is present, _build_metadata picks it as
-    image_url. This is the highest-signal source — the source XML's
-    <image> tag for the article's hero/thumbnail."""
-    from clients.s3_xml_client import ImageData
-
-    article = _make_article(
-        images=[
-            ImageData(
-                url="https://wimg.sedaily.com/news/cms/2026/04/27/HERO_P1.jpg",
-                width="1200",
-                height="675",
-                caption_title="",
-                caption_content="",
-            ),
-            ImageData(  # second image — should not be picked
-                url="https://wimg.sedaily.com/news/cms/2026/04/27/SECOND.jpg",
-                width="800",
-                height="600",
-                caption_title="",
-                caption_content="",
-            ),
-        ],
-    )
-    meta = _build_metadata(article)
-    assert (
-        meta["image_url"]
-        == "https://wimg.sedaily.com/news/cms/2026/04/27/HERO_P1.jpg"
-    )
-
-
-def test_build_metadata_image_url_falls_back_to_content_blocks() -> None:
-    """When article.images is empty but content_blocks contains an inline
-    image block, _build_metadata uses the first image block's image_url
-    as fallback."""
-    from clients.s3_xml_client import ContentBlock
-
-    article = _make_article(
-        images=[],
-        content_blocks=[
-            ContentBlock(block_type="text", text_ko="첫 단락"),
-            ContentBlock(
-                block_type="image",
-                image_url="https://wimg.sedaily.com/news/cms/2026/04/27/INLINE.jpg",
-            ),
-            ContentBlock(block_type="text", text_ko="두 번째 단락"),
-        ],
-    )
-    meta = _build_metadata(article)
-    assert (
-        meta["image_url"]
-        == "https://wimg.sedaily.com/news/cms/2026/04/27/INLINE.jpg"
-    )
-
-
-def test_build_metadata_image_url_none_when_no_images() -> None:
-    """No standalone images, no inline image blocks → image_url is None.
-    Frontend renders ImagePlaceholder for these articles."""
-    article = _make_article(images=[], content_blocks=[])
-    meta = _build_metadata(article)
-    assert meta["image_url"] is None
-
-
 def test_build_metadata_content_preview_keeps_short_body_intact() -> None:
     body = "짧은 본문" * 60  # 360 chars — over _MIN_BODY_LENGTH (300), under 200
     article = _make_article(content_clean=body)
