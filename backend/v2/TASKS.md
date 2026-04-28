@@ -467,6 +467,43 @@ Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이
   - **Article handler 오타 race**: 첫 콘솔 생성 시 Article Lambda의 Handler가 v2.handlers.core3_feed.lambda_handler로 잘못 입력된 상태였음 (Feed 값 그대로 복사). 검증 단계에서 잡아서 update-function-configuration으로 수정. 향후 두 함수 동시 콘솔 생성 시 Handler 검증 우선 권장.
   - **Status: null 응답**: HTTP API v2의 get-deployments는 REST API와 달리 Status 필드 미사용. AutoDeploy 흐름에서 stage DeploymentId 즉시 교체로 lifecycle 관리 — 정상 동작.
 
+### TASK-7: Frontend cutover to v2 API endpoints
+- **종속성**: TASK-6
+- **커밋**: `c64e546` (소스 변경) + 별도 chore 커밋(있으면)
+- **Files modified**:
+  - `frontend-next/src/components/mbti/FeedPage.tsx` *(+95 / -52)*
+  - `frontend-next/src/components/mbti/ArticleView.tsx` *(+54 / -22)*
+- **결정 사항** (사용자 답변 — 모두 "권고"):
+  - A2: ArticleView 진입 시 4-parallel fetch (NT/NF/ST/SF Promise.all). MBTI 토글 0ms 반응.
+  - B3-a + placeholder: 백엔드 응답에 article_metadata 일부 노출 (press, sub_title, url, byline). image_url은 Collector v2 미수집 → ImagePlaceholder 자동 fallback (코드 변경 0).
+  - C3: Date picker는 NewsFeedTab UI에 살아있지만 since 파라미터로 매핑 안 함. 데모 후 정리.
+  - D1: v1 3-tier fallback 완전 제거. v2 단일 endpoint만.
+  - 어댑터 전략 B: FeedPage + ArticleView 내부에 v2→v1 shape 어댑터 함수. shared/types/mbti.ts MbtiArticle 그대로 둠 (24+ import 영향 회피).
+- **변경 영역**:
+  - **FeedPage 어댑터**: `adaptV2FeedItem` (v2 items[] → Article shape), `adaptV2Version` (v2 version → MbtiVersion). press→provider, url→original_link rename. sub_title의 raw HTML `<br/>` 첫 줄만 자름 (XSS 안전).
+  - **FeedPage fetchArticles**: 단일 v2 endpoint `/api/v2/feed?mbti=...` 호출. selectedDate 의존성은 유지(picker 부활 위해).
+  - **FeedPage prefetchArticle**: 4-parallel `/api/v2/article/{id}?mbti=...` Promise.all. 모두 성공해야 prefetchCache 저장 (Article shape 보존).
+  - **ArticleView 어댑터 복제**: `adaptV2Version` 13줄을 ArticleView에도 복제. interface drift (FeedPage의 MbtiVersion에는 image_url? 있고 ArticleView 것은 없음) 회피. TASK-4-Z에서 통합.
+  - **ArticleView fetch**: v1의 `/api/article/{id}` 단일 호출(4 versions 한 번에) → v2 4-parallel. 모두 성공해야 versions set, 부분 실패 시 line 152 fallback render로 fallthrough.
+- **Live verification (2026-04-27 deploy)**:
+  - Build: `npm run build` ✓ 11 static pages, 11M out/
+  - S3 sync: 25 files uploaded, 2 deletes
+  - CloudFront invalidation: IEXWA6BDC2YYRT7DPMLDKFQ840 Deployed
+  - Local chunk grep: v2 endpoint compiled into bundle ✓
+  - https://mbti.sedaily.ai/ HTTP 200 (0.94s, 10.5KB)
+  - v2 Feed API still responding ✓
+- **Definition of Done**:
+  - [x] FeedPage v2 endpoint + 어댑터
+  - [x] ArticleView 4-parallel fetch + 어댑터 복제
+  - [x] tsc / lint / build 모두 PASS
+  - [x] Production deploy (S3 + CloudFront invalidate)
+  - [x] live https://mbti.sedaily.ai/ 응답 200
+  - [ ] **수동 브라우저 검증**: 카드 표시, MBTI 토글, ArticleView 진입, MBTI 토글 0ms 반응 (데모 직전 사용자 수행)
+- **Notes**:
+  - **Stale lockfile race**: 첫 빌드 시 `@fullstackfamily/manseryeok` import error. node_modules에 미설치 상태. `npm install`로 root cause fix. 추가 [chore] 커밋은 결정에 따라 선택.
+  - **Article handler 미세 drift**: FeedPage MbtiVersion에는 image_url? 있고 ArticleView 것은 없음. shared/types/mbti.ts와도 다름. 어댑터 복제로 회피했지만 데모 후 정합성 정리 (TASK-4-Z).
+  - **Date picker 미정**: NewsFeedTab의 date UI는 그대로 보이지만 클릭해도 v2 endpoint 응답 변하지 않음 (서버 since= 무시 + 클라이언트도 안 보냄). 데모 narrative에 영향 없음.
+
 ### TASK-4-Z (post-demo): 보안/위생 정리
 - **종속성**: 데모 후
 - **항목**:
