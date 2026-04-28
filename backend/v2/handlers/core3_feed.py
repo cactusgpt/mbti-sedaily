@@ -140,11 +140,13 @@ def _build_feed_item(row: Dict[str, Any]) -> Dict[str, Any]:
 
     article_metadata (a.metadata JSONB from articles table) is included
     flat at the top level — Collector writes ``url``, ``press``,
-    ``sub_title``, ``author_name``, ``author_email``, ``content_preview``
-    keys here. Frontend uses them for card rendering (byline, source
-    link, subtitle). ``image_url`` is NOT in this metadata today —
-    Collector doesn't capture it from the source. Frontend handles
-    that via category-based placeholder, not via this field.
+    ``sub_title``, ``author_name``, ``author_email``, ``content_preview``,
+    ``image_url`` keys here. Frontend uses them for card rendering
+    (byline, source link, subtitle, thumbnail).
+
+    ``image_url`` joins articles only after the Collector image-capture
+    fix (TASK-7-Z); rows ingested before that fix have None and the
+    frontend falls back to the category-based ImagePlaceholder.
     """
     body = row.get("version_body") or ""
     preview = body[:BODY_PREVIEW_CHARS]
@@ -162,6 +164,7 @@ def _build_feed_item(row: Dict[str, Any]) -> Dict[str, Any]:
         "sub_title": article_metadata.get("sub_title"),
         "url": article_metadata.get("url"),
         "byline": article_metadata.get("author_name"),
+        "image_url": article_metadata.get("image_url"),
     }
 
 

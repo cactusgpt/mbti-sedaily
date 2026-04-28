@@ -134,7 +134,26 @@ def _build_metadata(article: S3Article) -> Dict[str, Any]:
     ``title``, ``category``, ``published_at`` are promoted to top-level
     columns by ``PgVectorV2Client.insert_article``; everything else lands
     in the ``metadata`` JSONB column for later ad-hoc queries.
+
+    ``image_url`` resolution mirrors the v1 / SEOdaily-ENG pipeline's
+    ``_derive_image_url`` 3-tier strategy: standalone ``<image>`` tags
+    first (highest signal — these are the article's hero/thumbnail
+    images per the source XML), then any inline image inside
+    ``content_blocks`` as a fallback. Stored as a single string for the
+    common-case "card thumbnail / og:image" use; gallery-mode UIs that
+    need every image can re-derive from S3 ``original.json``.
     """
+    image_url = None
+    if article.images:
+        first = article.images[0]
+        image_url = getattr(first, "url", None) or None
+    if not image_url and article.content_blocks:
+        for block in article.content_blocks:
+            block_url = getattr(block, "image_url", None)
+            if block_url:
+                image_url = block_url
+                break
+
     return {
         "title": article.title,
         "category": article.main_category,
@@ -145,6 +164,7 @@ def _build_metadata(article: S3Article) -> Dict[str, Any]:
         "press": article.press,
         "sub_title": article.sub_title or "",
         "content_preview": article.content_clean[:_CONTENT_PREVIEW_CHARS],
+        "image_url": image_url,
     }
 
 

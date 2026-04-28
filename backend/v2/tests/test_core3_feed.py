@@ -146,9 +146,8 @@ def test_build_feed_item_omits_internal_fields() -> None:
 
 def test_build_feed_item_exposes_article_metadata_fields() -> None:
     """B3-a: article_metadata's flat-noise public fields (press, sub_title,
-    url, byline) are surfaced at top level so the frontend card can render
-    without a second fetch. image_url is intentionally NOT included —
-    Collector v2 does not capture it."""
+    url, byline, image_url) are surfaced at top level so the frontend card
+    can render without a second fetch."""
     row = {
         "news_id": "n1",
         "category": "경제",
@@ -164,6 +163,7 @@ def test_build_feed_item_exposes_article_metadata_fields() -> None:
             "author_name": "홍길동 기자",
             "author_email": "hong@sedaily.com",
             "content_preview": "원본 200자",
+            "image_url": "https://wimg.sedaily.com/news/cms/.../P1.jpg",
         },
     }
     item = _build_feed_item(row)
@@ -171,11 +171,31 @@ def test_build_feed_item_exposes_article_metadata_fields() -> None:
     assert item["sub_title"] == "원본 부제"
     assert item["url"] == "https://www.sedaily.com/..."
     assert item["byline"] == "홍길동 기자"
+    assert item["image_url"] == "https://wimg.sedaily.com/news/cms/.../P1.jpg"
     # author_email and content_preview should NOT leak (not in contract)
     assert "author_email" not in item
     assert "content_preview" not in item
-    # image_url is not in article_metadata at all — frontend uses placeholder
-    assert "image_url" not in item
+
+
+def test_build_feed_item_image_url_none_when_collector_did_not_capture() -> None:
+    """Articles ingested before TASK-7-Z Collector fix have no image_url.
+    Frontend renders the category-based ImagePlaceholder for those rows."""
+    row = {
+        "news_id": "n1",
+        "category": "경제",
+        "published_at": None,
+        "selection_date": None,
+        "transformed_at": None,
+        "version_title": "T",
+        "version_body": "B",
+        "article_metadata": {
+            "press": "서울경제",
+            # no image_url key — pre-fix article
+        },
+    }
+    item = _build_feed_item(row)
+    assert item["image_url"] is None
+    assert item["press"] == "서울경제"  # other fields still work
 
 
 def test_build_feed_item_handles_missing_article_metadata() -> None:
