@@ -293,150 +293,12 @@ class MbtiTransformService:
 
         raise TransformError(f"Transform {group} failed after {MAX_RETRIES} retries: {last_error}")
 
-    async def _transform_article_single_call(
-        self,
-        title: str,
-        subtitle: str,
-        content: str,
-        category: str,
-        system_prompt: str,
-    ) -> Dict[str, Any]:
-        """
-        Legacy single-call fallback: one Bedrock call producing all 4 MBTI versions.
-        Used only when custom_prompt is provided for backward compatibility.
-        """
-        user_message = f"""다음 경제 기사를 4가지 MBTI 그룹 스타일(NT, NF, ST, SF)로 변환해주세요.
-
-[원본 제목] {title}
-[원본 부제목] {subtitle or '없음'}
-[카테고리] {category or '경제'}
-
-[원본 기사]
-{content}"""
-
-        last_error = None
-        retry_delay = INITIAL_RETRY_DELAY
-
-        for attempt in range(MAX_RETRIES):
-            try:
-                request_body = json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 16384,
-                    "system": [
-                        {
-                            "type": "text",
-                            "text": system_prompt,
-                            "cache_control": {"type": "ephemeral", "ttl": "1h"}
-                        }
-                    ],
-                    "messages": [
-                        {"role": "user", "content": user_message}
-                    ]
-                })
-
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: self.bedrock_client.invoke_model(
-                        modelId=self.model_id,
-                        contentType="application/json",
-                        accept="application/json",
-                        body=request_body
-                    )
-                )
-
-                response_body = json.loads(response['body'].read())
-
-                if not response_body.get("content") or len(response_body["content"]) == 0:
-                    raise TransformError("Empty content in Bedrock response")
-
-                response_text = response_body["content"][0].get("text", "")
-
-                # Parse JSON — extract first balanced {...} block
-                start = response_text.find('{')
-                if start == -1:
-                    raise TransformError("No JSON found in response")
-                depth = 0
-                json_str = None
-                for _i in range(start, len(response_text)):
-                    if response_text[_i] == '{':
-                        depth += 1
-                    elif response_text[_i] == '}':
-                        depth -= 1
-                        if depth == 0:
-                            json_str = response_text[start:_i + 1]
-                            break
-                if json_str is None:
-                    raise TransformError("No complete JSON object found in response")
-
-                versions = json.loads(json_str)
-
-                for group in MBTI_GROUPS:
-                    if group not in versions:
-                        raise TransformError(f"Missing MBTI group '{group}' in response")
-                    v = versions[group]
-                    if not v.get('title') or not v.get('body'):
-                        raise TransformError(f"MBTI group '{group}' missing title or body")
-                    v.setdefault('subtitle', '')
-                    v.setdefault('key_points', [])
-                    v.setdefault('closing_line', '')
-
-                usage = response_body.get("usage", {})
-                return {
-                    "versions": versions,
-                    "usage": {
-                        "input_tokens": usage.get("input_tokens", 0),
-                        "output_tokens": usage.get("output_tokens", 0),
-                        "cache_read_input_tokens": usage.get("cache_read_input_tokens", 0),
-                        "cache_creation_input_tokens": usage.get("cache_creation_input_tokens", 0),
-                    },
-                }
-
-            except self.bedrock_client.exceptions.ThrottlingException as e:
-                logger.warning(f"Bedrock throttling (single-call). Retry {attempt + 1}/{MAX_RETRIES}...")
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(retry_delay)
-                    retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
-                    last_error = e
-                    continue
-                raise TransformError(f"Transform failed: Throttling - {e}")
-
-            except self.bedrock_client.exceptions.ModelTimeoutException as e:
-                logger.warning(f"Bedrock timeout (single-call). Retry {attempt + 1}/{MAX_RETRIES}...")
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(retry_delay)
-                    retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
-                    last_error = e
-                    continue
-                raise TransformError(f"Transform failed: Timeout - {e}")
-
-            except (json.JSONDecodeError, TransformError) as e:
-                logger.error(f"Transform parse error (single-call): {e}")
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(retry_delay)
-                    retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
-                    last_error = e
-                    continue
-                raise TransformError(f"Transform failed: {e}")
-
-            except Exception as e:
-                logger.error(f"Transform error (single-call): {e}")
-                last_error = e
-                if attempt < MAX_RETRIES - 1:
-                    await asyncio.sleep(retry_delay)
-                    retry_delay = min(retry_delay * 2, MAX_RETRY_DELAY)
-                    continue
-                raise TransformError(f"Transform failed: {e}")
-
-        raise TransformError(f"Transform failed after {MAX_RETRIES} retries: {last_error}")
-
     async def transform_article(
         self,
         title: str,
         subtitle: str,
         content: str,
         category: str = "",
-        custom_prompt: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Transform a Korean article into 4 MBTI styles using parallel per-group calls.
@@ -450,8 +312,6 @@ class MbtiTransformService:
             subtitle: Original Korean subtitle
             content: Original Korean content (clean text)
             category: Article category
-            custom_prompt: If provided, falls back to a single combined call
-                          (old behavior) instead of 4 parallel calls
 
         Returns:
             Dict with:
@@ -460,14 +320,6 @@ class MbtiTransformService:
         """
         if not content or not content.strip():
             raise TransformError("Article content must be non-empty")
-
-        # Backward compatibility: if custom_prompt is provided, fall back to
-        # a single combined call (old behavior) instead of 4 parallel calls.
-        if custom_prompt:
-            return await self._transform_article_single_call(
-                title=title, subtitle=subtitle, content=content,
-                category=category, system_prompt=custom_prompt,
-            )
 
         # Launch 4 parallel calls — one per MBTI group
         tasks = [
