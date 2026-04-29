@@ -90,6 +90,27 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
     [version]
   );
 
+  // Original-sentence list shown in the no-version fallback render. Lifted
+  // out of the `!version` branch so handleArchive can read from the correct
+  // source no matter which branch the user is currently looking at.
+  const originalSentences = useMemo(
+    () =>
+      article.content
+        ? article.content
+            .split(/(?<=[.?!])\s+/)
+            .map(s => s.trim())
+            .filter(s => s.length > 10)
+        : [],
+    [article.content]
+  );
+
+  // The two render branches click into different arrays via the same index,
+  // so swapping between them (e.g. v2 versions arrive after the fallback was
+  // shown) would leave indices pointing into the wrong source. Reset.
+  useEffect(() => {
+    setSelectedSentences(new Set());
+  }, [version]);
+
   // 핵심 정리 선택 토글
   const toggleSentence = (index: number) => {
     setSelectedSentences(prev => {
@@ -103,11 +124,14 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
     });
   };
 
-  // 선택된 항목 가져오기
+  // 선택된 항목 가져오기 — `selectedSentences` indices map into whichever
+  // source is currently rendered. Previously this always read from
+  // `archiveItems`, so saves from the fallback branch produced empty text.
   const getSelectedText = () => {
+    const source = version ? archiveItems : originalSentences;
     return Array.from(selectedSentences)
       .sort((a, b) => a - b)
-      .map(idx => archiveItems[idx])
+      .map(idx => source[idx])
       .filter(Boolean)
       .join(" ");
   };
@@ -180,15 +204,9 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
     }
   };
 
-  // 원본 기사 (MBTI 버전 없을 때)
+  // 원본 기사 (MBTI 버전 없을 때) — `originalSentences` is computed at
+  // component scope (above) so handleArchive can read from it.
   if (!version) {
-    const originalSentences = article.content
-      ? article.content
-          .split(/(?<=[.?!])\s+/)
-          .map(s => s.trim())
-          .filter(s => s.length > 10)
-      : [];
-
     return (
       <div className="fixed inset-0 z-[100] bg-[#FAFAFA]">
         {/* 헤더 */}

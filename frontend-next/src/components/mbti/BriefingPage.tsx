@@ -218,22 +218,31 @@ export function BriefingPage({ groupId, onFinish, onBack }: Props) {
     recognition.continuous = false;
     recognition.interimResults = true;
 
+    // `recognition.onend` previously read `userText` from the closure, which
+    // captures whatever the state was at handler-attach time (= empty string).
+    // Track the latest transcript locally so the recognizer always sends the
+    // freshest value when speech recognition ends.
+    let latestTranscript = "";
+
     recognition.onstart = () => {
       setIsListening(true);
       setUserText("");
+      latestTranscript = "";
     };
 
     recognition.onresult = (event) => {
       const transcript = Array.from(event.results)
         .map(result => result[0].transcript)
         .join('');
+      latestTranscript = transcript;
       setUserText(transcript);
     };
 
     recognition.onend = () => {
       setIsListening(false);
-      if (userText.trim()) {
-        sendMessage(userText.trim());
+      const final = latestTranscript.trim();
+      if (final) {
+        sendMessage(final);
       }
     };
 
@@ -265,6 +274,18 @@ export function BriefingPage({ groupId, onFinish, onBack }: Props) {
           conversation_history: conversationHistory,
         }),
       });
+
+      // Previously this called .json() unconditionally — when the API
+      // Gateway returns an HTML error page, .json() throws and the catch
+      // block ran with no useful information. Check status first.
+      if (!response.ok) {
+        console.warn(`Briefing chat returned ${response.status}`);
+        setConversationHistory([
+          ...newHistory,
+          { role: 'assistant', content: '죄송해요, 응답을 받지 못했어요.' }
+        ]);
+        return;
+      }
 
       const data = await response.json();
       const aiResponse = data.response || "죄송해요, 응답을 받지 못했어요.";
