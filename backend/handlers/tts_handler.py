@@ -156,7 +156,7 @@ def lambda_handler(event: dict, context) -> dict:
 
         # Validate
         if not text:
-            return error_response(400, '텍스트를 입력해주세요.')
+            return _error_response(400, '텍스트를 입력해주세요.')
 
         if mbti_group not in MBTI_GROUPS:
             mbti_group = 'SF'
@@ -189,10 +189,13 @@ def lambda_handler(event: dict, context) -> dict:
 
     except Exception as e:
         logger.error(f"TTS error: {e}", exc_info=True)
-        return error_response(500, '음성 생성 중 오류가 발생했습니다.')
+        return _error_response(500, '음성 생성 중 오류가 발생했습니다.')
 
 
-def error_response(status_code: int, message: str) -> dict:
+# Renamed to underscored private so it cannot shadow
+# `core.response.error_response`, whose signature is different
+# (`error_response(message, status_code=500, ...)`).
+def _error_response(status_code: int, message: str) -> dict:
     return {
         'statusCode': status_code,
         'headers': CORS_HEADERS,

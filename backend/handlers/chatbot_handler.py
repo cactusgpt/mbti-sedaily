@@ -737,6 +737,20 @@ def lambda_handler(event: dict, context) -> dict:
                     }
                 })
             }
+        # Bound the message length before sending to Bedrock. The chatbot
+        # Haiku call has no per-user rate limit; without a cap a single
+        # caller can submit very long inputs and run up unbounded cost.
+        if len(user_message) > 4000:
+            return {
+                'statusCode': 400,
+                'headers': CORS_HEADERS,
+                'body': json.dumps({
+                    'error': {
+                        'code': 'MESSAGE_TOO_LONG',
+                        'message': '메시지가 너무 깁니다. 4000자 이하로 줄여주세요.'
+                    }
+                }, ensure_ascii=False)
+            }
 
         if mbti_group not in MBTI_GROUPS:
             mbti_group = 'SF'  # Default fallback

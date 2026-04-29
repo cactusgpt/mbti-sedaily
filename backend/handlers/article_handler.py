@@ -502,10 +502,7 @@ async def _async_handler(event: dict, context) -> dict:
         import json
         return {
             "statusCode": 200,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
-            },
+            "headers": CORS_HEADERS,
             "body": json.dumps({
                 "news_id": response.news_id,
                 "title_ko": response.title_ko,
@@ -533,10 +530,7 @@ async def _async_handler(event: dict, context) -> dict:
         import json
         return {
             "statusCode": 400,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
-            },
+            "headers": CORS_HEADERS,
             "body": json.dumps({
                 "error": {
                     "code": "ARTICLE_ERROR",
@@ -551,10 +545,7 @@ async def _async_handler(event: dict, context) -> dict:
         import json
         return {
             "statusCode": 500,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
-            },
+            "headers": CORS_HEADERS,
             "body": json.dumps({
                 "error": {
                     "code": "INTERNAL_ERROR",

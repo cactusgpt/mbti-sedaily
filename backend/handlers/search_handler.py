@@ -22,7 +22,7 @@ import math
 import json
 import time
 from config import settings
-from config.constants import CATEGORIES_KOREAN, CATEGORY_SEARCH_ALIASES
+from config.constants import CATEGORIES_KOREAN, CATEGORY_SEARCH_ALIASES, CORS_HEADERS
 from clients.s3_article_client import S3ArticleClient
 
 logger = logging.getLogger(__name__)
@@ -336,10 +336,7 @@ def lambda_handler(event: dict, context) -> dict:
 
         return {
             "statusCode": 200,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
-            },
+            "headers": CORS_HEADERS,
             "body": json.dumps({
                 "total_hits": response.total_hits,
                 "page": response.page,
@@ -353,10 +350,7 @@ def lambda_handler(event: dict, context) -> dict:
         logger.error(f"Search error: {e}", exc_info=True)
         return {
             "statusCode": 500,
-            "headers": {
-                "Content-Type": "application/json",
-                "Access-Control-Allow-Origin": "*"
-            },
+            "headers": CORS_HEADERS,
             "body": json.dumps({
                 "error": {
                     "code": "SEARCH_ERROR",

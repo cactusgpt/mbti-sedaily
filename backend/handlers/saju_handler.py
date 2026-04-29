@@ -874,7 +874,7 @@ def lambda_handler(event: dict, context) -> dict:
             birth_hour = int(birth_hour)
 
         # 유효성 검사
-        if not (1900 <= birth_year <= 2025 and 1 <= birth_month <= 12 and 1 <= birth_day <= 31):
+        if not (1900 <= birth_year <= 2100 and 1 <= birth_month <= 12 and 1 <= birth_day <= 31):
             return {
                 'statusCode': 400,
                 'headers': CORS_HEADERS,

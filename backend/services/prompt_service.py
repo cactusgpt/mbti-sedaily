@@ -171,9 +171,14 @@ class PromptService:
 
         try:
             import httpx
-            from clients.translation_service import get_anthropic_api_key
+            import os
 
-            api_key = get_anthropic_api_key()
+            # Note: previous version imported `clients.translation_service`,
+            # which never existed (only `clients.translate_client` exists, and
+            # it does not surface an Anthropic API key). The admin "test prompt"
+            # path therefore raised ImportError. Read the key directly from the
+            # environment instead — Lambda config or local .env via dotenv.
+            api_key = os.getenv('ANTHROPIC_API_KEY')
             if not api_key:
                 raise ExternalServiceError(
                     "Anthropic API key not configured",

@@ -11,6 +11,7 @@ article body content, only uses article_id as a reference key.
 """
 import logging
 import boto3
+import hashlib
 import json
 import uuid
 from datetime import datetime
@@ -447,10 +448,15 @@ def lambda_handler(event: dict, context) -> dict:
         # Extract article ID from path params or body
         article_id = path_params.get('articleId') or body.get('article_id')
 
-        # Generate anonymous user ID
+        # Generate anonymous user ID. Python's built-in `hash()` is salted per
+        # process via PYTHONHASHSEED, so the same user agent yielded different
+        # IDs across Lambda containers — defeating the "stable anonymous" intent
+        # for reaction/like dedup. SHA1 is deterministic across processes; we
+        # only use it as a 4-digit bucket, not for security.
         headers = event.get('headers', {}) or {}
         user_agent = headers.get('user-agent', headers.get('User-Agent', ''))[:50]
-        user_id = f"{source_ip}_{hash(user_agent) % 10000}"
+        ua_bucket = int(hashlib.sha1(user_agent.encode('utf-8')).hexdigest(), 16) % 10000
+        user_id = f"{source_ip}_{ua_bucket}"
 
         logger.info(f"Engagement request: {http_method} {path} article={article_id}")
 
@@ -459,29 +465,29 @@ def lambda_handler(event: dict, context) -> dict:
             # Toggle reaction
             reaction_type = body.get('reaction_type')
             if not reaction_type:
-                return error_response(400, 'reaction_type is required')
+                return _error_response(400, 'reaction_type is required')
 
             result = toggle_reaction(article_id, reaction_type, user_id)
-            return success_response(result)
+            return _success_response(result)
 
         elif '/rating' in path and http_method == 'POST':
             # Submit rating
             rating = body.get('rating')
             if not rating:
-                return error_response(400, 'rating is required')
+                return _error_response(400, 'rating is required')
 
             result = submit_rating(article_id, user_id, int(rating))
-            return success_response(result)
+            return _success_response(result)
 
         elif '/comments' in path:
             if '/like' in path and http_method == 'POST':
                 # Like comment
                 comment_id = body.get('comment_id')
                 if not comment_id:
-                    return error_response(400, 'comment_id is required')
+                    return _error_response(400, 'comment_id is required')
 
                 result = like_comment(article_id, comment_id, user_id)
-                return success_response(result)
+                return _success_response(result)
 
             elif http_method == 'POST':
                 # Add comment
@@ -489,26 +495,26 @@ def lambda_handler(event: dict, context) -> dict:
                 mbti_group = body.get('mbti_group', 'SF')
 
                 if not text:
-                    return error_response(400, 'text is required')
+                    return _error_response(400, 'text is required')
 
                 result = add_comment(article_id, text, mbti_group, user_id)
-                return success_response(result)
+                return _success_response(result)
 
             else:
                 # Get comments
                 comments = get_comments(article_id)
-                return success_response({'comments': comments})
+                return _success_response({'comments': comments})
 
         else:
             # Get all engagement data
             if not article_id:
-                return error_response(400, 'article_id is required')
+                return _error_response(400, 'article_id is required')
 
             reactions = get_reactions(article_id)
             rating_stats = get_rating_stats(article_id)
             comments = get_comments(article_id, limit=20)
 
-            return success_response({
+            return _success_response({
                 'article_id': article_id,
                 'reactions': reactions,
                 'rating': rating_stats,
@@ -516,14 +522,19 @@ def lambda_handler(event: dict, context) -> dict:
             })
 
     except ValueError as e:
-        return error_response(400, str(e))
+        return _error_response(400, str(e))
 
     except Exception as e:
         logger.error(f"Engagement error: {e}", exc_info=True)
-        return error_response(500, '서버 오류가 발생했습니다.')
+        return _error_response(500, '서버 오류가 발생했습니다.')
 
 
-def success_response(data: dict) -> dict:
+# Renamed to `_success_response` / `_error_response` so they can't shadow
+# `core.response.success_response` / `core.response.error_response` (which
+# have different signatures: `error_response(message, status_code=500, ...)`
+# vs. the local form's `(status_code, message)`). Same behaviour, just
+# unambiguous when read alongside other handlers.
+def _success_response(data: dict) -> dict:
     return {
         'statusCode': 200,
         'headers': CORS_HEADERS,
@@ -531,7 +542,7 @@ def success_response(data: dict) -> dict:
     }
 
 
-def error_response(status_code: int, message: str) -> dict:
+def _error_response(status_code: int, message: str) -> dict:
     return {
         'statusCode': status_code,
         'headers': CORS_HEADERS,

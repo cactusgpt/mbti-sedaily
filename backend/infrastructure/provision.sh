@@ -251,11 +251,12 @@ create_lambda \
   "handlers.pipeline.supervisor.lambda_handler" \
   1024 300
 
-# Merge: concatenate parallel step3 batch results (lightweight)
-create_lambda \
-  "sedaily-mbti-pipeline-merge-dev" \
-  "handlers.pipeline.merge_transform_results.lambda_handler" \
-  128 30
+# NOTE: the previous "Merge" Lambda (sedaily-mbti-pipeline-merge-dev) was
+# removed when the Step Functions state machine was rewritten to use a
+# chained Map (Step3 → Step4 → Supervisor per iteration). The handler file
+# `handlers/pipeline/merge_transform_results.py` no longer exists, so the
+# old `create_lambda` call here would fail. See CLAUDE.md "Data Flow" and
+# infrastructure/step_functions_definition.json for the current shape.
 
 echo ""
 echo "  [OK] Pipeline Lambda functions created"

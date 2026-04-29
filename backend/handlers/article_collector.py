@@ -412,7 +412,12 @@ def lambda_handler(event: dict, context) -> dict:
     """
     logger.info(f"Article collection triggered: {event}")
     result = asyncio.run(collect_articles(24))
+    # Reflect collection failure in the HTTP status so any non-EventBridge
+    # caller (or future API Gateway wiring) can detect it. Previously this
+    # always returned 200 even when `collect_articles` had raised internally
+    # and produced `{"status": "error", ...}`.
+    status_code = 500 if isinstance(result, dict) and result.get("status") == "error" else 200
     return {
-        "statusCode": 200,
-        "body": result
+        "statusCode": status_code,
+        "body": result,
     }

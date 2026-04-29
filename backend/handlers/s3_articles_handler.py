@@ -229,9 +229,11 @@ def lambda_handler(event: dict, context) -> dict:
             article_id = path_params.get("article_id") or path.split("/")[-1]
             date_str = query_params.get("date")
 
-            result = asyncio.get_event_loop().run_until_complete(
-                get_article_detail(article_id, date_str)
-            )
+            # `asyncio.get_event_loop()` is deprecated in Python 3.10+ when no
+            # loop is running. `asyncio.run` creates a fresh loop and tears it
+            # down cleanly, which is the right pattern for a sync Lambda entry
+            # point.
+            result = asyncio.run(get_article_detail(article_id, date_str))
 
             if "error" in result:
                 return _response(404, result)
@@ -242,9 +244,7 @@ def lambda_handler(event: dict, context) -> dict:
         limit = int(query_params.get("limit", "30"))
         category = query_params.get("category")
 
-        result = asyncio.get_event_loop().run_until_complete(
-            get_articles_list(date_str, limit, category)
-        )
+        result = asyncio.run(get_articles_list(date_str, limit, category))
 
         return _response(200, result)
 
