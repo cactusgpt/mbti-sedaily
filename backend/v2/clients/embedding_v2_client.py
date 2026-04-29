@@ -132,12 +132,18 @@ class EmbeddingV2Client:
 
             return _average_vectors(vectors)
 
+        except EmbeddingError:
+            # Already wrapped (throttling, malformed Bedrock response, etc.) —
+            # propagate so callers can decide. Returning a zero vector here
+            # silently corrupted pgvector rows in earlier versions; v2 callers
+            # (Collector, backfill, Selector) all handle EmbeddingError now.
+            raise
         except Exception as e:
-            logger.warning(
-                f"Embedding failed for text ({len(text)} chars), "
-                f"returning zero vector: {e}"
+            logger.error(
+                f"Embedding failed for text ({len(text)} chars): {e}",
+                exc_info=True,
             )
-            return [0.0] * self.dimension
+            raise EmbeddingError(f"Embedding failed: {e}") from e
 
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """Embed multiple texts independently (no native batching at Titan)."""

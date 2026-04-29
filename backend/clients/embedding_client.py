@@ -100,9 +100,20 @@ class EmbeddingClient:
 
             return _average_vectors(vectors)
 
+        except EmbeddingError:
+            # Already wrapped (throttling, malformed Bedrock response, etc.) —
+            # let the caller decide how to handle. Returning a zero vector
+            # silently corrupts vector indexes.
+            raise
         except Exception as e:
-            logger.warning(f"Embedding failed for text ({len(text)} chars), returning zero vector: {e}")
-            return [0.0] * self.dimension
+            # Wrap unexpected errors so the caller can distinguish "embed
+            # failed" from any other exception type. NOTE: previously this
+            # branch returned `[0.0] * self.dimension` which silently wrote
+            # zero vectors into OpenSearch / pgvector. That made similarity
+            # search return random results for any item that hit a transient
+            # Bedrock error during ingestion.
+            logger.error(f"Embedding failed for text ({len(text)} chars): {e}", exc_info=True)
+            raise EmbeddingError(f"Embedding failed: {e}") from e
 
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """
