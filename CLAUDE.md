@@ -23,11 +23,13 @@ AI LENS — 서울경제신문의 MBTI 맞춤형 경제 뉴스 서비스. 원본
 The repo currently holds two backend stacks side by side:
 
 - **v1** — everything in `backend/` **outside** `backend/v2/`. This is the production backend serving `mbti.sedaily.ai` today. The rest of this CLAUDE.md describes v1 unless explicitly noted.
-- **v2** — `backend/v2/`. A parallel redesign on branch `feature/backend-redesign` (recent commits are tagged `[v2]`). pgvector-centric storage hub; whole-corpus ingest followed by a **Core 1.5 Selector** that uses Nova Lite to score raw articles per MBTI and flag a top-N subset in the `article_selections` table; **Core 2 Transform** polls `article_selections.selected=TRUE AND transformed_at IS NULL` (not `articles.status='raw'`) so Opus 4.6 only runs on the selected subset; **Core 3** exposes per-user reads via the Feed and Article Detail Lambdas (TASK-6, just landed) — the recommend agent and chat-agent personalization layers come later; Chat Agent will run on Bedrock AgentCore Runtime. Nothing in v2 is in production yet.
+- **v2** — `backend/v2/`. A parallel redesign on branch `feature/backend-redesign` (recent commits are tagged `[v2]`). pgvector-centric storage hub; whole-corpus ingest followed by a **Core 1.5 Selector** that uses Nova Lite to score raw articles per MBTI and flag a top-N subset in the `article_selections` table; **Core 2 Transform** polls `article_selections.selected=TRUE AND transformed_at IS NULL` (not `articles.status='raw'`) and runs Opus 4.6 only for the MBTI groups the Selector chose (1–4 per article); **Core 3** exposes per-user reads via the Feed and Article Detail Lambdas — the recommend agent and chat-agent personalization layers come later, with Chat Agent eventually on Bedrock AgentCore Runtime. **Status (as of 2026-04-29):** v2 Feed (`/api/v2/feed`) and Article Detail (`/api/v2/article/{id}`) Lambdas now serve production traffic at `mbti.sedaily.ai` (TASK-7 frontend cutover deployed 2026-04-27); the `sedaily-mbti-v2-selector-trigger` and `sedaily-mbti-v2-transform-trigger` EventBridge rules are ENABLED, so the Selector → Transform pipeline runs on schedule. Phase 3+ (memory, recommend agent, chat agent) is not built yet.
 
 **If you're doing v2 work, read `backend/v2/CLAUDE.md` and `backend/v2/.clauderules` first — they override this file for v2-scoped changes.** Hard rules from `.clauderules` worth knowing even from outside v2: v2 work must not modify v1 files (including this CLAUDE.md, `deploy.sh`, or anything in `handlers/`, `clients/`, `core/`, `services/`, `config/`); AWS resource creation is conditional — allowed only after a documented plan with cost estimate, explicit user approval, and stop-on-anomaly + ID tracking, while Lambda function create/delete and any secret env-var writes (e.g. `PG_V2_PASSWORD`) remain always-manual; `update-function-code` and non-secret config updates on existing Lambdas are the only fully-automated path. Commit trailer must read exactly `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>` — no model-capability suffix like "(1M context)" (GitHub parses author identity from the email, and parentheticals break the author-count stats).
 
 v2 resources are namespaced `sedaily-mbti-v2-*-dev` (Lambda — `v2` goes in the middle, e.g. `sedaily-mbti-v2-collector-dev`, `sedaily-mbti-v2-selector-dev`, `sedaily-mbti-v2-transform-dev`, `sedaily-mbti-v2-feed-dev`, `sedaily-mbti-v2-article-dev`, `sedaily-mbti-v2-health-dev`), `sedaily-mbti-pgvector-v2-dev` (RDS), `sedaily-mbti-article-body-v2-dev` (S3 — these two keep `v2` at the end) and ship via `backend/v2/deploy-v2.sh` (builds `lambda_package_v2.zip` that bundles v1 source so v2 handlers can `from clients.xxx import ...`). The authoritative v2 function list is `API_V2_FUNCTIONS` / `CORE1_FUNCTIONS` / `CORE1_5_FUNCTIONS` / `CORE2_FUNCTIONS` / `CORE3_FUNCTIONS` in `deploy-v2.sh`. The v1 `./deploy.sh` never includes `v2/`.
+
+A few v2 internals worth knowing without opening `backend/v2/CLAUDE.md`: the **Validator runs inline inside the Core 2 Transform handler** (`backend/v2/core2/validator.py`) — not a separate Lambda — and rejects bad versions before any S3/pgvector write; the `# TASK-2.4 will add sedaily-mbti-v2-validator-dev` placeholder in `deploy-v2.sh` is intentionally unfilled. **`image_url` extraction lives in Transform, not Collector** (TASK-7-Z-2): it lands in per-version `version_metadata` (alongside the MBTI version body) and surfaces in both `/api/v2/feed` and `/api/v2/article/{id}` responses, while article-level metadata (`press`, `sub_title`, `url`, `byline`, `content_preview`) sits flat on `articles.metadata`. v2-specific clients/services live in `backend/v2/clients/` (`pgvector_v2_client`, `embedding_v2_client`, `s3_article_v2_client`, `selector_service`, `transform_v2_service`); the one-shot v1→v2 backfill is `backend/v2/tools/backfill_from_v1.py`.
 
 ## Commands
 
@@ -91,8 +93,12 @@ Monorepo with two independent applications:
 /
 ├── frontend-next/     # Next.js 16 App Router (partial Feature-Sliced Design)
 ├── backend/           # Python Lambda functions (FastAPI for local dev only)
-└── infrastructure/    # Step Functions definition (not deployed to Lambda)
+│   ├── infrastructure/  # v1 Step Functions definition + provisioning scripts
+│   └── v2/              # parallel redesign — see "v1 / v2 Parallel Redesign" above
+└── docs/              # informal dev notes (chatbot-saju-timeline.md, chatbot-todo.md)
 ```
+
+There is no `infrastructure/` at the repo root — it lives under `backend/`. Both `backend/infrastructure/` (v1) and `backend/v2/infrastructure/` exist and are not deployed as Lambdas.
 
 ### Data Flow
 
@@ -347,20 +353,20 @@ The legacy `PromptService` (DynamoDB `settings_config` fallback) is a separate s
 
 ## Frontend API Contract
 
-The frontend calls these endpoints (do not change paths or response shapes):
+After the TASK-7 cutover (deployed 2026-04-27), the article-list and article-detail flows are served by **v2 Lambdas**; everything else is still v1. Don't change paths or response shapes without updating both sides.
 
-| Endpoint | Used By |
-|----------|---------|
-| `GET /s3-articles?date={YYYYMMDD}&limit=30` | NewsFeedTab (primary article list) |
-| `GET /api/article/{id}` | ArticleView (MBTI version detail) |
-| `POST /api/search` | NewsFeedTab (fallback when S3 empty) |
-| `POST /api/chat` | MbtiChatBot |
-| `POST /saju` | SajuPage |
-| `GET /time-machine?date=YYYY-MM-DD` | TimeMachinePage |
-| `POST /api/user/profile` | AuthContext (on login) |
-| `POST /api/user/read` | ArticleView (reading tracker) |
+| Endpoint | Used By | Stack |
+|----------|---------|-------|
+| `GET /api/v2/feed?mbti={MBTI}&limit=N` | `FeedPage.tsx` primary article list | **v2** (`sedaily-mbti-v2-feed-dev`) |
+| `GET /api/v2/article/{news_id}?mbti={MBTI}` | `ArticleView.tsx` (called 4× in parallel for NT/NF/ST/SF on entry) + `FeedPage.tsx` prefetch | **v2** (`sedaily-mbti-v2-article-dev`) |
+| `POST /api/chat`, `POST /api/chat/stream` | `MbtiChatBot`, `BriefingPage` | v1 |
+| `POST /api/search` | `StoryNewsFeed`, `TimelineNewsFeed` | v1 |
+| `POST /saju` | `SajuPage` | v1 |
+| `GET /time-machine?date=YYYY-MM-DD` | `TimeMachinePage` | v1 |
+| `POST /api/user/profile`, `POST /api/user/read`, `GET /api/user/stats`, `GET /api/user/history` | `AuthContext`, `ArticleView` reading tracker, profile views | v1 |
+| `/api/posts*`, `/api/podcast/*`, `/api/questions`, `/api/recommend*`, `/api/archive*` | community / podcast / question / recommendation / archive features | v1 |
 
-`/s3-articles` reads from raw S3 XML (original articles, no MBTI). `/api/article/{id}` reads from Article DB (DynamoDB + S3 body, includes MBTI versions).
+The v1 `/s3-articles` and `/api/article/{id}` Lambdas still exist and respond, but no production frontend code path calls them — the 3-tier fallback in `FeedPage.tsx` was removed in TASK-7. Don't delete those Lambdas without checking other consumers (legacy code in `src/legacy/` and tests still reference them). The v2 Feed/Article responses use a slightly different shape than v1 (`items[]` wrapper, `press`/`sub_title`/`url`/`byline` flat on each item, `image_url` inside per-version `version_metadata`); the frontend wraps them with `adaptV2FeedItem` / `adaptV2Version` adapters in `FeedPage.tsx` and `ArticleView.tsx` to keep the existing `MbtiArticle` type unchanged.
 
 ## Reference Documents
 
