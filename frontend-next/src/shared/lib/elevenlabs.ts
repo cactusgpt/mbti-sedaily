@@ -1,5 +1,19 @@
 // ElevenLabs Text-to-Speech API
-const ELEVENLABS_API_KEY = 'sk_4f96cf9ae2d25855ba16a51960c11d381114d9bc032b75e9';
+//
+// SECURITY: this module ran direct browser → ElevenLabs API calls with a
+// hardcoded API key embedded in the static client bundle (output: 'export'),
+// so the key was visible to every site visitor. It has been removed.
+//
+// TODO: route ElevenLabs calls through a backend proxy Lambda that holds the
+// key in an env var / Secrets Manager and forwards the audio response. Until
+// that proxy exists, `generateSpeech` is intentionally disabled.
+//
+// If you need the previous behaviour for local development, set
+// NEXT_PUBLIC_ELEVENLABS_API_KEY in `.env.local` (NOT committed) and reference
+// `process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY` here. **Do not** ship a real key
+// in any deployed build — anything with the NEXT_PUBLIC_ prefix is bundled.
+const ELEVENLABS_API_KEY: string | undefined =
+  process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY;
 
 // 에디터별 목소리 ID (ElevenLabs 한국어 네이티브 목소리)
 // 남자: 시현(NT), 정훈(ST) / 여자: 지원(NF), 하은(SF)
@@ -33,6 +47,12 @@ interface TTSOptions {
 }
 
 export async function generateSpeech({ voiceId, text, modelId = 'eleven_multilingual_v2' }: TTSOptions): Promise<ArrayBuffer> {
+  if (!ELEVENLABS_API_KEY) {
+    throw new Error(
+      'ElevenLabs API key not configured. The hardcoded key was removed for security; ' +
+      'set NEXT_PUBLIC_ELEVENLABS_API_KEY for local dev or wait for the backend proxy.'
+    );
+  }
   const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
     method: 'POST',
     headers: {
