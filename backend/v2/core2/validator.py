@@ -49,7 +49,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import boto3
 from botocore.config import Config
@@ -127,10 +127,21 @@ def _is_korean_text(text: str, min_ratio: float = _KOREAN_MIN_RATIO) -> bool:
     return korean / len(letters) >= min_ratio
 
 
-def structural_check(versions: Dict[str, Dict[str, Any]]) -> List[Dict[str, str]]:
-    """Return structural issues for all 4 groups. Deterministic, no AWS."""
+def structural_check(
+    versions: Dict[str, Dict[str, Any]],
+    expected_groups: Optional[Sequence[str]] = None,
+) -> List[Dict[str, str]]:
+    """Return structural issues for the requested groups. Deterministic, no AWS.
+
+    ``expected_groups`` defaults to all 4 MBTI when None — preserves the
+    legacy behaviour. Pass an explicit subset (e.g. ``["NT"]``) when the
+    Selector chose fewer groups for this article and only those should
+    be validated; otherwise the loop would flag the un-selected groups
+    as ``missing`` and reject the article.
+    """
+    groups = tuple(expected_groups) if expected_groups else _REQUIRED_GROUPS
     issues: List[Dict[str, str]] = []
-    for group in _REQUIRED_GROUPS:
+    for group in groups:
         v = versions.get(group)
         if not v:
             issues.append(
@@ -304,18 +315,26 @@ async def validate_versions(
     title: str,
     content: str,
     versions: Dict[str, Dict[str, Any]],
+    requested_groups: Optional[Sequence[str]] = None,
     endpoint_url: Optional[str] = None,
     enable_ai_check: bool = True,
     bedrock_client: Optional[Any] = None,
 ) -> ValidationResult:
-    """Validate 4 MBTI versions against the original article.
+    """Validate the requested MBTI versions against the original article.
 
     Parameters
     ----------
     title, content : str
         Original Korean article fields (from ``original.json``).
     versions : dict
-        ``{NT: {title, body, ...}, NF: ..., ST: ..., SF: ...}``.
+        ``{<group>: {title, body, ...}, ...}``. The Selector may have
+        chosen fewer than 4 groups; only those should be present.
+    requested_groups : sequence of str, optional
+        The MBTI groups the Selector chose for this article (e.g.
+        ``["NT", "ST"]``). When None, falls back to all 4 — preserves
+        legacy behaviour for callers that don't pass this. Without it,
+        the Selector's "1-2 groups per article" pattern would fail
+        validation for the un-chosen groups (TASK-7-Z-2 fix).
     endpoint_url : str, optional
         Bedrock VPC endpoint override (same pattern as
         ``TransformV2Service`` and ``EmbeddingV2Client``).
@@ -332,7 +351,7 @@ async def validate_versions(
         count as critical; AI issues only when Nova returns a
         ``hallucination`` type.
     """
-    issues = structural_check(versions)
+    issues = structural_check(versions, expected_groups=requested_groups)
 
     ai_check_used = False
     if enable_ai_check and not issues:

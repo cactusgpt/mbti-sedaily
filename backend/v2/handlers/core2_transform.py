@@ -440,6 +440,7 @@ async def _process_one_article(
                 title=original.get("title_ko", ""),
                 content=original.get("content_ko", ""),
                 versions=versions,
+                requested_groups=requested_groups,
                 endpoint_url=os.getenv("BEDROCK_RUNTIME_ENDPOINT_URL") or None,
                 enable_ai_check=True,
             )
