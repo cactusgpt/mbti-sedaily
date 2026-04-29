@@ -16,6 +16,8 @@ from typing import Dict, Any, List, Optional
 from config.constants import CORS_HEADERS, MBTI_GROUPS
 from repositories.personal_repository import get_personal_repository
 from models.personal import UserProfile, ReadingRecord
+from core.auth import get_authenticated_user_id
+from core.exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -291,12 +293,15 @@ def lambda_handler(event: dict, context) -> dict:
         elif not body:
             body = {}
 
-        # Get user_id from body, query params, or headers
+        # Get user_id from the verified Cognito ID token. Previously this
+        # accepted `user_id` from the request body or query string, which
+        # let any caller impersonate any user (read history, sync profile,
+        # etc.). The trusted source is now the JWT signature.
         query_params = event.get('queryStringParameters', {}) or {}
-        user_id = body.get('user_id') or query_params.get('user_id')
-
-        if not user_id:
-            return error_response(400, 'user_id is required')
+        try:
+            user_id = get_authenticated_user_id(event)
+        except AuthenticationError as e:
+            return _error_response(401, str(e))
 
         logger.info(f"User request: {http_method} {path} user={user_id}")
 
@@ -313,48 +318,51 @@ def lambda_handler(event: dict, context) -> dict:
                 result = asyncio.run(
                     get_or_create_user(user_id, email, name, picture, mbti_group)
                 )
-                return success_response(result)
+                return _success_response(result)
 
         elif '/mbti' in path and http_method == 'PUT':
             mbti_group = body.get('mbti_group')
             if not mbti_group:
-                return error_response(400, 'mbti_group is required')
+                return _error_response(400, 'mbti_group is required')
 
             result = asyncio.run(update_user_mbti(user_id, mbti_group))
-            return success_response(result)
+            return _success_response(result)
 
         elif '/read' in path and http_method == 'POST':
             article_id = body.get('article_id')
             article_title = body.get('article_title')
 
             if not article_id:
-                return error_response(400, 'article_id is required')
+                return _error_response(400, 'article_id is required')
 
             result = asyncio.run(
                 record_article_read(user_id, article_id, article_title)
             )
-            return success_response(result)
+            return _success_response(result)
 
         elif '/history' in path and http_method == 'GET':
             history = asyncio.run(get_reading_history(user_id))
-            return success_response({'history': history})
+            return _success_response({'history': history})
 
         elif '/stats' in path:
             stats = asyncio.run(get_user_stats(user_id))
-            return success_response(stats)
+            return _success_response(stats)
 
         else:
-            return error_response(404, 'Not found')
+            return _error_response(404, 'Not found')
 
     except ValueError as e:
-        return error_response(400, str(e))
+        return _error_response(400, str(e))
 
     except Exception as e:
         logger.error(f"User handler error: {e}", exc_info=True)
-        return error_response(500, '서버 오류가 발생했습니다.')
+        return _error_response(500, '서버 오류가 발생했습니다.')
 
 
-def success_response(data: dict) -> dict:
+# Renamed to underscored privates so they cannot collide with
+# `core.response.success_response` / `core.response.error_response`, whose
+# signatures are different (`error_response(message, status_code=500, ...)`).
+def _success_response(data: dict) -> dict:
     return {
         'statusCode': 200,
         'headers': CORS_HEADERS,
@@ -362,7 +370,7 @@ def success_response(data: dict) -> dict:
     }
 
 
-def error_response(status_code: int, message: str) -> dict:
+def _error_response(status_code: int, message: str) -> dict:
     return {
         'statusCode': status_code,
         'headers': CORS_HEADERS,

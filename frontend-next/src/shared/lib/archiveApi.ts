@@ -6,6 +6,7 @@
  */
 
 import { API_URL } from '@/shared/config/api';
+import { authFetch } from '@/shared/lib/authFetch';
 
 export interface ArchiveSentencePayload {
   user_id: string;
@@ -39,7 +40,7 @@ export interface SimilarSentence {
 export async function saveArchiveSentence(
   payload: ArchiveSentencePayload,
 ): Promise<{ sentence: ArchiveSentenceResponse; vector_status: string }> {
-  const res = await fetch(`${API_URL}/api/archive`, {
+  const res = await authFetch(`${API_URL}/api/archive`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -66,7 +67,9 @@ export async function listArchiveSentences(
   if (options?.dateTo) params.set('date_to', options.dateTo);
   if (options?.limit) params.set('limit', String(options.limit));
 
-  const res = await fetch(`${API_URL}/api/archive?${params}`);
+  // Listing is per-user, so it requires auth (anonymous archive lives in
+  // localStorage; the caller decides which path to take).
+  const res = await authFetch(`${API_URL}/api/archive?${params}`);
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -83,7 +86,7 @@ export async function deleteArchiveSentence(
   archiveId: string,
   userId: string,
 ): Promise<void> {
-  const res = await fetch(
+  const res = await authFetch(
     `${API_URL}/api/archive/${encodeURIComponent(archiveId)}?user_id=${encodeURIComponent(userId)}`,
     { method: 'DELETE' },
   );
@@ -104,7 +107,9 @@ export async function searchSimilarSentences(
   text: string,
   limit: number = 5,
 ): Promise<{ similar_sentences: SimilarSentence[]; count: number } | null> {
-  const res = await fetch(`${API_URL}/api/archive/similar`, {
+  // Similar-search is read-only but scoped to the user's archive — same
+  // auth requirement as listing.
+  const res = await authFetch(`${API_URL}/api/archive/similar`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ user_id: userId, text, limit }),

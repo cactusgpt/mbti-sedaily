@@ -17,6 +17,9 @@ from decimal import Decimal
 import boto3
 from boto3.dynamodb.conditions import Key, Attr
 
+from core.auth import get_authenticated_user_id
+from core.exceptions import AuthenticationError
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -349,6 +352,14 @@ def lambda_handler(event: dict, context) -> dict:
         # so vote/comment use body.action + body.post_id.
         if method == "POST":
             body = json.loads(event.get("body", "{}"))
+            # All POST routes (create / vote / comment) need a verified user.
+            # The body's `user_id` was previously trusted, allowing trivial
+            # impersonation. Replace it with the JWT `sub` and ignore any
+            # value the client supplied.
+            try:
+                body['user_id'] = get_authenticated_user_id(event)
+            except AuthenticationError as e:
+                return _cors(401, {"error": str(e)})
             action = body.get("action", "create")
 
             if action == "vote":

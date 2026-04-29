@@ -1,7 +1,12 @@
 import { API_URL } from "@/shared/config/api";
 import type { CommunityPost, CommunityComment } from "@/features/community";
+import { authFetch } from "@/shared/lib/authFetch";
 
 const BASE = `${API_URL}/api/posts`;
+
+// All write operations (create, vote, comment) go through `authFetch` so the
+// Cognito ID token reaches the backend, which now derives `user_id` from the
+// verified `sub` claim instead of trusting the body. Reads remain anonymous.
 
 // ── Posts ────────────────────────────────────────────────────────────────────
 
@@ -34,7 +39,7 @@ export async function createCommunityPost(payload: {
   tags?: string[];
 }): Promise<CommunityPost | null> {
   try {
-    const res = await fetch(BASE, {
+    const res = await authFetch(BASE, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -55,7 +60,7 @@ export async function votePost(
   voteType: "up" | "down",
 ): Promise<{ delta: number } | null> {
   try {
-    const res = await fetch(BASE, {
+    const res = await authFetch(BASE, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "vote", post_id: postId, user_id: userId, vote_type: voteType }),
@@ -91,7 +96,7 @@ export async function addComment(
   },
 ): Promise<CommunityComment | null> {
   try {
-    const res = await fetch(BASE, {
+    const res = await authFetch(BASE, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "comment", post_id: postId, ...payload }),

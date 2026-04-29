@@ -96,6 +96,13 @@ class Settings:
     frontend_url: str = FRONTEND_URL_DEFAULT
     revalidate_secret: Optional[str] = None
 
+    # ── Cognito (JWT verification) ──────────────────────────────────────────
+    # Defaults match the production pool (see frontend-next/src/shared/config/auth.ts).
+    # Override via env when standing up dev/staging pools.
+    cognito_region: str = 'us-east-1'
+    cognito_user_pool_id: str = 'us-east-1_ZS8PgF3iX'
+    cognito_app_client_id: str = '66c9bq3ovmk007d0eepkle92k3'
+
     # ── Google Analytics ─────────────────────────────────────────────────────
 
     ga4_property_id: Optional[str] = None
@@ -162,6 +169,11 @@ class Settings:
             # Frontend
             frontend_url=os.getenv('FRONTEND_URL', FRONTEND_URL_DEFAULT),
             revalidate_secret=os.getenv('REVALIDATE_SECRET'),
+
+            # Cognito
+            cognito_region=os.getenv('COGNITO_REGION', 'us-east-1'),
+            cognito_user_pool_id=os.getenv('COGNITO_USER_POOL_ID', 'us-east-1_ZS8PgF3iX'),
+            cognito_app_client_id=os.getenv('COGNITO_APP_CLIENT_ID', '66c9bq3ovmk007d0eepkle92k3'),
 
             # Google Analytics
             ga4_property_id=os.getenv('GA4_PROPERTY_ID'),

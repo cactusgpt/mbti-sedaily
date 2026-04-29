@@ -6,6 +6,7 @@
  */
 
 import { API_URL } from '@/shared/config/api';
+import { authFetch } from '@/shared/lib/authFetch';
 
 export interface PodcastInfo {
   podcast_id: string;
@@ -61,7 +62,10 @@ export async function generatePodcast(
   articleId: string,
   mbtiGroup: string,
 ): Promise<PodcastInfo> {
-  const res = await fetch(`${API_URL}/api/podcast/generate`, {
+  // /generate calls Bedrock-Haiku + Polly per request — auth required so the
+  // endpoint isn't an open cost vector for unauthenticated callers. Read
+  // routes (article, get, list) stay anonymous.
+  const res = await authFetch(`${API_URL}/api/podcast/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ article_id: articleId, mbti_group: mbtiGroup }),

@@ -135,6 +135,7 @@ pip3 install \
   opensearch-py==2.4.2 \
   requests-aws4auth==1.3.1 \
   pg8000==1.31.2 \
+  "PyJWT[crypto]==2.10.1" \
   -t "$BUILD_DIR" \
   --platform manylinux2014_x86_64 \
   --python-version 3.11 \

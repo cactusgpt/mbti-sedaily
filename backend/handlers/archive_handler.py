@@ -27,6 +27,8 @@ from models.personal import ArchivedSentence
 from repositories.personal_repository import get_personal_repository
 from clients.embedding_client import EmbeddingClient, EmbeddingError
 from core.decorators import lambda_handler as handler_decorator
+from core.auth import get_authenticated_user_id, try_get_authenticated_user_id
+from core.exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -75,6 +77,12 @@ async def _handle_save(body: Dict[str, Any]) -> Dict:
         return _error(400, 'text is required')
     if not article_id:
         return _error(400, 'article_id is required')
+    # Bound user input. Titan V2 will reject inputs > ~8192 tokens but the
+    # client-paid embedding cost still incurs; cap before embedding. 5000
+    # chars is roughly an order of magnitude beyond any sensible archive
+    # entry while staying well under Titan's hard limit.
+    if len(text) > 5000:
+        return _error(400, '문장이 너무 깁니다. 5000자 이하로 줄여주세요.')
 
     # 1. Save to Personal DB
     sentence = ArchivedSentence(
@@ -365,6 +373,25 @@ async def lambda_handler(event: dict, context) -> dict:
         return {'statusCode': 200, 'headers': CORS_HEADERS, 'body': ''}
 
     logger.info(f"Archive request: {method} {path}")
+
+    # All write operations need an authenticated user. Reads (similarity
+    # search, list) accept either an authenticated user (scoped to their
+    # own archive) or anonymous (returns nothing for now). Replace any
+    # client-supplied user_id with the JWT `sub` for write paths.
+    if method in ('POST', 'DELETE'):
+        try:
+            verified_user_id = get_authenticated_user_id(event)
+        except AuthenticationError as e:
+            return _error(401, str(e))
+        body['user_id'] = verified_user_id
+        # Also override query-param user_id since DELETE may use it.
+        params['user_id'] = verified_user_id
+    else:
+        # GET — try to attach a verified user_id but don't require it. The
+        # repository layer scopes to user_id when present.
+        anon_user_id = try_get_authenticated_user_id(event)
+        if anon_user_id:
+            params['user_id'] = anon_user_id
 
     # POST /api/archive/similar
     if '/similar' in path and method == 'POST':

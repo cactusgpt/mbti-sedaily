@@ -15,6 +15,7 @@ import {
 import { Hub } from 'aws-amplify/utils';
 import { authConfig } from '@/shared/config/auth';
 import { API_URL } from '@/shared/config/api';
+import { authFetch } from '@/shared/lib/authFetch';
 
 // Configure Amplify
 Amplify.configure(authConfig as any);
@@ -53,11 +54,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Sync user profile with backend
+  // Sync user profile with backend.
+  // The backend now derives `user_id` from the verified JWT (`sub` claim);
+  // the body's `user_id` is ignored server-side but kept here so logs in
+  // earlier pipelines that read the JSON body still see a stable value.
   const syncUserProfile = async (userData: User) => {
     try {
       const mbtiGroup = localStorage.getItem('mbti-group') || 'SF';
-      await fetch(`${API_URL}/api/user/profile`, {
+      await authFetch(`${API_URL}/api/user/profile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

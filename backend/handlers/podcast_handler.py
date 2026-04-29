@@ -40,6 +40,8 @@ from repositories.podcast_repository import get_podcast_repository
 from clients.s3_article_client import S3ArticleClient
 from clients.dynamodb_client import DynamoDBClient
 from core.decorators import lambda_handler as handler_decorator
+from core.auth import get_authenticated_user_id
+from core.exceptions import AuthenticationError
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -464,8 +466,15 @@ async def lambda_handler(event: dict, context) -> dict:
 
     logger.info(f"Podcast request: {method} {path}")
 
-    # POST /api/podcast/generate
+    # POST /api/podcast/generate — auth required for cost protection.
+    # Generation calls Bedrock-Haiku + Polly per request; without auth this
+    # endpoint was an open-ended cost vector for any caller. List/get
+    # routes stay anonymous (cached/static).
     if '/generate' in path and method == 'POST':
+        try:
+            get_authenticated_user_id(event)
+        except AuthenticationError as e:
+            return _error(401, str(e))
         return await _handle_generate(body)
 
     # GET /api/podcast/list?date=...
