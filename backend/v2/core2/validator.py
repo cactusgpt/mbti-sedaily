@@ -196,15 +196,33 @@ def structural_check(
 def _build_ai_prompt(
     original_title: str, original_content: str, versions: Dict[str, Dict[str, Any]]
 ) -> str:
-    """Build the Nova Lite user message. Kept pure so tests can assert shape."""
-    versions_summary = "\n".join(
-        f"[{g}] 제목: {(v.get('title') or '')[:80]}\n"
-        f"     본문 발췌: {(v.get('body') or '')[:250]}"
+    """Build the Nova Lite user message. Kept pure so tests can assert shape.
+
+    Excerpt length parity (TASK-7-Z-3 followup — false-positive mitigation):
+    Both original_content and each version body are excerpted to the SAME
+    length (600 chars). Pre-followup, original was 600 and version was 250,
+    which made any analytical / framing content the Opus expansion added
+    look like 'unrelated topic' to Nova whenever Opus moved the news beat
+    later in the body.
+    """
+    versions_summary = "\n\n".join(
+        f"[{g}] 제목: {(v.get('title') or '')[:120]}\n"
+        f"     본문 발췌: {(v.get('body') or '')[:600]}"
         for g, v in versions.items()
     )
-    return f"""원본 기사와 4개 MBTI 변환 버전이 주어집니다. 각 버전이 원본과 완전히 다른 사건/주제를 다루는 hallucination인지 판별하세요.
+    return f"""원본 기사와 MBTI 변환 버전들이 주어집니다. 각 버전이 원본과 완전히 다른 사건/주제를 다루는 hallucination인지 판별하세요.
 
-스타일 차이, 추가 분석·감정 context, 재구성, 톤 차이는 hallucination이 아닙니다. 오직 완전히 다른 사건 / 주제 / 인물로 변질된 경우만 hallucination으로 표시하세요.
+다음은 hallucination이 아닙니다 (정상):
+- 추가 분석 / 감정 / 맥락 부여
+- 같은 사건을 다른 톤으로 재구성
+- 본문 순서 재배치
+- 같은 인물·기관·수치를 다른 어조로 다룸
+- 독자 페르소나에 맞춘 어휘 변경
+
+다음만 hallucination입니다:
+- 원본에 없던 사건/사고를 새로 다룸
+- 원본과 다른 인물·기관·국가가 주체로 등장
+- 원본 주제와 무관한 새 주제로 변질
 
 [원본 제목]
 {original_title}
@@ -218,15 +236,25 @@ def _build_ai_prompt(
 다음 JSON 형식으로만 응답하세요 (다른 텍스트 없이):
 {{"issues": [{{"group": "NT" | "NF" | "ST" | "SF", "type": "hallucination", "detail": "구체 사유"}}]}}
 
-hallucination이 없으면 issues를 빈 배열로 두세요."""
+hallucination이 없으면 issues를 빈 배열로 두세요. 확신이 없으면 빈 배열을 반환하세요."""
 
 
-def _parse_ai_issues(response_text: str) -> List[Dict[str, str]]:
+def _parse_ai_issues(
+    response_text: str,
+    requested_groups: Optional[Sequence[str]] = None,
+) -> List[Dict[str, str]]:
     """Extract the ``issues`` list from a Nova response. Best-effort parsing.
 
     Nova may wrap the JSON in prose or markdown fences; we locate the first
     balanced ``{...}`` block. Anything unparseable → empty list (default-to-
     pass semantics; caller logs at WARNING).
+
+    TASK-7-Z-3 followup — group filter:
+    Nova's prompt schema enumerates all 4 MBTI literals in the JSON shape
+    template, so it occasionally emits issues against groups that were
+    NOT actually present in the input (when the Selector chose 1-2
+    groups). When ``requested_groups`` is passed, drop issues whose group
+    is not in that set. When None, fall back to all 4 (legacy callers).
     """
     if not response_text:
         return []
@@ -253,6 +281,7 @@ def _parse_ai_issues(response_text: str) -> List[Dict[str, str]]:
     raw_issues = parsed.get("issues", [])
     if not isinstance(raw_issues, list):
         return []
+    allowed = frozenset(requested_groups) if requested_groups else frozenset(_REQUIRED_GROUPS)
     # Filter to the shape we expect; discard malformed entries silently.
     return [
         {
@@ -261,7 +290,7 @@ def _parse_ai_issues(response_text: str) -> List[Dict[str, str]]:
             "detail": str(it.get("detail", "")),
         }
         for it in raw_issues
-        if isinstance(it, dict) and it.get("group") in _REQUIRED_GROUPS
+        if isinstance(it, dict) and str(it.get("group", "")) in allowed
     ]
 
 
@@ -270,6 +299,7 @@ async def _ai_check(
     original_title: str,
     original_content: str,
     versions: Dict[str, Dict[str, Any]],
+    requested_groups: Optional[Sequence[str]] = None,
 ) -> List[Dict[str, str]]:
     """Invoke Nova Lite. Returns issues list; empty on any error (default-to-pass)."""
     try:
@@ -298,7 +328,7 @@ async def _ai_check(
             .get("content", [{}])[0]
             .get("text", "")
         )
-        return _parse_ai_issues(text)
+        return _parse_ai_issues(text, requested_groups=requested_groups)
     except Exception as exc:
         logger.warning(
             f"Validator AI check failed (default-to-pass): "
@@ -360,7 +390,7 @@ async def validate_versions(
             if endpoint_url:
                 kwargs["endpoint_url"] = endpoint_url
             bedrock_client = boto3.client("bedrock-runtime", **kwargs)
-        ai_issues = await _ai_check(bedrock_client, title, content, versions)
+        ai_issues = await _ai_check(bedrock_client, title, content, versions, requested_groups=requested_groups)
         issues.extend(ai_issues)
         ai_check_used = True
 

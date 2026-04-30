@@ -170,7 +170,7 @@ def test_v2_2_4_build_ai_prompt_contains_all_4_groups() -> None:
 def test_v2_2_4_build_ai_prompt_truncates_long_content() -> None:
     long_content = "가" * 5_000
     prompt = _build_ai_prompt("t", long_content, _make_full_versions())
-    # 600-char cap on original content; 250-char per version excerpt.
+    # 600-char cap on original content AND each version excerpt (TASK-7-Z-3 followup parity).
     assert prompt.count("가") < 1_000
 
 
@@ -328,3 +328,33 @@ def test_v2_2_4_validate_to_dict_shape() -> None:
     assert isinstance(d["passed"], bool)
     assert isinstance(d["issues"], list)
     assert isinstance(d["ai_check_used"], bool)
+
+
+# =============================================================================
+# TASK-7-Z-3 followup — Phase 2-A patches
+# =============================================================================
+
+
+def test_v2_2_4_followup_parse_ai_issues_filters_unrequested_groups() -> None:
+    """Nova returns issue for SF when only NT was requested → drop it."""
+    raw = '{"issues":[{"group":"SF","type":"hallucination","detail":"x"},{"group":"NT","type":"hallucination","detail":"y"}]}'
+    out = _parse_ai_issues(raw, requested_groups=["NT"])
+    assert len(out) == 1
+    assert out[0]["group"] == "NT"
+
+
+def test_v2_2_4_followup_parse_ai_issues_no_filter_falls_back_to_all_4() -> None:
+    """When requested_groups=None, behavior matches pre-followup default."""
+    raw = '{"issues":[{"group":"SF","type":"hallucination","detail":"x"}]}'
+    out = _parse_ai_issues(raw, requested_groups=None)
+    assert len(out) == 1
+
+
+def test_v2_2_4_followup_build_ai_prompt_excerpt_parity() -> None:
+    """Both original and version excerpts should be 600 chars."""
+    long_body = "B" * 1000
+    versions = {"NT": {"title": "T" * 200, "body": long_body}}
+    prompt = _build_ai_prompt("orig title", "O" * 1000, versions)
+    # Body excerpt should now be 600 (not 250 as in pre-followup)
+    assert "B" * 600 in prompt
+    assert "B" * 601 not in prompt
