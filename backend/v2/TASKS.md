@@ -504,6 +504,58 @@ Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이
   - **Article handler 미세 drift**: FeedPage MbtiVersion에는 image_url? 있고 ArticleView 것은 없음. shared/types/mbti.ts와도 다름. 어댑터 복제로 회피했지만 데모 후 정합성 정리 (TASK-4-Z).
   - **Date picker 미정**: NewsFeedTab의 date UI는 그대로 보이지만 클릭해도 v2 endpoint 응답 변하지 않음 (서버 since= 무시 + 클라이언트도 안 보냄). 데모 narrative에 영향 없음.
 
+### TASK-7-Z: image_url을 v2 feed/article 응답에 노출 (Path 1, 폐기)
+- **종속성**: TASK-7
+- **커밋**: `598fcd9` (Collector + API), `fd4a6cd` (frontend reader)
+- **Files modified**:
+  - `backend/v2/handlers/core1_collector.py` *(image_url 추출 1차 구현)*
+  - `backend/v2/handlers/core3_feed.py`, `core3_article.py` *(응답에 노출)*
+  - `frontend-next/src/components/mbti/FeedPage.tsx` *(image_url 읽기)*
+- **Live state**: 새 fire 자연 누적 0건 — anomaly 발견. Path 1 (Collector 추출) 폐기 결정.
+- **Notes**:
+  - Collector 단계 image_url 추출은 raw article 100% 대상 — 이 중 ~13% 만 실제 surface (selected → transformed). 나머지 87% 는 wasted work. 이 비효율이 Z-2 reshape의 motivation.
+
+### TASK-7-Z-2: image_url 추출을 Collector → Transform으로 이동 (Path 2)
+- **종속성**: TASK-7-Z
+- **커밋**: `db16c1c`
+- **Files modified**:
+  - `backend/v2/handlers/core2_transform.py` *(_extract_image_url 추가, _store_one_version에 metadata.image_url 기록)*
+  - `backend/v2/handlers/core1_collector.py` *(image_url 추출 코드 제거 — Path 1 폐기)*
+- **Design**: image_url은 article-level (4 MBTI 동일) 이지만 article_versions.metadata JSONB에 4중 복제. 이유는 Transform이 article_versions 쓰기만 담당하고 articles UPDATE는 안 하도록 SoC 유지. 50 bytes × 4 = 200 bytes 복제 — negligible.
+- **Live state**: 24h+ 후에도 transformed_at 0건 — 두 번째 anomaly. 원인은 image 작업과 무관 — Selector → Validator contract 깨짐이 Z-2 reshape 시점에 자연 누적이 시작되며 표면화 (Z-3에서 발견).
+- **Notes**: Path 2 reshape 자체는 design 의도 정확히 달성. 다만 데이터 흐름 검증이 Validator 차원에서 막혀있던 것이 잠복했음.
+
+### TASK-7-Z-3: Validator가 requested_groups를 받도록 contract fix
+- **종속성**: TASK-4-B (Selector), TASK-2.4 (Validator)
+- **커밋**: `9d13cf3`
+- **Files modified**:
+  - `backend/v2/core2/validator.py` *(structural_check + validate_versions에 expected_groups/requested_groups parameter)*
+  - `backend/v2/handlers/core2_transform.py` *(validate_versions 호출 시 requested_groups 전달)*
+- **Why**: Selector는 per-MBTI top-N 독립 선별 — article이 1~4 MBTI 부분 집합으로 통과 가능. 그러나 Validator는 모든 4 MBTI를 expect하고 부재하는 groups를 "missing"으로 reject. 결과: 12h+ Lambda fire에서 transformed_at 0건, Opus 4.6 호출은 silently 성공한 채 validator 통과 못 함.
+- **Discovery**: Path 2 reshape 후 24h+ 누적 stall 조사 중 발견. Lambda metrics는 11 invocations/h with 0 errors인데 RDS는 24h transform 0건. CloudWatch에 transform_validation_failure 이벤트가 모든 미선택 groups를 absent로 flag.
+- **Live state (post-fix)**: 즉시 +4 article 처리 (7 → 11). pending 233건 backlog 자연 소화 시작. 다만 Nova Lite hallucination check가 추가 reject — 별도 quality issue로 7-Z-3-followup에서 다룸.
+- **Tests**: 423 v2 unit tests (기존 passing, fix 후도 passing)
+
+### TASK-7-Z-3-followup: Validator hallucination prompt 개선 (Path b)
+- **종속성**: TASK-7-Z-3
+- **커밋**: `d8e6a1f` (validator 패치 + 테스트), `a5d7a84` (diagnostic v3 + 테스트)
+- **Files modified**:
+  - `backend/v2/core2/validator.py` *(_build_ai_prompt 발췌 길이 균형 250→600자, _parse_ai_issues에 requested_groups 필터, _ai_check 시그니처)*
+  - `backend/v2/tests/test_validator.py` *(followup 3개 테스트 추가, 기존 stale 주석 정정)*
+  - `backend/v2/tools/post_validator_fix_diagnostic_v3.py` *(이전 v1/v2 진단 broken — v3가 최종)*
+  - `backend/v2/tools/test_diagnostic_v3.py` *(7개 테스트, 한글 detail 포함 케이스 등)*
+- **Why**: Z-3 fix 후 자연 누적은 시작됐으나 Nova Lite reject ratio가 24h 윈도우에서 82.2%로 측정됨. 100% hallucination type. 사례: *"원본 기사의 주제인 서울시의 청년 월세 지원 정책 확대와 달리, 변환 버전은 월 20만 원이 청년들에게 어떤 영향을 미치는지에 대한 일반적인 고찰로 주제가 달라졌습니다."* — Nova가 Opus의 의도된 분석/맥락 추가를 "주제 변경"으로 오인.
+- **Diagnostic 진화**:
+  - v1 (Phase 1): `parse @message '"event":"*"'` 패턴이 콜론 뒤 공백 없음 → Python `json.dumps` 기본 separator(`': '`)와 mismatch → 1545개 line 모두 `<no_event>` (broken).
+  - v2 (Phase 1.5b): `parse` 폐기, 7개 event별 individual exact-match query. 그러나 issue type 분포는 `fields ... issues` projection에 의존했고 Insights가 nested array를 JSON-string으로 always serialize 안 함. hallucination_count=0 이 raw_log_peek의 100% hallucination과 모순 (broken).
+  - v3 (Phase 2-A 이후): `@message` 자체 fetch + Python-side depth-counted brace scan. test_diagnostic_v3.py 7개 케이스로 검증.
+- **Patches** (3개):
+  1. **Excerpt parity** — version body 발췌 250 → 600자 (원본 600자와 균등). pre-followup 비대칭은 Opus가 분석을 본문 후반에 배치 시 발췌가 그 부분만 잡아 "다른 주제"로 오인 유발.
+  2. **Group filter** — Nova가 prompt schema의 4 MBTI 리터럴을 보고 unrequested group 환각 issue 생성하던 것을 `_parse_ai_issues(requested_groups=...)`로 필터.
+  3. **Prompt clarification** — "추가 분석/감정/맥락 부여는 hallucination 아님" 명시 + "확신 없으면 빈 배열" guidance.
+- **Live state (post-Path-b deploy 6h)**: reject ratio **82.2% → 7.7%** (band c → band a), hallucination 비중 100% 유지(1/1 — true positive 검출 보존), `transform_empty_batch` 70/72 = 97% (queue 거의 비움). retry-loop 5건은 selector rerank 통한 자연 회복 (Phase 2-C Section C 측정).
+- **Tests**: 36/36 PASS (test_validator 29 + test_diagnostic_v3 7).
+
 ### TASK-4-Z (post-demo): 보안/위생 정리
 - **종속성**: 데모 후
 - **항목**:
