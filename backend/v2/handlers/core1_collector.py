@@ -156,11 +156,16 @@ def _build_metadata(article: S3Article) -> Dict[str, Any]:
 def _is_zero_vector(embedding: List[float], tol: float = 1e-9) -> bool:
     """True when every component is within ``tol`` of zero.
 
-    ``EmbeddingV2Client.embed_text`` returns an all-zero vector when the
-    Bedrock call fails (see its except block). Storing those in pgvector
-    would poison cosine-distance ranking — NaN distances on zero-
-    magnitude vectors (the same trap documented in the test fixture
-    ``_embedding``). Treat zero as failure at this layer.
+    Defensive check kept after commit ``9d4d657`` (2026-04-29) which made
+    ``EmbeddingV2Client.embed_text`` raise ``EmbeddingError`` instead of
+    returning ``[0.0] * dim`` on Bedrock failures. The outer
+    ``try/except`` in ``_process_one`` now catches that. However, this
+    check guards against a future Bedrock API change that legitimately
+    returns a near-zero vector (e.g. embedding of an empty string) — such
+    rows would poison cosine-distance ranking with NaN distances on
+    zero-magnitude vectors (the same trap documented in the test fixture
+    ``_embedding``). Treat zero as failure at this layer regardless of
+    upstream behavior.
     """
     return all(abs(v) < tol for v in embedding)
 

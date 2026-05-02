@@ -502,7 +502,7 @@ Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이
 - **Notes**:
   - **Stale lockfile race**: 첫 빌드 시 `@fullstackfamily/manseryeok` import error. node_modules에 미설치 상태. `npm install`로 root cause fix. 추가 [chore] 커밋은 결정에 따라 선택.
   - **Article handler 미세 drift**: FeedPage MbtiVersion에는 image_url? 있고 ArticleView 것은 없음. shared/types/mbti.ts와도 다름. 어댑터 복제로 회피했지만 데모 후 정합성 정리 (TASK-4-Z).
-  - **Date picker 미정**: NewsFeedTab의 date UI는 그대로 보이지만 클릭해도 v2 endpoint 응답 변하지 않음 (서버 since= 무시 + 클라이언트도 안 보냄). 데모 narrative에 영향 없음.
+  - **Date picker — Round 3 평가 결과 결함 아님**: NewsFeedTab의 date UI는 hide 상태이고, FeedPage:748-750 주석에 명시된 의도 — `selectedDate` 의존성을 useEffect deps에 유지해 향후 picker 부활 시 since 매핑만 추가하면 됨. 백엔드는 `?since=YYYY-MM-DD` 정상 처리 (`core3_feed.py:208`). 양쪽 작동, 단지 frontend가 query param을 안 보낼 뿐. 코드 변경 불필요.
 
 ### TASK-7-Z: image_url을 v2 feed/article 응답에 노출 (Path 1, 폐기)
 - **종속성**: TASK-7
