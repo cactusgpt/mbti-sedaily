@@ -2,19 +2,11 @@ import { useState, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
+import type { MbtiVersion } from "@/shared/types/mbti";
 import { useAuth } from "@/features/auth";
 import { recordArticleRead } from "@/shared/lib/userApi";
 import { trackArticleRead } from "@/shared/lib/readingTracker";
 import { API_URL } from "@/shared/config/api";
-
-interface MbtiVersion {
-  title: string;
-  subtitle: string;
-  body: string | string[];
-  key_points: string[];
-  closing_line: string;
-  tone: string;
-}
 
 interface Article {
   news_id: string;
@@ -30,11 +22,9 @@ interface Article {
   versions?: Record<string, MbtiVersion>;
 }
 
-// v2 Article API의 version 객체를 MbtiVersion shape로 변환.
-// FeedPage.tsx의 동일 함수와 의도적으로 복제 — ArticleView의 MbtiVersion은
-// image_url 필드 없고 FeedPage 것은 있어서 (interface drift) shared 모듈로
-// 옮기면 type 충돌. 데모 후 TASK-4-Z에서 interface 통합 + adapter shared
-// 이전 예정.
+// v2 Article API의 version 객체를 shared MbtiVersion shape로 변환.
+// v1의 tone 필드가 v2엔 없어서 빈 문자열로 채움. v1 frontend 컴포넌트는 tone을
+// 표시 용도로만 쓰며, 빈 문자열이면 단순히 안 보임 (data-driven hide 패턴).
 function adaptV2Version(v2Version: Record<string, unknown>): MbtiVersion {
   return {
     title: (v2Version.title as string) || '',

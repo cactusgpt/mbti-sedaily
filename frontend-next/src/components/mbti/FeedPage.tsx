@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
+import type { MbtiVersion } from "@/shared/types/mbti";
 import { API_URL } from "@/shared/config/api";
 import { fetchCommunityPosts, votePost, addComment, createCommunityPost, fetchComments } from "@/shared/lib/communityApi";
 import { fetchDailyQuestions, saveQuestionAnswer } from "@/shared/lib/questionApi";
@@ -21,16 +22,6 @@ import { FortuneTab } from "@/features/fortune";
 
 // 프리페칭 캐시
 const prefetchCache = new Map<string, Article>();
-
-interface MbtiVersion {
-  title: string;
-  subtitle: string;
-  body: string | string[];
-  key_points: string[];
-  closing_line: string;
-  tone: string;
-  image_url?: string;
-}
 
 interface Article {
   news_id: string;
