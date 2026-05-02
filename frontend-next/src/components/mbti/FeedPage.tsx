@@ -650,11 +650,11 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   // 프리페칭
   const prefetchingRef = useRef<Set<string>>(new Set());
 
-  // Prefetch (TASK-7) — v2 4-parallel.
-  // ArticleView가 진입 시 4 MBTI를 병렬 fetch해서 versions를 채울 거지만,
-  // hover/scroll 트리거로 미리 받아두면 카드 클릭 직후 첫 표시 latency를
-  // 더 줄일 수 있음. 4 fetch 모두 성공해야 캐시 저장 (부분 실패면 ArticleView
-  // 진입 시 다시 시도).
+  // Prefetch — Round 4: 1 fetch with ?include_all_mbti=true (4-parallel
+  // fallback retained). ArticleView가 진입 시 같은 패턴으로 4 MBTI를
+  // 받아오지만, hover/scroll로 미리 받아두면 카드 클릭 직후 첫 표시
+  // latency를 더 줄일 수 있음. 4 entries 모두 있어야 캐시 저장 (부분
+  // 실패면 ArticleView 진입 시 다시 시도).
   const prefetchArticle = useCallback((article: Article) => {
     const id = article.news_id;
     if (id.startsWith('mock-')) return;
@@ -663,29 +663,56 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
 
     prefetchingRef.current.add(id);
     const groups = ['NT', 'NF', 'ST', 'SF'] as const;
-    Promise.all(
-      groups.map((g) =>
-        fetch(`${API_URL}/api/v2/article/${id}?mbti=${g}`).then((r) =>
-          r.ok ? r.json() : null
-        )
-      )
+    // Use NT as the primary mbti for the single-fetch path. The choice
+    // doesn't affect what we cache (we only read all_versions in Path A);
+    // it just satisfies the required ?mbti param.
+    const primaryGroup = groups[0];
+
+    fetch(
+      `${API_URL}/api/v2/article/${id}?mbti=${primaryGroup}&include_all_mbti=true`
     )
-      .then((results) => {
-        const versions: Record<string, MbtiVersion> = {};
-        let allOk = true;
-        results.forEach((r, i) => {
-          if (r && r.version) {
-            versions[groups[i]] = adaptV2Version(r.version as Record<string, unknown>);
-          } else {
-            allOk = false;
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        // Path A: full all_versions present.
+        if (
+          data &&
+          data.all_versions &&
+          typeof data.all_versions === 'object' &&
+          groups.every((g) => data.all_versions[g])
+        ) {
+          const versions: Record<string, MbtiVersion> = {};
+          groups.forEach((g) => {
+            versions[g] = adaptV2Version(
+              data.all_versions[g] as Record<string, unknown>
+            );
+          });
+          prefetchCache.set(id, { ...article, versions });
+          return;
+        }
+        // Path B: fallback to 4-parallel.
+        return Promise.all(
+          groups.map((g) =>
+            fetch(`${API_URL}/api/v2/article/${id}?mbti=${g}`).then((r) =>
+              r.ok ? r.json() : null
+            )
+          )
+        ).then((results) => {
+          const versions: Record<string, MbtiVersion> = {};
+          let allOk = true;
+          results.forEach((r, i) => {
+            if (r && r.version) {
+              versions[groups[i]] = adaptV2Version(r.version as Record<string, unknown>);
+            } else {
+              allOk = false;
+            }
+          });
+          if (allOk) {
+            // Article shape 그대로 보존 (openArticle이 setViewArticle(cached ||
+            // article) 흐름이라 Article로 저장돼야 함). versions만 채워넣고
+            // 나머지 필드는 카드의 기존 article 그대로.
+            prefetchCache.set(id, { ...article, versions });
           }
         });
-        if (allOk) {
-          // Article shape 그대로 보존 (openArticle이 setViewArticle(cached ||
-          // article) 흐름이라 Article로 저장돼야 함). versions만 채워넣고
-          // 나머지 필드는 카드의 기존 article 그대로.
-          prefetchCache.set(id, { ...article, versions });
-        }
       })
       .catch(() => {
         // silent — ArticleView will retry on actual click

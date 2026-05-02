@@ -126,11 +126,12 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
       .join(" ");
   };
 
-  // TASK-7: v2 4-parallel fetch.
-  // v1은 한 호출에 4 versions를 받았지만 v2 Article API는 mbti 단일 variant만
-  // 반환. 진입 시 4 MBTI 병렬 호출, 모두 성공해야 versions set (부분 성공은
-  // FeedPage prefetch와 정책 일관 — 깜빡거림 방지).
-  // 실패 시 fallback render (line 152의 !version 분기)로 fallthrough.
+  // Round 4: 1 fetch with ?include_all_mbti=true.
+  // v1은 한 호출에 4 versions를 받았고, TASK-7에서 v2 cutover 시 4-parallel로
+  // 갔었음 (Article API가 mbti 단일 variant만 반환했었기 때문). Round 4에서
+  // backend에 ?include_all_mbti=true 옵션을 추가해서 1 호출로 복귀.
+  // 응답이 all_versions (4 entries)를 포함하면 그것 사용, 부재하거나 <4면
+  // 4-parallel fallback (구 backend 호환 + partial transform 케이스).
   // FeedPage prefetchCache가 같은 어댑터 결과를 미리 채워뒀을 수 있지만
   // ArticleView는 prefetchCache를 직접 보지 않음 (FeedPage의 openArticle이
   // 이미 cached article을 setViewArticle해서 versions가 들어온 상태로 props
@@ -139,36 +140,62 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
     if (!version && !isLoadingContent) {
       setIsLoadingContent(true);
       const groups = ['NT', 'NF', 'ST', 'SF'] as const;
-      Promise.all(
-        groups.map((g) =>
-          fetch(`${API_URL}/api/v2/article/${article.news_id}?mbti=${g}`).then(
-            (r) => (r.ok ? r.json() : null)
-          )
-        )
-      )
-        .then((results) => {
-          const nextVersions: Record<string, MbtiVersion> = {};
-          let allOk = true;
-          results.forEach((r, i) => {
-            if (r && r.version) {
-              nextVersions[groups[i]] = adaptV2Version(
-                r.version as Record<string, unknown>
+      const primaryGroup = currentGroup;
+
+      const fetchAllInOne = fetch(
+        `${API_URL}/api/v2/article/${article.news_id}?mbti=${primaryGroup}&include_all_mbti=true`
+      ).then((r) => (r.ok ? r.json() : null));
+
+      fetchAllInOne
+        .then((data) => {
+          // Path A: backend returned all_versions with all 4 MBTI entries.
+          if (
+            data &&
+            data.all_versions &&
+            typeof data.all_versions === 'object' &&
+            groups.every((g) => data.all_versions[g])
+          ) {
+            const nextVersions: Record<string, MbtiVersion> = {};
+            groups.forEach((g) => {
+              nextVersions[g] = adaptV2Version(
+                data.all_versions[g] as Record<string, unknown>
               );
-            } else {
-              allOk = false;
-            }
-          });
-          if (allOk) {
+            });
             setArticle((prev) => ({ ...prev, versions: nextVersions }));
+            return;
           }
-          // !allOk 케이스: setArticle 안 함 → version 그대로 undefined →
-          // line 152 fallback render. 어댑터가 content를 body_preview로
-          // 이미 채워뒀으니 200자라도 표시됨.
+          // Path B: fallback to 4-parallel (older backend, partial transform,
+          // or include_all_mbti not honored).
+          return Promise.all(
+            groups.map((g) =>
+              fetch(`${API_URL}/api/v2/article/${article.news_id}?mbti=${g}`).then(
+                (r) => (r.ok ? r.json() : null)
+              )
+            )
+          ).then((results) => {
+            const nextVersions: Record<string, MbtiVersion> = {};
+            let allOk = true;
+            results.forEach((r, i) => {
+              if (r && r.version) {
+                nextVersions[groups[i]] = adaptV2Version(
+                  r.version as Record<string, unknown>
+                );
+              } else {
+                allOk = false;
+              }
+            });
+            if (allOk) {
+              setArticle((prev) => ({ ...prev, versions: nextVersions }));
+            }
+            // !allOk 케이스: setArticle 안 함 → version 그대로 undefined →
+            // fallback render. 어댑터가 content를 body_preview로 이미
+            // 채워뒀으니 200자라도 표시됨.
+          });
         })
         .catch((err) => console.error('Failed to load v2 versions:', err))
         .finally(() => setIsLoadingContent(false));
     }
-  }, [article.news_id, version]);
+  }, [article.news_id, version, currentGroup]);
 
   // 읽기 기록 — fires once per article open; version hasn't loaded yet
   // at this point, so we always use the original article title

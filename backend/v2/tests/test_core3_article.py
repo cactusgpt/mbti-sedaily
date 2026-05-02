@@ -385,3 +385,169 @@ def test_handler_path_fallback_when_no_pathparams() -> None:
     pg.get_article_with_version.assert_called_once()
     call_args = pg.get_article_with_version.call_args
     assert call_args.args[0] == "parsed-from-path-id"
+
+
+# =============================================================================
+# Round 4 — ?include_all_mbti opt-in
+# =============================================================================
+
+
+def test_parse_bool_truthy_values() -> None:
+    """Liberal acceptance: 1/true/yes/on case-insensitive."""
+    from v2.handlers.core3_article import _parse_bool
+    for v in ("1", "true", "True", "TRUE", "yes", "YES", "on", "ON", " true "):
+        assert _parse_bool(v) is True, f"failed for {v!r}"
+
+
+def test_parse_bool_falsy_values() -> None:
+    from v2.handlers.core3_article import _parse_bool
+    for v in (None, "", "0", "false", "False", "no", "off", "anything-else"):
+        assert _parse_bool(v) is False, f"failed for {v!r}"
+
+
+def test_handler_default_response_no_all_versions_field() -> None:
+    """Without ?include_all_mbti, response must NOT include all_versions
+    field (default code path unchanged — mobile/cache compat)."""
+    pg = MagicMock()
+    created = datetime(2026, 4, 27, 2, 0, tzinfo=timezone.utc)
+    pg.get_article_with_version.return_value = {
+        "news_id": "n1",
+        "original_title": "T",
+        "category": "사회",
+        "published_at": date(2026, 4, 26),
+        "article_metadata": {"press": "P", "url": "https://x"},
+        "mbti_type": "NT",
+        "version_title": "VT",
+        "version_body": "VB",
+        "version_metadata": {"subtitle": "VS", "key_points": ["a"]},
+        "version_created_at": created,
+    }
+    with patch.object(core3_article, "PgVectorV2Client", return_value=pg):
+        response = _invoke({
+            "httpMethod": "GET",
+            "pathParameters": {"news_id": "n1"},
+            "queryStringParameters": {"mbti": "NT"},
+        })
+    assert response["statusCode"] == 200
+    body = json.loads(response["body"])
+    assert "all_versions" not in body
+    pg.get_article_versions.assert_not_called()
+
+
+def test_handler_include_all_mbti_returns_all_versions() -> None:
+    """With ?include_all_mbti=true, all_versions field present with all 4
+    MBTI entries (when available)."""
+    pg = MagicMock()
+    created = datetime(2026, 4, 27, 2, 0, tzinfo=timezone.utc)
+    pg.get_article_with_version.return_value = {
+        "news_id": "n1",
+        "original_title": "T",
+        "category": "사회",
+        "published_at": date(2026, 4, 26),
+        "article_metadata": {"press": "P", "url": "https://x"},
+        "mbti_type": "NT",
+        "version_title": "NT-T",
+        "version_body": "NT-B",
+        "version_metadata": {"subtitle": "NT-S", "key_points": ["a"]},
+        "version_created_at": created,
+    }
+    pg.get_article_versions.return_value = {
+        "NT": {"title": "NT-T", "body": "NT-B", "metadata": {"subtitle": "NT-S", "key_points": ["a"], "closing_line": "NT-C"}},
+        "NF": {"title": "NF-T", "body": "NF-B", "metadata": {"subtitle": "NF-S", "key_points": ["b"], "closing_line": "NF-C"}},
+        "ST": {"title": "ST-T", "body": "ST-B", "metadata": {"subtitle": "ST-S", "key_points": ["c"], "closing_line": "ST-C"}},
+        "SF": {"title": "SF-T", "body": "SF-B", "metadata": {"subtitle": "SF-S", "key_points": ["d"], "closing_line": "SF-C"}},
+    }
+    with patch.object(core3_article, "PgVectorV2Client", return_value=pg):
+        response = _invoke({
+            "httpMethod": "GET",
+            "pathParameters": {"news_id": "n1"},
+            "queryStringParameters": {"mbti": "NT", "include_all_mbti": "true"},
+        })
+    assert response["statusCode"] == 200
+    body = json.loads(response["body"])
+    assert "all_versions" in body
+    assert set(body["all_versions"].keys()) == {"NT", "NF", "ST", "SF"}
+    assert body["all_versions"]["NF"]["title"] == "NF-T"
+    assert body["all_versions"]["NF"]["body"] == "NF-B"
+    assert body["all_versions"]["NF"]["closing_line"] == "NF-C"
+    # Primary `version` field still present and matches `mbti` query
+    assert body["version"]["title"] == "NT-T"
+    pg.get_article_versions.assert_called_once_with("n1")
+
+
+def test_handler_include_all_mbti_partial_transform() -> None:
+    """When article was only selected for 2 MBTIs, all_versions has 2 entries.
+    Frontend treats <4 as fallback case (existing 4-parallel policy)."""
+    pg = MagicMock()
+    created = datetime(2026, 4, 27, 2, 0, tzinfo=timezone.utc)
+    pg.get_article_with_version.return_value = {
+        "news_id": "n1",
+        "original_title": "T",
+        "category": "사회",
+        "published_at": date(2026, 4, 26),
+        "article_metadata": {},
+        "mbti_type": "NT",
+        "version_title": "NT-T",
+        "version_body": "NT-B",
+        "version_metadata": {"subtitle": "NT-S"},
+        "version_created_at": created,
+    }
+    pg.get_article_versions.return_value = {
+        "NT": {"title": "NT-T", "body": "NT-B", "metadata": {"subtitle": "NT-S", "key_points": [], "closing_line": ""}},
+        "NF": {"title": "NF-T", "body": "NF-B", "metadata": {"subtitle": "NF-S", "key_points": [], "closing_line": ""}},
+    }
+    with patch.object(core3_article, "PgVectorV2Client", return_value=pg):
+        response = _invoke({
+            "httpMethod": "GET",
+            "pathParameters": {"news_id": "n1"},
+            "queryStringParameters": {"mbti": "NT", "include_all_mbti": "true"},
+        })
+    assert response["statusCode"] == 200
+    body = json.loads(response["body"])
+    assert set(body["all_versions"].keys()) == {"NT", "NF"}
+
+
+def test_handler_include_all_mbti_falsy_does_not_query() -> None:
+    """include_all_mbti=false / 0 / no / empty → no second query."""
+    pg = MagicMock()
+    created = datetime(2026, 4, 27, 2, 0, tzinfo=timezone.utc)
+    pg.get_article_with_version.return_value = {
+        "news_id": "n1",
+        "original_title": "T",
+        "category": "사회",
+        "published_at": date(2026, 4, 26),
+        "article_metadata": {},
+        "mbti_type": "NT",
+        "version_title": "VT",
+        "version_body": "VB",
+        "version_metadata": {},
+        "version_created_at": created,
+    }
+    for val in ("false", "0", "no", ""):
+        pg.reset_mock()
+        pg.get_article_with_version.return_value = pg.get_article_with_version.return_value
+        with patch.object(core3_article, "PgVectorV2Client", return_value=pg):
+            response = _invoke({
+                "httpMethod": "GET",
+                "pathParameters": {"news_id": "n1"},
+                "queryStringParameters": {"mbti": "NT", "include_all_mbti": val},
+            })
+        assert response["statusCode"] == 200
+        body = json.loads(response["body"])
+        assert "all_versions" not in body, f"failed for include_all_mbti={val!r}"
+        pg.get_article_versions.assert_not_called()
+
+
+def test_handler_404_short_circuits_before_all_versions_query() -> None:
+    """404 path doesn't call get_article_versions even with include_all_mbti=true.
+    Saves a wasted RDS query when article doesn't exist for this MBTI."""
+    pg = MagicMock()
+    pg.get_article_with_version.return_value = None
+    with patch.object(core3_article, "PgVectorV2Client", return_value=pg):
+        response = _invoke({
+            "httpMethod": "GET",
+            "pathParameters": {"news_id": "missing"},
+            "queryStringParameters": {"mbti": "NT", "include_all_mbti": "true"},
+        })
+    assert response["statusCode"] == 404
+    pg.get_article_versions.assert_not_called()

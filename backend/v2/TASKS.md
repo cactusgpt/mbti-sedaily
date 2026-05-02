@@ -556,6 +556,23 @@ Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이
 - **Live state (post-Path-b deploy 6h)**: reject ratio **82.2% → 7.7%** (band c → band a), hallucination 비중 100% 유지(1/1 — true positive 검출 보존), `transform_empty_batch` 70/72 = 97% (queue 거의 비움). retry-loop 5건은 selector rerank 통한 자연 회복 (Phase 2-C Section C 측정).
 - **Tests**: 36/36 PASS (test_validator 29 + test_diagnostic_v3 7).
 
+### TASK-7-Z-4: Round 4 — Article API ?include_all_mbti 옵션 (1-RTT 모드)
+- **종속성**: TASK-6 (Article Detail API), TASK-7 (Frontend cutover)
+- **커밋**: TBD (이 핸드오프에서 생성)
+- **Files modified**:
+  - `backend/v2/handlers/core3_article.py` *(_parse_bool helper, _build_version_payload helper, _build_article_response에 all_versions optional kwarg, lambda_handler에서 옵션 파싱 + 두 번째 query)*
+  - `backend/v2/tests/test_core3_article.py` *(7개 테스트 추가 — _parse_bool 정/오 케이스, default no-all_versions, include_all_mbti=true happy path, partial transform, falsy values, 404 short-circuit)*
+  - `frontend-next/src/components/mbti/ArticleView.tsx` *(useEffect를 1-fetch + Path A/B fallback으로 재구성)*
+  - `frontend-next/src/components/mbti/FeedPage.tsx` *(prefetchArticle 동일 패턴)*
+- **Why**: ArticleView 진입 + FeedPage prefetch 두 곳에서 같은 article의 4 MBTI를 받기 위해 4-parallel fetch (4 RTT, 4 Lambda invocation, 4 RDS query). Round 4에서 backend `?include_all_mbti=true` 옵션 추가로 1 RTT로 복귀.
+- **Strictly additive 설계**:
+  - 기존 `?mbti=NT` 단독 호출 동작 변경 0 (mobile, 캐시, 외부 호출자 호환)
+  - 새 옵션 시 응답에 `all_versions` 필드 추가, `version` 필드는 그대로
+  - Frontend는 Path A (응답에 all_versions 4개) → 사용, Path B (부재 또는 <4) → 기존 4-parallel fallback. partial transform 케이스도 fallback path로 떨어져 같은 정책 (4 모두 있어야 setArticle).
+- **DB 비용**: opt-in일 때만 `pg.get_article_versions(news_id)` 추가 호출 (일반 SELECT, indexed). 404 path는 short-circuit 으로 두 번째 query 안 함.
+- **Live state (post-deploy)**: ArticleView/FeedPage 1-RTT path 활성화. Lambda invocation 1/4, RDS query 2/4 (1 single + 1 all-versions, vs 4 single 호출), frontend 첫 렌더 latency 단축.
+- **Tests**: 32/32 PASS (기존 25 + 새 7).
+
 ### TASK-4-Z (post-demo): 보안/위생 정리
 - **종속성**: 데모 후
 - **항목**:

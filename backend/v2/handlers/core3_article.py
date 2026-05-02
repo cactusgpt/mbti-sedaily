@@ -105,7 +105,44 @@ def _isoformat_or_none(value: Any) -> Optional[str]:
     return str(value)
 
 
-def _build_article_response(row: Dict[str, Any]) -> Dict[str, Any]:
+def _parse_bool(raw: Optional[str]) -> bool:
+    """Parse query string boolean. Accepts 1/true/yes/on (case-insensitive).
+
+    Liberal on input by design — query strings are user-controlled and
+    we'd rather accept "True" / "1" / "yes" than 400 a borderline case.
+    Anything else (including None, empty string, "false", "0") returns
+    False. Matches the convention used elsewhere in v2 (e.g.
+    transform.VALIDATOR_AI_CHECK_DISABLED check).
+    """
+    if not raw:
+        return False
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _build_version_payload(version_row: Dict[str, Any]) -> Dict[str, Any]:
+    """Map a single article_versions row to the public version payload.
+
+    Shared between the primary-version response and the per-MBTI entries
+    of ``all_versions``. The shape matches what the frontend's
+    ``adaptV2Version`` expects (title, subtitle, body, key_points,
+    closing_line) so adding a new producer doesn't drift from the
+    consumer.
+    """
+    metadata = version_row.get("metadata") or {}
+    return {
+        "title": version_row.get("title"),
+        "subtitle": metadata.get("subtitle", ""),
+        "body": version_row.get("body"),
+        "key_points": metadata.get("key_points", []),
+        "closing_line": metadata.get("closing_line", ""),
+    }
+
+
+def _build_article_response(
+    row: Dict[str, Any],
+    *,
+    all_versions: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     """Map ``get_article_with_version`` row to the public article detail
     payload.
 
@@ -129,7 +166,7 @@ def _build_article_response(row: Dict[str, Any]) -> Dict[str, Any]:
     article_meta = row.get("article_metadata") or {}
     version_meta = row.get("version_metadata") or {}
 
-    return {
+    payload: Dict[str, Any] = {
         "news_id": row.get("news_id"),
         "mbti_type": row.get("mbti_type"),
         "category": row.get("category"),
@@ -149,6 +186,19 @@ def _build_article_response(row: Dict[str, Any]) -> Dict[str, Any]:
         },
         "transformed_at": _isoformat_or_none(row.get("version_created_at")),
     }
+
+    # Round 4 — `?include_all_mbti=true` opt-in. 0-4 entries (partial
+    # transform allowed; absence means Selector didn't pick this article
+    # for that group, OR transform failed for that group only). Frontend
+    # callers (ArticleView, FeedPage prefetch) need 4 entries to set
+    # versions; if all_versions has <4 keys they fall back to per-MBTI
+    # 4-parallel pattern (which would also surface only what's available).
+    if all_versions is not None:
+        payload["all_versions"] = {
+            mbti: _build_version_payload(v) for mbti, v in all_versions.items()
+        }
+
+    return payload
 
 
 # ── Handler ───────────────────────────────────────────────────────────────────
@@ -181,6 +231,8 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             code="invalid_mbti",
         )
 
+    include_all = _parse_bool(qs.get("include_all_mbti"))
+
     pg = PgVectorV2Client()
     row = pg.get_article_with_version(news_id, mbti)
 
@@ -201,8 +253,21 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             code="version_not_found",
         )
 
-    payload = _build_article_response(row)
+    all_versions: Optional[Dict[str, Dict[str, Any]]] = None
+    if include_all:
+        # Round 4 — second query against article_versions for the same
+        # news_id, returning 0-4 MBTI entries. Skipped when caller didn't
+        # opt in so the default code path (mobile app, cache) keeps the
+        # exact same DB cost. The 404 above already guarantees at least
+        # one version exists for the requested MBTI; the second query
+        # may legitimately return only that one if the article wasn't
+        # selected for the other 3 groups.
+        all_versions = pg.get_article_versions(news_id)
+
+    payload = _build_article_response(row, all_versions=all_versions)
     logger.info(
-        f"article: news_id={news_id} mbti={mbti} returned"
+        f"article: news_id={news_id} mbti={mbti} "
+        f"include_all={include_all} all_versions_count="
+        f"{len(all_versions) if all_versions is not None else '-'} returned"
     )
     return success_response(payload)
