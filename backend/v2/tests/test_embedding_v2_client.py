@@ -172,19 +172,27 @@ def test_embed_text_long_chunks_and_averages() -> None:
 
 
 # =============================================================================
-# embed_text — Bedrock failure swallowed → zero vector
+# embed_text — Bedrock failure raises EmbeddingError (post-9d4d657)
 # =============================================================================
 
 
-def test_embed_text_bedrock_failure_returns_zero_vector() -> None:
+def test_embed_text_bedrock_failure_raises_embedding_error() -> None:
+    """Pre-9d4d657 (2026-04-29) this returned a zero vector on Bedrock
+    failures. That silently poisoned pgvector rows because callers
+    couldn't tell a real all-zero embedding from a failed call. The
+    fix made embed_text raise EmbeddingError instead, with v2 callers
+    (Collector, backfill, Selector) all updated to handle it. Empty/
+    whitespace input still returns zero vector deliberately (see the
+    two tests above) — that's a sentinel for callers, not a failure
+    sign."""
     client, mock = _make_client_with_mock_bedrock()
     mock.exceptions.ThrottlingException = type(
         "ThrottlingException", (Exception,), {}
     )
     mock.invoke_model.side_effect = RuntimeError("Bedrock down")
 
-    result = client.embed_text("normal length text")
-    assert result == [0.0] * _DIM
+    with pytest.raises(EmbeddingError):
+        client.embed_text("normal length text")
 
 
 # =============================================================================
