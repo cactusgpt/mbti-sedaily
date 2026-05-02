@@ -30,3 +30,5 @@ frontend/out/
 # v2 env file (contains PG_V2_PASSWORD)
 backend/.env.v2
 .env.v2
+backend/v2/handoff_docs/
+backend/v2/tools/RUNBOOK.md
