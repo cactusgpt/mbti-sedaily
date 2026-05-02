@@ -206,7 +206,7 @@ The frontend is migrating toward Feature-Sliced Design but is not fully there ye
 src/app/            → Next.js App Router routes (flat, no route groups yet):
                      /, /login, /auth/callback, /editors, /saju, /subscription,
                      /timeline, /timemachine
-src/components/     → Most UI still lives here: mbti/ (FeedPage ~1900 lines,
+src/components/     → Most UI still lives here: mbti/ (FeedPage ~1950 lines,
                      ArticleView, MbtiChatBot, OnboardingPage, BriefingPage),
                      story/, timeline/, character/
 src/features/       → 7 FSD modules migrated so far: auth, news-feed, question,
@@ -215,10 +215,9 @@ src/features/       → 7 FSD modules migrated so far: auth, news-feed, question
 src/shared/         → api/, config/ (api.ts, auth.ts), constants/ (categories.ts,
                      reporterNames.ts), data/ (mbtiGroups.ts — 24+ imports),
                      lib/ (userApi, readingTracker, elevenlabs, communityApi, etc.),
-                     services/, types/, ui/, utils/
+                     types/, ui/, utils/
 src/widgets/        → Placeholder (index.ts exports nothing yet) — reserved for
                      Header/BottomNav once FeedPage is broken up
-src/legacy/         → Old code excluded from tsconfig (do not import from here)
 ```
 
 The main page (`/`) has 4 view modes: `feed` (default), `editor-select`, `briefing`, `story`. `src/components/mbti/FeedPage.tsx` contains 6 tabs: question, feed, community, archive, dna, fortune. Tab state syncs to URL via `?tab=feed`. The `/editors` route is a standalone dark-themed editor-intro page (Radix Sand Dark palette) separate from the `editor-select` view inside `/`.
@@ -366,7 +365,7 @@ After the TASK-7 cutover (deployed 2026-04-27), the article-list and article-det
 | `POST /api/user/profile`, `POST /api/user/read`, `GET /api/user/stats`, `GET /api/user/history` | `AuthContext`, `ArticleView` reading tracker, profile views | v1 |
 | `/api/posts*`, `/api/podcast/*`, `/api/questions`, `/api/recommend*`, `/api/archive*` | community / podcast / question / recommendation / archive features | v1 |
 
-The v1 `/s3-articles` and `/api/article/{id}` Lambdas still exist and respond, but no production frontend code path calls them — the 3-tier fallback in `FeedPage.tsx` was removed in TASK-7. Don't delete those Lambdas without checking other consumers (legacy code in `src/legacy/` and tests still reference them). The v2 Feed/Article responses use a slightly different shape than v1 (`items[]` wrapper, `press`/`sub_title`/`url`/`byline` flat on each item, `image_url` inside per-version `version_metadata`); the frontend wraps them with `adaptV2FeedItem` / `adaptV2Version` adapters in `FeedPage.tsx` and `ArticleView.tsx` to keep the existing `MbtiArticle` type unchanged.
+The v1 `/s3-articles` and `/api/article/{id}` Lambdas still exist and respond, but no production frontend code path calls them — the 3-tier fallback in `FeedPage.tsx` was removed in TASK-7. Don't delete those Lambdas without checking other consumers — `backend/tests/` (`test_split_storage`, `test_performance`, `test_regression`, `run_demo_checks`) still hits them. The v2 Feed/Article responses use a slightly different shape than v1 (`items[]` wrapper, `press`/`sub_title`/`url`/`byline` flat on each item, `image_url` inside per-version `version_metadata`); the frontend wraps them with `adaptV2FeedItem` / `adaptV2Version` adapters in `FeedPage.tsx` and `ArticleView.tsx` to keep the existing `MbtiArticle` type unchanged.
 
 ## Reference Documents
 
