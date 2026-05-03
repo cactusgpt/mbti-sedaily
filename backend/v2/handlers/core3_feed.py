@@ -1,57 +1,61 @@
-"""Core 3 Feed API — GET /api/v2/feed?mbti=NT&limit=20&since=YYYY-MM-DD&user_id=...
+"""Core 3 Feed API — GET /api/v2/feed?mbti=...&user_id=...&limit=...&since=...
 
-Phase 2.5 / TASK-6 endpoint — what the frontend hits to render the main
-feed. Returns the curated MBTI-rewritten article list for a given group.
+Phase 3 endpoint. Two-mode operation:
 
-Pipeline position
------------------
-Collector (3h) → Selector (3h) → Transform (5min) → **Feed API (this)** →
-                                                   front-end render
+* **Anonymous (no ``user_id``)** — Phase 2.5 selection feed unchanged.
+  Reads ``article_selections`` rows where ``selected=TRUE`` AND
+  ``transformed_at IS NOT NULL``, joined to articles + versions.
+  Sorted (selection_date DESC, composite_score DESC).
 
-Selection layer
----------------
-Reads ``article_selections`` rows where ``selected=TRUE`` (rerank top-N
-per MBTI per day) AND ``transformed_at IS NOT NULL`` (Transform Lambda
-finished writing the per-MBTI version). Joined to ``articles`` for source
-metadata and ``article_versions`` for the rewritten title/body.
+* **Personalized (``user_id`` present)** — runs the Round 5-A/B
+  personalization pipeline:
+    1. ``MemoryManager.get_or_create_profile`` lazy-creates the user's
+       profile row + seeds preference_embedding (only when caller
+       passes a 4-char MBTI like ``INTJ``; 2-char ``NT`` is not enough
+       to seed because user_profiles.mbti_type stores the full code).
+    2. ``ContextBroker.get_user_context`` assembles UserContext from
+       the four memory layers.
+    3. ``RecommendAgent.recommend`` routes:
+         - cold path (no profile / no embedding): wraps Phase 2.5
+           selection feed in RankedArticle, no re-ranking.
+         - warm path: 3-Stage scoring (cosine + category + recency)
+           plus MMR diversity + per-category cap.
 
-Sorted newest selection_date first, then highest composite_score within
-the date — so a slow news day surfaces yesterday's top articles before
-last-week's tail.
+Response shape is identical across both modes — frontend doesn't have
+to branch on whether the user is anonymous, cold, or warm. The cold
+path's ``selection_date`` / ``transformed_at`` are populated; the warm
+path's are ``None`` (the personalized pick wasn't part of today's
+Phase 2.5 selection).
 
-Why composite_score is NOT in the response (Q5 = A)
----------------------------------------------------
-The score is internal ranking signal from Bedrock Nova Lite. Exposing it
-would let users reverse-engineer the algorithm and is meaningless to
-non-debug consumers. Server-side ordering already encodes the score's
-intent.
-
-body_preview, not full body (Q1 = C)
-------------------------------------
-Each item in the feed carries a 200-char body preview. The full body
-lives behind ``GET /api/v2/article/{id}?mbti=...`` to keep the feed
-payload small (a 20-item feed is ~6 KB of metadata vs ~60 KB with
-embedded full bodies). Mobile-first decision — matches frontend's
-"click-to-expand" UX.
+Body preview, not full body
+---------------------------
+Each item carries a 200-char ``body_preview``. The full body lives
+behind ``GET /api/v2/article/{id}?mbti=...`` to keep the feed payload
+small (a 20-item feed is ~6 KB metadata vs ~60 KB embedded full
+bodies).
 
 Auth (Q2 = NONE, v1 parity)
 ---------------------------
-Wired with ``AuthorizationType: NONE`` at API Gateway, mirroring v1's
-HTTP API. Optional ``user_id`` query parameter is accepted but unused
-in Phase 2.5 — Phase 3 personalization will read from
-``user_profiles.preference_embedding`` to re-rank within the MBTI feed.
+``AuthorizationType: NONE`` at API Gateway. ``user_id`` is a query
+parameter (not a JWT claim) — anyone can call with any user_id, which
+is acceptable for v2 personalization (worst case is seeing someone
+else's personalized feed; no sensitive data exposure). Cognito
+integration is a separate later round.
 """
 from __future__ import annotations
 
 import logging
 from datetime import date as _date
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from config.constants import CORS_HEADERS
 from core.decorators import lambda_handler as handler_decorator
 from core.response import error_response, success_response
 
 from v2.clients.pgvector_v2_client import PgVectorV2Client
+from v2.core3.context_broker import ContextBroker
+from v2.core3.memory_manager import MemoryManager
+from v2.core3.recommend_agent import RankedArticle, RecommendAgent
 
 
 logger = logging.getLogger(__name__)
@@ -60,39 +64,35 @@ logging.getLogger().setLevel(logging.INFO)
 
 # ── Sizing constants ──────────────────────────────────────────────────────────
 
-# Default feed length when caller omits ``limit``. Matches Selector's
-# TOP_N_PER_MBTI so the maximum selectable depth is preserved.
 DEFAULT_LIMIT = 20
-
-# Hard cap on caller-specified ``limit``. Even if the frontend asks for
-# 1000, we clamp here — protects DB from accidental scans.
 MAX_LIMIT = 50
-
-# Body preview length in characters. Matches v1
-# step1_select.CONTENT_PREVIEW_CHARS so the preview length is consistent
-# across raw → selected → feed surfaces.
 BODY_PREVIEW_CHARS = 200
 
-# Valid MBTI groups — short list, easier to validate inline than to import.
+# Valid MBTI groups — 2-char.
 _VALID_MBTI = {"NT", "NF", "ST", "SF"}
+
+# Valid full MBTI — 16 entries. Used for profile-create gating.
+_VALID_FULL_MBTI = frozenset({
+    "INTJ", "INTP", "ENTJ", "ENTP",
+    "INFJ", "INFP", "ENFJ", "ENFP",
+    "ISTJ", "ISTP", "ESTJ", "ESTP",
+    "ISFJ", "ISFP", "ESFJ", "ESFP",
+})
 
 
 # ── Pure helpers (unit-testable) ──────────────────────────────────────────────
 
 
 def _extract_query_params(event: Dict[str, Any]) -> Dict[str, str]:
-    """API Gateway gives us queryStringParameters as a dict (or None) for
-    REST-style events; HTTP API v2 events use the same shape under the
-    same key. Normalize to a plain dict so callers don't need ``or {}`` everywhere."""
+    """Normalize ``queryStringParameters`` to a plain dict."""
     return event.get("queryStringParameters") or {}
 
 
 def _validate_mbti(raw: Optional[str]) -> Optional[str]:
-    """Return the canonical 2-char MBTI group or None if invalid.
+    """Return canonical 2-char MBTI group or ``None``.
 
-    Accepts both 2-char ('NT') and 4-char ('INTJ') input, uppercased and
-    stripped. Returns None on any failure so the handler can return a
-    400 with a uniform message.
+    Accepts both ``NT`` and ``INTJ``. Returns ``None`` on any failure
+    so the handler can return a uniform 400.
     """
     if not raw:
         return None
@@ -104,10 +104,24 @@ def _validate_mbti(raw: Optional[str]) -> Optional[str]:
     return None
 
 
+def _extract_full_mbti(raw: Optional[str]) -> Optional[str]:
+    """Return canonical 4-char full MBTI or ``None``.
+
+    The full code is required to seed a user profile (the
+    ``user_profiles.mbti_type`` column is CHAR(4) with a 16-value CHECK).
+    Frontend may pass either ``NT`` (group) or ``INTJ`` (full); only
+    the latter triggers profile creation.
+    """
+    if not raw:
+        return None
+    cleaned = raw.strip().upper()
+    if cleaned in _VALID_FULL_MBTI:
+        return cleaned
+    return None
+
+
 def _parse_limit(raw: Optional[str]) -> int:
-    """Parse ``limit`` query param. Out-of-range / non-numeric falls back
-    to ``DEFAULT_LIMIT``. Caps at ``MAX_LIMIT``. Never raises — feed
-    requests should not 400 on a bad limit, just silently clamp."""
+    """Parse ``limit`` query param. Out-of-range falls back to default."""
     if not raw:
         return DEFAULT_LIMIT
     try:
@@ -120,9 +134,7 @@ def _parse_limit(raw: Optional[str]) -> int:
 
 
 def _parse_since_date(raw: Optional[str]) -> Optional[_date]:
-    """Parse ``since`` query param (ISO ``YYYY-MM-DD``). Returns None on
-    missing or invalid input — pgvector_v2_client.get_feed will use its
-    own default (today KST minus 7 days)."""
+    """Parse ``since`` query param (ISO ``YYYY-MM-DD``) or ``None``."""
     if not raw:
         return None
     try:
@@ -131,37 +143,36 @@ def _parse_since_date(raw: Optional[str]) -> Optional[_date]:
         return None
 
 
-def _build_feed_item(row: Dict[str, Any]) -> Dict[str, Any]:
-    """Map one ``get_feed`` row to a public feed item.
+def _isoformat_or_none(value: Any) -> Optional[str]:
+    """date/datetime → ISO string. str → unchanged. None → None."""
+    if value is None:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
 
-    Strips internal fields (composite_score, version_metadata's body etc.)
-    and truncates ``version_body`` to ``BODY_PREVIEW_CHARS``. The output
-    is what the API contract exposes; nothing else escapes.
 
-    article_metadata (a.metadata JSONB from articles table) is included
-    flat at the top level — Collector writes ``url``, ``press``,
-    ``sub_title``, ``author_name``, ``author_email``, ``content_preview``
-    keys here. Frontend uses them for card rendering (byline, source
-    link, subtitle).
+# ── Item builders — one per path, unified output shape ───────────────────────
 
-    ``image_url`` lives in the per-version ``version_metadata`` (Path 2
-    design — Transform extracts it at the same time it produces variants,
-    keeping the "only do work for selected articles" pattern). Same
-    value across all 4 MBTI variants of an article.
+
+def _build_item_from_cold(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Map a ``pg.get_feed`` row to the public feed item shape.
+
+    get_feed returns rich rows joined through article_selections —
+    selection_date / transformed_at populated, version_title /
+    version_body present.
     """
     body = row.get("version_body") or ""
-    preview = body[:BODY_PREVIEW_CHARS]
-    selection_date = row.get("selection_date")
     article_metadata = row.get("article_metadata") or {}
     version_metadata = row.get("version_metadata") or {}
     return {
         "news_id": row.get("news_id"),
         "category": row.get("category"),
         "published_at": _isoformat_or_none(row.get("published_at")),
-        "selection_date": _isoformat_or_none(selection_date),
+        "selection_date": _isoformat_or_none(row.get("selection_date")),
         "transformed_at": _isoformat_or_none(row.get("transformed_at")),
         "title": row.get("version_title"),
-        "body_preview": preview,
+        "body_preview": body[:BODY_PREVIEW_CHARS],
         "press": article_metadata.get("press"),
         "sub_title": article_metadata.get("sub_title"),
         "url": article_metadata.get("url"),
@@ -170,15 +181,100 @@ def _build_feed_item(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _isoformat_or_none(value: Any) -> Optional[str]:
-    """Accept date / datetime / str / None. Always emit JSON-safe ISO
-    string or None. The pgvector client returns native datetime objects
-    which json.dumps cannot serialize — this is the boundary."""
-    if value is None:
-        return None
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
-    return str(value)
+def _build_item_from_warm(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Map a ``find_feed_candidates`` row to the public feed item shape.
+
+    find_feed_candidates returns leaner rows — title / body (not
+    version_title / version_body), no selection_date / transformed_at.
+    article_metadata / version_metadata are present as separate keys
+    after the Round 5-C SQL extension.
+    """
+    body = row.get("body") or ""
+    article_metadata = row.get("article_metadata") or {}
+    version_metadata = row.get("version_metadata") or {}
+    return {
+        "news_id": row.get("news_id"),
+        "category": row.get("category"),
+        "published_at": _isoformat_or_none(row.get("published_at")),
+        "selection_date": None,  # personalized pick — not in today's selection
+        "transformed_at": _isoformat_or_none(row.get("created_at")),
+        "title": row.get("title"),
+        "body_preview": body[:BODY_PREVIEW_CHARS],
+        "press": article_metadata.get("press"),
+        "sub_title": article_metadata.get("sub_title"),
+        "url": article_metadata.get("url"),
+        "byline": article_metadata.get("author_name"),
+        "image_url": version_metadata.get("image_url"),
+    }
+
+
+def _build_item_from_ranked(ranked: RankedArticle) -> Dict[str, Any]:
+    """Dispatch on RankedArticle.path — cold vs warm payload shape differs."""
+    if ranked.path == "cold":
+        return _build_item_from_cold(ranked.payload)
+    return _build_item_from_warm(ranked.payload)
+
+
+# ── Path-level helpers ────────────────────────────────────────────────────────
+
+
+def _serve_anonymous(
+    pg: PgVectorV2Client,
+    mbti_group: str,
+    limit: int,
+    since: Optional[_date],
+) -> List[Dict[str, Any]]:
+    """No user_id → Phase 2.5 selection feed unchanged.
+
+    Same code path as Phase 2.5 — bypasses the personalization
+    machinery entirely so anonymous calls don't pay the
+    MemoryManager / ContextBroker / RecommendAgent overhead.
+    """
+    rows = pg.get_feed(mbti_group, limit=limit, since_date=since)
+    return [_build_item_from_cold(r) for r in rows]
+
+
+def _serve_personalized(
+    pg: PgVectorV2Client,
+    user_id: str,
+    mbti_group: str,
+    mbti_full: Optional[str],
+    limit: int,
+) -> List[Dict[str, Any]]:
+    """user_id present → personalization pipeline.
+
+    Profile lazy-create happens here (Q1 = C decision): when the
+    request includes a 4-char MBTI, we seed the profile so the very
+    first feed request can use the warm path. 2-char-only requests
+    don't trigger seeding (we'd need the full MBTI for the
+    user_profiles row's CHAR(4) column).
+    """
+    memory = MemoryManager(pg_client=pg)
+
+    if mbti_full:
+        try:
+            memory.get_or_create_profile(user_id, mbti_full)
+        except ValueError as exc:
+            # _extract_full_mbti already validated, but defensive.
+            logger.warning(
+                f"feed: get_or_create_profile({user_id!r}, {mbti_full!r}) "
+                f"rejected: {exc}"
+            )
+
+    broker = ContextBroker(memory_manager=memory)
+    ctx = broker.get_user_context(user_id, request_type="feed")
+
+    # Defensive: ContextBroker uses semantic mbti, not the request's.
+    # When ctx.mbti_group is empty (no profile, no seed), fall back to
+    # the request's group so the agent can still run cold path.
+    if not ctx.mbti_group:
+        # Inject group from request — has_profile stays False so agent
+        # routes to cold path with this group.
+        ctx.mbti_group = mbti_group
+
+    agent = RecommendAgent(pg_client=pg)
+    ranked = agent.recommend(ctx, limit=limit)
+    return [_build_item_from_ranked(r) for r in ranked]
 
 
 # ── Handler ───────────────────────────────────────────────────────────────────
@@ -196,27 +292,39 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
     qs = _extract_query_params(event)
 
-    mbti = _validate_mbti(qs.get("mbti"))
-    if mbti is None:
+    mbti_raw = qs.get("mbti")
+    mbti_group = _validate_mbti(mbti_raw)
+    if mbti_group is None:
         return error_response(
-            "mbti query parameter is required and must be one of NT/NF/ST/SF (or full 4-char MBTI like INTJ)",
+            "mbti query parameter is required and must be one of "
+            "NT/NF/ST/SF (or full 4-char MBTI like INTJ)",
             status_code=400,
             code="invalid_mbti",
         )
 
+    mbti_full = _extract_full_mbti(mbti_raw)  # None if 2-char only
     limit = _parse_limit(qs.get("limit"))
     since = _parse_since_date(qs.get("since"))
+    user_id_raw = qs.get("user_id") or ""
+    user_id = user_id_raw.strip()
 
     pg = PgVectorV2Client()
-    rows = pg.get_feed(mbti, limit=limit, since_date=since)
 
-    items = [_build_feed_item(r) for r in rows]
-    response_data = {
-        "mbti_type": mbti,
+    if not user_id:
+        items = _serve_anonymous(pg, mbti_group, limit, since)
+        logger.info(
+            f"feed: anonymous mbti={mbti_group} limit={limit} "
+            f"since={since} returned={len(items)}"
+        )
+    else:
+        items = _serve_personalized(pg, user_id, mbti_group, mbti_full, limit)
+        logger.info(
+            f"feed: personalized user={user_id} mbti={mbti_group} "
+            f"mbti_full={mbti_full} limit={limit} returned={len(items)}"
+        )
+
+    return success_response({
+        "mbti_type": mbti_group,
         "count": len(items),
         "items": items,
-    }
-    logger.info(
-        f"feed: mbti={mbti} limit={limit} since={since} returned={len(items)}"
-    )
-    return success_response(response_data)
+    })

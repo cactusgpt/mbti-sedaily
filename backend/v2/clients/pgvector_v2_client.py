@@ -823,8 +823,9 @@ class PgVectorV2Client:
 
         sql = f"""
             SELECT av.news_id, av.mbti_type, av.title, av.body,
-                   av.metadata, av.created_at,
+                   av.metadata AS version_metadata, av.created_at,
                    a.category, a.published_at,
+                   a.metadata AS article_metadata,
                    {select_distance}
             FROM article_versions av
             JOIN articles a ON a.news_id = av.news_id
@@ -849,11 +850,12 @@ class PgVectorV2Client:
                     "mbti_type": r[1],
                     "title": r[2],
                     "body": r[3],
-                    "metadata": r[4],
+                    "version_metadata": r[4],
                     "created_at": r[5],
                     "category": r[6],
                     "published_at": r[7],
-                    "distance": float(r[8]) if r[8] is not None else None,
+                    "article_metadata": r[8],
+                    "distance": float(r[9]) if r[9] is not None else None,
                 }
                 for r in rows
             ]

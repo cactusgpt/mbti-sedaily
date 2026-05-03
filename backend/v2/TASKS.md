@@ -648,15 +648,38 @@ Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이
 
 ### TASK-3.4: Core 3 API Handlers
 - **종속성**: TASK-3.3
-- **Files to create**:
-  - `backend/v2/handlers/core3_feed.py` (`GET /api/v2/feed`)
-  - `backend/v2/handlers/core3_article.py` (`GET /api/v2/article/{id}`)
-  - `backend/v2/handlers/core3_record_interaction.py` (`POST /api/v2/feed/event`)
+- **커밋**: TBD (이 라운드에서 생성)
+- **Files modified/created**:
+  - `backend/v2/clients/pgvector_v2_client.py` *(find_feed_candidates SQL 확장: a.metadata 추가, 결과 dict 키 분리)*
+  - `backend/v2/core3/recommend_agent.py` *(RankedArticle docstring 한 줄 갱신)*
+  - `backend/v2/handlers/core3_feed.py` *(personalization wire-up — anonymous/cold/warm 3-mode)*
+  - `backend/v2/handlers/core3_record_interaction.py` *(신규)*
+  - `backend/v2/tests/test_pgvector_v2_client.py` *(SQL assertion 추가)*
+  - `backend/v2/tests/test_core3_feed.py` *(legacy unused-user_id 테스트 교체 + personalization 테스트 + _build_feed_item → _build_item_from_cold 리네임)*
+  - `backend/v2/tests/test_core3_record_interaction.py` *(신규)*
+  - `backend/v2/tests/conftest.py` *(test_v2_3_4_ prefix 추가)*
+  - `backend/v2/deploy-v2.sh` *(CORE3_FUNCTIONS 확장 + interaction 디스패치)*
+- **결정 (Round 5-C)**:
+  - Q1=C 사용자 우선: feed 핸들러 + record_interaction 핸들러 둘 다 4-char MBTI(`INTJ`) 받으면 lazy-create. 첫 피드부터 warm path 가능.
+  - 응답 shape 통일: cold/warm 둘 다 동일 필드. find_feed_candidates SQL 에 a.metadata 추가, dict 키 `version_metadata` / `article_metadata` 분리.
+  - Auth NONE 유지 (v1 parity). user_id는 query param / body field. JWT는 별도 라운드.
+- **API 엔드포인트**:
+  - `GET /api/v2/feed?mbti=...&user_id=...&limit=...&since=...` (수정)
+    - `user_id` 없음 → Phase 2.5 cold (anonymous)
+    - `user_id` 있음 → 개인화 (cold/warm 분기는 RecommendAgent 내부에서)
+    - 응답: `{mbti_type, count, items: [{news_id, category, published_at, selection_date, transformed_at, title, body_preview, press, sub_title, url, byline, image_url}]}`
+  - `POST /api/v2/interactions` (신규)
+    - body: `{user_id, news_id, interaction_type, mbti_type?, dwell_ms?, scroll_pct?, rating?, reaction_type?}`
+    - 응답: `{ok: true, profile_created: bool}`
 - **Definition of Done**:
-  - [ ] 각 Lambda `sedaily-mbti-v2-{feed|article|event}-dev`로 배포
-  - [ ] `GET /api/v2/feed?limit=20` → 20개 개인화된 기사
-  - [ ] `GET /api/v2/article/{id}?mbti=NT` → 해당 버전 전체 반환
-  - [ ] `POST /api/v2/feed/event` → 즉시 pgvector user_interactions INSERT + DynamoDB short-term 업데이트
+  - [x] feed: `?user_id=X&mbti=INTJ` 호출 시 user_profiles 행 생성 + 시드 임베딩
+  - [x] feed: `?user_id=X` (profile 있음) 호출 시 RecommendAgent.warm 결과 반환
+  - [x] feed: `?user_id` 없음 호출 시 Phase 2.5 cold 동일 동작 (회귀 테스트)
+  - [x] record_interaction: 모든 6 interaction_type 검증
+  - [x] record_interaction: profile_created 시그널 응답
+  - [ ] (수동) Lambda 함수 `sedaily-mbti-v2-interaction-dev` AWS 콘솔 생성
+  - [ ] (수동) API Gateway 라우트 POST `/api/v2/interactions` 추가
+  - [ ] (수동) `./deploy-v2.sh feed` + `./deploy-v2.sh interaction` 실행 → curl 동작 확인
 
 ### TASK-3.5: Consolidation 배치 Lambda
 - **종속성**: TASK-3.4

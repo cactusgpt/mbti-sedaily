@@ -17,7 +17,7 @@ from v2.handlers.core3_feed import (
     BODY_PREVIEW_CHARS,
     DEFAULT_LIMIT,
     MAX_LIMIT,
-    _build_feed_item,
+    _build_item_from_cold,
     _isoformat_or_none,
     _parse_limit,
     _parse_since_date,
@@ -109,7 +109,7 @@ def test_isoformat_or_none_handles_none() -> None:
     assert _isoformat_or_none(None) is None
 
 
-def test_build_feed_item_truncates_body() -> None:
+def test_build_item_from_cold_truncates_body() -> None:
     long_body = "한" * 500
     row = {
         "news_id": "n1",
@@ -120,12 +120,12 @@ def test_build_feed_item_truncates_body() -> None:
         "version_title": "T",
         "version_body": long_body,
     }
-    item = _build_feed_item(row)
+    item = _build_item_from_cold(row)
     assert len(item["body_preview"]) == BODY_PREVIEW_CHARS
     assert item["body_preview"] == "한" * BODY_PREVIEW_CHARS
 
 
-def test_build_feed_item_omits_internal_fields() -> None:
+def test_build_item_from_cold_omits_internal_fields() -> None:
     """composite_score and version_metadata must NOT leak to the public payload."""
     row = {
         "news_id": "n1",
@@ -138,13 +138,13 @@ def test_build_feed_item_omits_internal_fields() -> None:
         "version_body": "B",
         "version_metadata": {"key_points": ["secret"]},  # also internal
     }
-    item = _build_feed_item(row)
+    item = _build_item_from_cold(row)
     assert "composite_score" not in item
     assert "version_metadata" not in item
     assert "key_points" not in item
 
 
-def test_build_feed_item_exposes_article_metadata_fields() -> None:
+def test_build_item_from_cold_exposes_article_metadata_fields() -> None:
     """B3-a + Path 2: press/sub_title/url/byline come from article_metadata,
     image_url comes from version_metadata (Transform-time extraction).
     All surfaced at top level so the frontend card renders without a
@@ -172,7 +172,7 @@ def test_build_feed_item_exposes_article_metadata_fields() -> None:
             "closing_line": "마무리",
         },
     }
-    item = _build_feed_item(row)
+    item = _build_item_from_cold(row)
     assert item["press"] == "서울경제"
     assert item["sub_title"] == "원본 부제"
     assert item["url"] == "https://www.sedaily.com/..."
@@ -183,7 +183,7 @@ def test_build_feed_item_exposes_article_metadata_fields() -> None:
     assert "content_preview" not in item
 
 
-def test_build_feed_item_image_url_none_when_pre_path2_version() -> None:
+def test_build_item_from_cold_image_url_none_when_pre_path2_version() -> None:
     """Versions written before Path 2 (image extraction at Transform)
     have no image_url in version_metadata. Frontend renders the
     category-based ImagePlaceholder for those rows."""
@@ -203,12 +203,12 @@ def test_build_feed_item_image_url_none_when_pre_path2_version() -> None:
             "subtitle": "NT 부제",
         },
     }
-    item = _build_feed_item(row)
+    item = _build_item_from_cold(row)
     assert item["image_url"] is None
     assert item["press"] == "서울경제"  # other fields still work
 
 
-def test_build_feed_item_handles_missing_article_metadata() -> None:
+def test_build_item_from_cold_handles_missing_article_metadata() -> None:
     """Defensive: article_metadata may be None or missing keys.
     All metadata-derived fields fall to None, which the frontend
     renders with placeholders."""
@@ -223,7 +223,7 @@ def test_build_feed_item_handles_missing_article_metadata() -> None:
         "version_body": "B",
         "article_metadata": None,
     }
-    item1 = _build_feed_item(row1)
+    item1 = _build_item_from_cold(row1)
     assert item1["press"] is None
     assert item1["sub_title"] is None
     assert item1["url"] is None
@@ -231,12 +231,12 @@ def test_build_feed_item_handles_missing_article_metadata() -> None:
 
     # Case 2: article_metadata is empty dict
     row2 = {**row1, "article_metadata": {}}
-    item2 = _build_feed_item(row2)
+    item2 = _build_item_from_cold(row2)
     assert item2["press"] is None
     assert item2["byline"] is None
 
 
-def test_build_feed_item_handles_short_body() -> None:
+def test_build_item_from_cold_handles_short_body() -> None:
     row = {
         "news_id": "n1",
         "category": "경제",
@@ -246,11 +246,11 @@ def test_build_feed_item_handles_short_body() -> None:
         "version_title": "T",
         "version_body": "short body",
     }
-    item = _build_feed_item(row)
+    item = _build_item_from_cold(row)
     assert item["body_preview"] == "short body"  # not padded
 
 
-def test_build_feed_item_handles_none_body() -> None:
+def test_build_item_from_cold_handles_none_body() -> None:
     """Defensive against unexpected NULL body in DB (shouldn't happen but)."""
     row = {
         "news_id": "n1",
@@ -261,7 +261,7 @@ def test_build_feed_item_handles_none_body() -> None:
         "version_title": "T",
         "version_body": None,
     }
-    item = _build_feed_item(row)
+    item = _build_item_from_cold(row)
     assert item["body_preview"] == ""
 
 
@@ -413,19 +413,202 @@ def test_handler_invalid_since_date_passes_none() -> None:
     assert pg.get_feed.call_args.kwargs.get("since_date") is None
 
 
-def test_handler_user_id_accepted_but_unused() -> None:
-    """Phase 2.5: user_id is optional and currently ignored.
-    Handler must accept it without 400-ing."""
+# ── Personalization (Round 5-C) ─────────────────────────────────────────────
+
+
+def _make_personalization_mocks(
+    *,
+    has_profile: bool = False,
+    embedding=None,
+    ranked_articles=None,
+):
+    """Build a tuple of mocks for the personalization stack.
+
+    Returns (pg_mock, memory_mock, broker_mock, agent_mock). Each is
+    pre-configured for the typical 'happy path' — tests override
+    specific return values as needed.
+    """
+    from v2.core3.context_broker import UserContext
+
     pg = MagicMock()
     pg.get_feed.return_value = []
-    with patch.object(core3_feed, "PgVectorV2Client", return_value=pg):
+    pg.find_feed_candidates.return_value = []
+
+    memory = MagicMock()
+
+    broker = MagicMock()
+    broker.get_user_context.return_value = UserContext(
+        user_id="user-abc",
+        mbti_type="INTJ" if has_profile else None,
+        mbti_group="NT" if has_profile else None,
+        category_weights={},
+        preference_embedding=embedding,
+        recent_news_ids=[],
+        has_profile=has_profile,
+    )
+
+    agent = MagicMock()
+    agent.recommend.return_value = ranked_articles or []
+
+    return pg, memory, broker, agent
+
+
+def test_handler_no_user_id_uses_anonymous_path() -> None:
+    """Without ``user_id`` the handler bypasses MemoryManager entirely
+    and just calls pg.get_feed (Phase 2.5 behavior preserved)."""
+    pg = MagicMock()
+    pg.get_feed.return_value = []
+    with patch.object(core3_feed, "PgVectorV2Client", return_value=pg), \
+         patch.object(core3_feed, "MemoryManager") as mm_cls, \
+         patch.object(core3_feed, "ContextBroker") as cb_cls, \
+         patch.object(core3_feed, "RecommendAgent") as ra_cls:
+        response = _invoke({
+            "httpMethod": "GET",
+            "queryStringParameters": {"mbti": "NT"},  # no user_id
+        })
+    assert response["statusCode"] == 200
+    pg.get_feed.assert_called_once()
+    # Personalization stack never instantiated
+    mm_cls.assert_not_called()
+    cb_cls.assert_not_called()
+    ra_cls.assert_not_called()
+
+
+def test_handler_user_id_no_full_mbti_skips_profile_create() -> None:
+    """user_id + 2-char mbti only → no get_or_create_profile call."""
+    pg, mm, cb, ag = _make_personalization_mocks(has_profile=False)
+    with patch.object(core3_feed, "PgVectorV2Client", return_value=pg), \
+         patch.object(core3_feed, "MemoryManager", return_value=mm), \
+         patch.object(core3_feed, "ContextBroker", return_value=cb), \
+         patch.object(core3_feed, "RecommendAgent", return_value=ag):
+        _invoke({
+            "httpMethod": "GET",
+            "queryStringParameters": {"mbti": "NT", "user_id": "user-abc"},
+        })
+    mm.get_or_create_profile.assert_not_called()
+    cb.get_user_context.assert_called_once()
+    ag.recommend.assert_called_once()
+
+
+def test_handler_user_id_with_full_mbti_creates_profile() -> None:
+    """user_id + 4-char mbti → get_or_create_profile called once."""
+    pg, mm, cb, ag = _make_personalization_mocks(has_profile=True)
+    with patch.object(core3_feed, "PgVectorV2Client", return_value=pg), \
+         patch.object(core3_feed, "MemoryManager", return_value=mm), \
+         patch.object(core3_feed, "ContextBroker", return_value=cb), \
+         patch.object(core3_feed, "RecommendAgent", return_value=ag):
+        _invoke({
+            "httpMethod": "GET",
+            "queryStringParameters": {"mbti": "INTJ", "user_id": "user-abc"},
+        })
+    mm.get_or_create_profile.assert_called_once_with("user-abc", "INTJ")
+
+
+def test_handler_personalized_response_uses_ranked_articles() -> None:
+    """Warm path: agent returns ranked articles, handler converts via
+    _build_item_from_warm and includes them in items[]."""
+    from v2.core3.recommend_agent import RankedArticle
+    ranked = [
+        RankedArticle(
+            news_id="n1",
+            mbti_type="NT",
+            score=0.9,
+            payload={
+                "news_id": "n1",
+                "mbti_type": "NT",
+                "title": "warm title",
+                "body": "warm body content",
+                "category": "economy",
+                "published_at": None,
+                "created_at": None,
+                "version_metadata": {"image_url": "https://x/y.jpg"},
+                "article_metadata": {"press": "서울경제", "url": "https://x"},
+                "distance": 0.1,
+            },
+            path="warm",
+        ),
+    ]
+    pg, mm, cb, ag = _make_personalization_mocks(
+        has_profile=True, embedding=[0.1] * 1024, ranked_articles=ranked,
+    )
+    with patch.object(core3_feed, "PgVectorV2Client", return_value=pg), \
+         patch.object(core3_feed, "MemoryManager", return_value=mm), \
+         patch.object(core3_feed, "ContextBroker", return_value=cb), \
+         patch.object(core3_feed, "RecommendAgent", return_value=ag):
+        response = _invoke({
+            "httpMethod": "GET",
+            "queryStringParameters": {"mbti": "INTJ", "user_id": "user-abc"},
+        })
+    assert response["statusCode"] == 200
+    body = json.loads(response["body"])
+    assert body["count"] == 1
+    item = body["items"][0]
+    assert item["news_id"] == "n1"
+    assert item["title"] == "warm title"
+    assert item["body_preview"] == "warm body content"  # <200 chars, no trunc
+    assert item["press"] == "서울경제"
+    assert item["url"] == "https://x"
+    assert item["image_url"] == "https://x/y.jpg"
+    # Warm-path-specific: selection_date is None
+    assert item["selection_date"] is None
+
+
+def test_handler_cold_path_via_agent_preserves_get_feed_shape() -> None:
+    """When agent returns RankedArticle with path='cold', the payload
+    is a get_feed row and _build_item_from_cold handles it."""
+    from datetime import date
+    from v2.core3.recommend_agent import RankedArticle
+    ranked = [
+        RankedArticle(
+            news_id="n2",
+            mbti_type="NT",
+            score=0.0,
+            payload={
+                "news_id": "n2",
+                "mbti_type": "NT",
+                "selection_date": date(2026, 4, 27),
+                "transformed_at": None,
+                "category": "tech",
+                "published_at": None,
+                "version_title": "cold title",
+                "version_body": "cold body",
+                "article_metadata": {"press": "test press"},
+                "version_metadata": {},
+            },
+            path="cold",
+        ),
+    ]
+    pg, mm, cb, ag = _make_personalization_mocks(
+        has_profile=False, ranked_articles=ranked,
+    )
+    with patch.object(core3_feed, "PgVectorV2Client", return_value=pg), \
+         patch.object(core3_feed, "MemoryManager", return_value=mm), \
+         patch.object(core3_feed, "ContextBroker", return_value=cb), \
+         patch.object(core3_feed, "RecommendAgent", return_value=ag):
         response = _invoke({
             "httpMethod": "GET",
             "queryStringParameters": {"mbti": "NT", "user_id": "user-abc"},
         })
-    assert response["statusCode"] == 200
-    # pg.get_feed was called with no user filter (Phase 2.5 = no personalization)
+    body = json.loads(response["body"])
+    item = body["items"][0]
+    assert item["title"] == "cold title"
+    assert item["body_preview"] == "cold body"
+    assert item["press"] == "test press"
+    assert item["selection_date"] == "2026-04-27"
+
+
+def test_handler_user_id_whitespace_treated_as_anonymous() -> None:
+    """Trim before checking — '   ' is no user_id."""
+    pg = MagicMock()
+    pg.get_feed.return_value = []
+    with patch.object(core3_feed, "PgVectorV2Client", return_value=pg), \
+         patch.object(core3_feed, "MemoryManager") as mm_cls:
+        _invoke({
+            "httpMethod": "GET",
+            "queryStringParameters": {"mbti": "NT", "user_id": "   "},
+        })
     pg.get_feed.assert_called_once()
+    mm_cls.assert_not_called()
 
 
 def test_handler_empty_feed_returns_200_with_empty_items() -> None:

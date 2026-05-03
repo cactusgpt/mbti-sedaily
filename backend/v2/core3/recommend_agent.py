@@ -187,8 +187,10 @@ class RankedArticle:
     """Wraps a candidate with score, breakdown, and provenance.
 
     ``payload`` shape varies by ``path``:
-      * ``'warm'`` — ``find_feed_candidates`` row (no article_metadata,
-                     no selection_date / transformed_at)
+      * ``'warm'`` — ``find_feed_candidates`` row (with
+                     article_metadata + version_metadata, but no
+                     selection_date / transformed_at — the personalized
+                     pick wasn't part of today's Phase 2.5 selection)
       * ``'cold'`` — ``get_feed`` row (full Phase 2.5 selection
                      metadata via the article_selections JOIN)
 

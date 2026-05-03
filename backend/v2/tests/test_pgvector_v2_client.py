@@ -712,6 +712,19 @@ def test_find_feed_candidates_joins_articles_and_filters_transformed() -> None:
     assert "a.status = 'transformed'" in sql
 
 
+def test_find_feed_candidates_selects_both_metadata_columns() -> None:
+    """Round 5-C extension: response shape needs av.metadata
+    (version_metadata) AND a.metadata (article_metadata) so the
+    handler can populate press/url/sub_title/byline/image_url
+    uniformly across cold and warm paths."""
+    c = _enabled()
+    c._conn.run.return_value = []
+    c.find_feed_candidates("NT", [0.1, 0.2], [], 10)
+    sql = c._conn.run.call_args.args[0]
+    assert "av.metadata AS version_metadata" in sql
+    assert "a.metadata AS article_metadata" in sql
+
+
 def test_find_feed_candidates_rejects_bad_mbti() -> None:
     c = _enabled()
     with pytest.raises(ValueError):
@@ -722,8 +735,8 @@ def test_find_feed_candidates_rejects_bad_mbti() -> None:
 def test_find_feed_candidates_parses_rows() -> None:
     c = _enabled()
     c._conn.run.return_value = [
-        ["n1", "NT", "T1", "B1", {}, "c1", "IT_과학", "p1", 0.1],
-        ["n2", "NT", "T2", "B2", {}, "c2", "경제", "p2", 0.3],
+        ["n1", "NT", "T1", "B1", {}, "c1", "IT_과학", "p1", {}, 0.1],
+        ["n2", "NT", "T2", "B2", {}, "c2", "경제", "p2", {}, 0.3],
     ]
     res = c.find_feed_candidates("INTJ", [0.1, 0.2], [], 10)
     assert len(res) == 2
@@ -735,7 +748,7 @@ def test_find_feed_candidates_parses_rows() -> None:
 def test_find_feed_candidates_parses_null_distance_on_cold_start() -> None:
     c = _enabled()
     c._conn.run.return_value = [
-        ["n1", "NT", "T", "B", {}, "c", "IT_과학", "p", None],
+        ["n1", "NT", "T", "B", {}, "c", "IT_과학", "p", {}, None],
     ]
     res = c.find_feed_candidates("NT", None, [], 10)
     assert res[0]["distance"] is None
