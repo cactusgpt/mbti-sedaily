@@ -861,6 +861,79 @@ class PgVectorV2Client:
             logger.warning(f"find_feed_candidates({user_mbti!r}) failed: {exc}")
             return []
 
+    def get_version_embeddings(
+        self,
+        news_ids: List[str],
+        mbti_group: str,
+    ) -> Dict[str, List[float]]:
+        """Fetch ``article_versions.embedding`` for specific (news_id, group) pairs.
+
+        Returns ``{news_id: [1024 floats]}``. Missing news_ids (no
+        version row, mismatched group, or NULL embedding) are simply
+        absent from the output dict — caller treats absence as "no
+        embedding available" without distinguishing the cause.
+
+        Used by Recommend Agent Stage 3 (MMR) where pairwise cosine
+        similarity between candidates is needed. ``find_feed_candidates``
+        intentionally omits the embedding column to keep its row size
+        small for the common (Stage 1) path; this method is the explicit
+        opt-in for callers that need the vector.
+
+        Bandwidth note
+        --------------
+        At typical batch size (≤100 candidates) and 1024-dim float32
+        encoded as pgvector text repr, payload is ~1-2 MB per call.
+        Acceptable for a per-request Stage 3 call. If profiling shows
+        this dominating latency, options are: (a) reduce candidate_limit,
+        (b) approximate MMR with score-only diversity, (c) switch to a
+        driver with native vector binary protocol (pg8000 has none).
+
+        ``mbti_group`` accepts full MBTI (``INTJ``) or 2-char group
+        (``NT``) via ``_normalize_mbti_group``.
+        """
+        if not news_ids:
+            return {}
+        if not self._enabled:
+            return {}
+        group = _normalize_mbti_group(mbti_group)
+        try:
+            rows = self.conn.run(
+                """
+                SELECT news_id, embedding::text
+                FROM article_versions
+                WHERE news_id = ANY(:ids::text[])
+                  AND mbti_type = :grp
+                  AND embedding IS NOT NULL
+                """,
+                ids=list(news_ids),
+                grp=group,
+            )
+            out: Dict[str, List[float]] = {}
+            for r in rows:
+                news_id, literal = r[0], r[1]
+                inner = literal.strip()
+                if inner.startswith("[") and inner.endswith("]"):
+                    inner = inner[1:-1]
+                if not inner:
+                    continue
+                try:
+                    out[news_id] = [float(x) for x in inner.split(",")]
+                except ValueError:
+                    # Defensive: malformed pgvector literal. Skip this
+                    # row, keep the others. Logged so we can detect
+                    # data-corruption patterns in CloudWatch.
+                    logger.warning(
+                        f"get_version_embeddings: failed to parse vector "
+                        f"for news_id={news_id!r}"
+                    )
+            return out
+        except Exception as exc:
+            logger.warning(
+                f"get_version_embeddings({len(news_ids)} ids, {mbti_group!r}) "
+                f"failed: {exc}"
+            )
+            return {}
+
     # =========================================================================
     # article_selections (Phase 2.5 — Selection + Minimal Feed)
     # =========================================================================

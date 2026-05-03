@@ -627,16 +627,24 @@ Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이
 
 ### TASK-3.3: Recommend Agent (3-Stage Ranking)
 - **종속성**: TASK-3.2
-- **Files to create**:
-  - `backend/v2/core3/recommend_agent.py`
-  - `backend/v2/tests/test_recommend_agent.py`
-- **로직**:
-  - Stage 1: `PgVectorV2Client.find_feed_candidates()` → ~100개
-  - Stage 2: personal scoring (코사인 유사도 × 카테고리 가중치 × recency × engagement avg)
-  - Stage 3: MMR diversity + 카테고리 cap
+- **커밋**: TBD (이 라운드에서 생성)
+- **Files modified/created**:
+  - `backend/v2/clients/pgvector_v2_client.py` *(get_version_embeddings 메서드 추가)*
+  - `backend/v2/core3/recommend_agent.py` *(신규)*
+  - `backend/v2/tests/test_pgvector_v2_client.py` *(TestGetVersionEmbeddings 클래스 추가)*
+  - `backend/v2/tests/test_recommend_agent.py` *(신규)*
+  - `backend/v2/tests/conftest.py` *(_TEST_PREFIXES에 test_v2_3_3_ 추가)*
+- **결정 (Round 5-B)**:
+  - Stage 2 composite를 **3-term**으로 시작 (cosine 0.5 + category 0.3 + recency 0.2)
+  - 4번째 term (engagement) 은 Round 5-D consolidation Lambda에 종속 — collaborative filter data 또는 article-level engagement aggregate 둘 중 하나가 consolidation의 자연스러운 산출물
+  - 재도입은 non-breaking: W_ENGAGEMENT 추가 + 다른 weights 재조정만
+- **로직 (현재 라운드 구현)**:
+  - Stage 1: `PgVectorV2Client.find_feed_candidates()` → ~100개 (kNN order)
+  - Stage 2: 3-term composite (코사인 + 카테고리 가중치 + recency exponential decay halflife=7d) — sort desc
+  - Stage 3: MMR (`λ × score - (1-λ) × max_pairwise_cosine`) + 카테고리 cap (`ceil(limit × cap_ratio)`) + cap 소진 시 raw-score top-up
 - **Definition of Done**:
-  - [ ] 10 테스트 유저 → 각각 다른 피드 반환
-  - [ ] MMR λ 파라미터 설정 가능
+  - [x] 10 테스트 유저 → 각각 다른 피드 반환 (`TestRecommendAgentLive::test_ten_users_get_different_feeds` 검증, jaccard overlap < 0.7)
+  - [x] MMR λ 파라미터 설정 가능 (`RecommendAgent(mmr_lambda=...)` 생성자 인자)
 
 ### TASK-3.4: Core 3 API Handlers
 - **종속성**: TASK-3.3

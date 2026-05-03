@@ -1947,3 +1947,105 @@ class TestGetPreferenceEmbedding:
         # values that don't round-trip cleanly. Use approx with reasonable
         # tolerance for float32 precision.
         assert retrieved == pytest.approx(original, rel=1e-5, abs=1e-5)
+
+
+# =============================================================================
+# get_version_embeddings — Round 5-B prerequisite for MMR
+# =============================================================================
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not (os.getenv("PG_V2_HOST") and os.getenv("PG_V2_PASSWORD")),
+    reason="PG_V2_HOST/PG_V2_PASSWORD required",
+)
+class TestGetVersionEmbeddings:
+    """get_version_embeddings — Round 5-B prerequisite for MMR."""
+
+    PREFIX = "test_v2_3_3_emb_"
+
+    @pytest.fixture
+    def pg(self):
+        c = PgVectorV2Client()
+        c.conn.run(
+            f"DELETE FROM article_versions WHERE news_id LIKE '{self.PREFIX}%'"
+        )
+        c.conn.run(
+            f"DELETE FROM articles WHERE news_id LIKE '{self.PREFIX}%'"
+        )
+        yield c
+        c.conn.run(
+            f"DELETE FROM article_versions WHERE news_id LIKE '{self.PREFIX}%'"
+        )
+        c.conn.run(
+            f"DELETE FROM articles WHERE news_id LIKE '{self.PREFIX}%'"
+        )
+        c.close()
+
+    def test_empty_input_returns_empty(self, pg):
+        assert pg.get_version_embeddings([], "NT") == {}
+
+    def test_unknown_news_ids_yield_empty(self, pg):
+        result = pg.get_version_embeddings(
+            [f"{self.PREFIX}does_not_exist"], "NT"
+        )
+        assert result == {}
+
+    def test_round_trip_single(self, pg):
+        nid = f"{self.PREFIX}rt1"
+        article_emb = [0.1] * 1024
+        version_emb = [(i * 0.001) * (-1 if i % 2 else 1) for i in range(1024)]
+        # Insert article + NT version
+        pg.insert_article(
+            news_id=nid,
+            metadata={"title": "test", "category": "economy"},
+            embedding=article_emb,
+        )
+        pg.insert_article_version(
+            news_id=nid,
+            mbti_type="NT",
+            metadata={"title": "test NT", "body": "body"},
+            embedding=version_emb,
+        )
+        result = pg.get_version_embeddings([nid], "NT")
+        assert nid in result
+        assert len(result[nid]) == 1024
+        # pgvector stores float32 — use approx
+        assert result[nid] == pytest.approx(version_emb, rel=1e-5, abs=1e-5)
+
+    def test_filters_by_mbti_group(self, pg):
+        """Same news_id, different mbti groups → only requested group returned."""
+        nid = f"{self.PREFIX}multi_group"
+        nt_emb = [0.1] * 1024
+        nf_emb = [0.9] * 1024
+        pg.insert_article(
+            news_id=nid,
+            metadata={"title": "t", "category": "tech"},
+            embedding=[0.5] * 1024,
+        )
+        pg.insert_article_version(
+            news_id=nid, mbti_type="NT",
+            metadata={"title": "NT t", "body": "b"}, embedding=nt_emb,
+        )
+        pg.insert_article_version(
+            news_id=nid, mbti_type="NF",
+            metadata={"title": "NF t", "body": "b"}, embedding=nf_emb,
+        )
+        nt_result = pg.get_version_embeddings([nid], "NT")
+        nf_result = pg.get_version_embeddings([nid], "NF")
+        assert nt_result[nid] == pytest.approx(nt_emb, rel=1e-5, abs=1e-5)
+        assert nf_result[nid] == pytest.approx(nf_emb, rel=1e-5, abs=1e-5)
+
+    def test_partial_match_returns_only_present(self, pg):
+        present = f"{self.PREFIX}present"
+        missing = f"{self.PREFIX}missing"
+        pg.insert_article(
+            news_id=present, metadata={"title": "t"}, embedding=[0.0] * 1024
+        )
+        pg.insert_article_version(
+            news_id=present, mbti_type="NT",
+            metadata={"title": "t", "body": "b"}, embedding=[0.5] * 1024,
+        )
+        result = pg.get_version_embeddings([present, missing], "NT")
+        assert present in result
+        assert missing not in result

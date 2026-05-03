@@ -35,6 +35,7 @@ _TEST_PREFIXES: tuple[str, ...] = (
     "test_v2_2_6_",  # test_pgvector_v2_client.py article_selections methods — TASK-2.6
     "test_v2_3_1_",  # test_memory_manager.py — TASK-3.1 (Round 5-A)
     "test_v2_3_2_",  # test_context_broker.py — TASK-3.2 (Round 5-A)
+    "test_v2_3_3_",  # test_recommend_agent.py — TASK-3.3 (Round 5-B)
 )
 
 
