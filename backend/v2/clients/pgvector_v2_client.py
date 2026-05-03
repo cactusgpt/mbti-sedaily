@@ -586,6 +586,62 @@ class PgVectorV2Client:
             logger.warning(f"get_user_profile({user_id!r}) failed: {exc}")
             return None
 
+    def get_preference_embedding(self, user_id: str) -> Optional[List[float]]:
+        """Read the user's stored ``preference_embedding`` as a Python list.
+
+        Separate from ``get_user_profile`` because that method intentionally
+        omits the 1024-float vector to keep its result small (it's used for
+        UI / metadata display). This method is for the personalization
+        pipeline (Recommend Agent Stage 1) which actually needs the vector.
+
+        Returns ``None`` when:
+          * the profile row doesn't exist, OR
+          * the row exists but ``preference_embedding`` is NULL (cold-start
+            users created without a seed — though Round 5-A
+            ``MemoryManager.get_or_create_profile`` always seeds, this NULL
+            path remains for legacy rows or future code that intentionally
+            stores a NULL).
+
+        Why ``::text`` cast instead of native vector
+        --------------------------------------------
+        ``pg8000`` has no native pgvector type adapter — vector columns
+        come back as opaque objects. Casting to text on the SQL side
+        produces the canonical pgvector literal ``[v1,v2,...,vN]`` which
+        we parse with a tight ``split(',')`` loop. The dimension is fixed
+        (1024) so the parsing cost is negligible compared to round-trip
+        latency.
+        """
+        if not self._enabled:
+            return None
+        try:
+            rows = self.conn.run(
+                """
+                SELECT preference_embedding::text
+                FROM user_profiles
+                WHERE user_id = :uid
+                  AND preference_embedding IS NOT NULL
+                LIMIT 1
+                """,
+                uid=user_id,
+            )
+            if not rows:
+                return None
+            literal = rows[0][0]
+            # pgvector text repr: "[0.1,0.2,...,0.9]". Strip brackets,
+            # split on comma, parse to float. No quoting/escaping concern
+            # because all values are floats (no commas inside elements).
+            inner = literal.strip()
+            if inner.startswith("[") and inner.endswith("]"):
+                inner = inner[1:-1]
+            if not inner:
+                return []
+            return [float(x) for x in inner.split(",")]
+        except Exception as exc:
+            logger.warning(
+                f"get_preference_embedding({user_id!r}) failed: {exc}"
+            )
+            return None
+
     # =========================================================================
     # user_interactions
     # =========================================================================

@@ -1886,3 +1886,64 @@ def test_integration_get_feed_respects_since_date(pg_client: PgVectorV2Client) -
     feed = pg_client.get_feed("NT", limit=10, since_date=date(2026, 4, 20))
     feed_ids = [f["news_id"] for f in feed if f["news_id"].startswith(IT_PREFIX_2_6)]
     assert feed_ids == [new_id]
+
+
+# =============================================================================
+# get_preference_embedding — TASK-3.1 prerequisite (Round 5-A)
+# =============================================================================
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not (os.getenv("PG_V2_HOST") and os.getenv("PG_V2_PASSWORD")),
+    reason="PG_V2_HOST/PG_V2_PASSWORD required",
+)
+class TestGetPreferenceEmbedding:
+    """get_preference_embedding — TASK-3.1 prerequisite."""
+
+    PREFIX = "test_v2_1_3_pref_emb_"
+
+    @pytest.fixture
+    def pg(self):
+        c = PgVectorV2Client()
+        # belt-and-suspenders pre-wipe (session conftest already covers test_v2_1_3_)
+        c.conn.run(
+            f"DELETE FROM user_profiles WHERE user_id LIKE '{self.PREFIX}%'"
+        )
+        yield c
+        c.conn.run(
+            f"DELETE FROM user_profiles WHERE user_id LIKE '{self.PREFIX}%'"
+        )
+        c.close()
+
+    def test_returns_none_when_user_has_no_profile(self, pg):
+        assert pg.get_preference_embedding(f"{self.PREFIX}nobody") is None
+
+    def test_returns_none_when_profile_has_null_embedding(self, pg):
+        uid = f"{self.PREFIX}null_emb"
+        pg.upsert_user_profile(
+            user_id=uid,
+            mbti_type="INTJ",
+            category_weights={},
+            preference_embedding=None,
+        )
+        assert pg.get_preference_embedding(uid) is None
+
+    def test_returns_stored_vector_round_trip(self, pg):
+        uid = f"{self.PREFIX}round_trip"
+        # Distinctive pattern that's unlikely to collide with floating-
+        # point noise (negative + alternating sign + non-zero).
+        original = [(i * 0.001) * (-1 if i % 2 else 1) for i in range(1024)]
+        pg.upsert_user_profile(
+            user_id=uid,
+            mbti_type="ENFP",
+            category_weights={"economy": 0.5},
+            preference_embedding=original,
+        )
+        retrieved = pg.get_preference_embedding(uid)
+        assert retrieved is not None
+        assert len(retrieved) == 1024
+        # pgvector stores as float32 internally — exact equality fails for
+        # values that don't round-trip cleanly. Use approx with reasonable
+        # tolerance for float32 precision.
+        assert retrieved == pytest.approx(original, rel=1e-5, abs=1e-5)

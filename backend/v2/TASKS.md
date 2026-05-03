@@ -591,31 +591,39 @@ Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이
 
 ### TASK-3.1: Memory Manager 라이브러리
 - **종속성**: TASK-1.3
-- **Files to create**:
-  - `backend/v2/core3/memory_manager.py`
-  - `backend/v2/tests/test_memory_manager.py`
-- **메서드**:
-  - `get_short_term(user_id) -> list[dict]` (DynamoDB personal TTL 세션 이벤트)
-  - `get_semantic(user_id) -> dict` (MBTI + 프로필 사실)
-  - `get_episodic(user_id, limit) -> list[dict]` (pgvector user_interactions)
-  - `get_procedural(user_id) -> dict` (category_weights, preference_embedding)
-  - `consolidate(user_id) -> None` (short-term → procedural 재계산, 주기 배치에서 호출)
+- **커밋**: TBD (이 라운드에서 생성)
+- **Files modified/created**:
+  - `backend/v2/clients/pgvector_v2_client.py` *(get_preference_embedding 메서드 추가)*
+  - `backend/v2/core3/memory_manager.py` *(신규)*
+  - `backend/v2/tests/test_pgvector_v2_client.py` *(TestGetPreferenceEmbedding 클래스 추가)*
+  - `backend/v2/tests/test_memory_manager.py` *(신규)*
+  - `backend/v2/tests/conftest.py` *(_TEST_PREFIXES에 test_v2_3_1_, test_v2_3_2_ 추가)*
+- **결정 (Round 5 planning)**:
+  - Q2: short-term은 pgvector `user_interactions` 30분 윈도우로 (DynamoDB 미사용)
+  - Q3: 가입 시 MBTI 캐논 문장 임베딩 시드, EWMA는 Round 5-D consolidation에서
+- **메서드 (현재 라운드 구현)**:
+  - `get_short_term(user_id, window_minutes=30) -> list[dict]` ✅
+  - `get_episodic(user_id, limit=100) -> list[dict]` ✅
+  - `get_semantic(user_id) -> Optional[dict]` ✅
+  - `get_procedural(user_id) -> Optional[dict]` (category_weights + preference_embedding) ✅
+  - `get_or_create_profile(user_id, mbti_type) -> dict` (idempotent 시드, Q3=C) ✅
+  - `consolidate(user_id) -> None` — **Round 5-D 로 연기** (consolidation Lambda와 함께 구현, EWMA + category_weights 재계산은 Lambda 트리거 후 의미)
 - **Definition of Done**:
-  - [ ] Lambda 아님, 순수 라이브러리
-  - [ ] 각 메서드 단위 테스트
+  - [x] Lambda 아님, 순수 라이브러리
+  - [x] 각 메서드 단위 테스트 (fakes + integration 분리)
 
 ### TASK-3.2: Context Broker
 - **종속성**: TASK-3.1
-- **Files to create**:
-  - `backend/v2/core3/context_broker.py`
-  - `backend/v2/tests/test_context_broker.py`
-- **메서드**:
-  - `get_user_context(user_id, request_type)` — request_type별 레이어 조립 (feed/chat/search/podcast)
-  - `get_article_context(news_id, mbti_type)` — 메타 + body + similar
-  - (Recommend Agent는 TASK-3.3에서 분리)
+- **커밋**: TBD (이 라운드에서 생성)
+- **Files modified/created**:
+  - `backend/v2/core3/context_broker.py` *(신규)*
+  - `backend/v2/tests/test_context_broker.py` *(신규)*
+- **메서드 (현재 라운드 구현)**:
+  - `get_user_context(user_id, request_type='feed') -> UserContext` ✅
+  - `get_article_context(news_id, mbti_type)` — **추후 라운드** (article 핸들러는 이미 Round 4에서 안정화됨, 별도 broker 메서드 불필요. 챗봇 등 다른 컨슈머가 등장하면 그 라운드에서 추가)
 - **Definition of Done**:
-  - [ ] request_type별 반환 필드 다름 (v2 아키텍처 문서 5.2절 기준)
-  - [ ] 각 타입별 테스트
+  - [x] request_type='feed' 구현, 그 외는 NotImplementedError
+  - [x] feed 시나리오 테스트 (cold user, warm user, dedupe, 등)
 
 ### TASK-3.3: Recommend Agent (3-Stage Ranking)
 - **종속성**: TASK-3.2
