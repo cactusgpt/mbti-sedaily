@@ -496,3 +496,236 @@ class TestDefaultConstructorPassesEndpointUrl:
         assert construction_count["n"] == 0, (
             "Injected embedding_client should bypass default construction"
         )
+
+
+# =============================================================================
+# Round 5-D: consolidate + helpers
+# =============================================================================
+
+
+from v2.core3.memory_manager import (
+    _DWELL_ENGAGED_MS,
+    _event_weight,
+    _normalize_category_weights,
+)
+
+
+class TestEventWeight:
+    def test_click(self):
+        assert _event_weight("click", None, None) == 1.0
+        assert _event_weight("click", 100, None) == 1.0  # dwell_ms ignored
+
+    def test_dwell_engaged(self):
+        assert _event_weight("dwell", _DWELL_ENGAGED_MS + 1, None) == 2.0
+        assert _event_weight("dwell", 10000, None) == 2.0
+
+    def test_dwell_short(self):
+        assert _event_weight("dwell", _DWELL_ENGAGED_MS, None) == 1.0
+        assert _event_weight("dwell", 1000, None) == 1.0
+        assert _event_weight("dwell", None, None) == 1.0
+
+    def test_react(self):
+        assert _event_weight("react", None, None) == 3.0
+
+    def test_rate_high(self):
+        assert _event_weight("rate", None, 4) == 3.0
+        assert _event_weight("rate", None, 5) == 3.0
+
+    def test_rate_neutral(self):
+        assert _event_weight("rate", None, 3) == 0.0
+
+    def test_rate_low(self):
+        assert _event_weight("rate", None, 1) == -1.0
+        assert _event_weight("rate", None, 2) == -1.0
+
+    def test_rate_missing(self):
+        assert _event_weight("rate", None, None) == 0.0
+
+    def test_scroll(self):
+        assert _event_weight("scroll", None, None) == 1.0
+
+    def test_skip(self):
+        assert _event_weight("skip", None, None) == -1.0
+
+    def test_unknown(self):
+        assert _event_weight("UNKNOWN", None, None) == 0.0
+
+
+class TestNormalizeCategoryWeights:
+    def test_empty_input(self):
+        assert _normalize_category_weights({}) == {}
+
+    def test_all_zero(self):
+        assert _normalize_category_weights({"a": 0, "b": 0}) == {}
+
+    def test_all_negative(self):
+        assert _normalize_category_weights({"a": -1, "b": -2}) == {}
+
+    def test_normalizes_to_unit_sum(self):
+        result = _normalize_category_weights({"a": 2, "b": 3})
+        assert result["a"] == pytest.approx(0.4)
+        assert result["b"] == pytest.approx(0.6)
+        assert sum(result.values()) == pytest.approx(1.0)
+
+    def test_clamps_negative_to_zero_and_renormalizes(self):
+        result = _normalize_category_weights({"a": 4, "b": -2, "c": 1})
+        # b dropped, total = 5
+        assert "b" not in result
+        assert result["a"] == pytest.approx(0.8)
+        assert result["c"] == pytest.approx(0.2)
+
+
+class TestConsolidate:
+    """consolidate routing — uses _FakePg (defined earlier in this file) +
+    canned aggregation responses to drive the four status branches."""
+
+    def test_v2_3_5_skipped_no_profile(self):
+        pg = _FakePg()
+        # No profile in pg.profiles
+        mm = MemoryManager(pg_client=pg, embedding_client=_FakeEmbed())
+        result = mm.consolidate("ghost")
+        assert result["status"] == "skipped_no_profile"
+        assert result["distinct_news_count"] == 0
+
+    def test_v2_3_5_skipped_below_threshold(self):
+        pg = _FakePg()
+        pg.profiles["alice"] = {
+            "user_id": "alice", "mbti_type": "INTJ",
+            "category_weights": {}, "created_at": None, "updated_at": None,
+        }
+        # Stub get_interaction_centroid_data to return < threshold
+        pg.get_interaction_centroid_data = lambda uid, since: {
+            "distinct_news_count": 5,
+            "centroid_embedding": [0.5] * 1024,
+            "events": [],
+        }
+        mm = MemoryManager(pg_client=pg, embedding_client=_FakeEmbed())
+        result = mm.consolidate("alice")
+        assert result["status"] == "skipped_below_threshold"
+        assert result["distinct_news_count"] == 5
+        # Profile not modified
+        assert len(pg.upsert_calls) == 0
+
+    def test_v2_3_5_skipped_no_centroid(self):
+        pg = _FakePg()
+        pg.profiles["alice"] = {
+            "user_id": "alice", "mbti_type": "INTJ",
+            "category_weights": {}, "created_at": None, "updated_at": None,
+        }
+        pg.get_interaction_centroid_data = lambda uid, since: {
+            "distinct_news_count": 15,    # above threshold
+            "centroid_embedding": None,   # but no centroid
+            "events": [],
+        }
+        mm = MemoryManager(pg_client=pg, embedding_client=_FakeEmbed())
+        result = mm.consolidate("alice")
+        assert result["status"] == "skipped_no_centroid"
+        assert len(pg.upsert_calls) == 0
+
+    def test_v2_3_5_applied_with_existing_embedding_uses_ewma(self):
+        pg = _FakePg()
+        pg.profiles["alice"] = {
+            "user_id": "alice", "mbti_type": "INTJ",
+            "category_weights": {}, "created_at": None, "updated_at": None,
+        }
+        pg.embeddings["alice"] = [1.0] * 1024     # old (seed)
+        centroid = [0.0] * 1024                    # diametrically different
+
+        pg.get_interaction_centroid_data = lambda uid, since: {
+            "distinct_news_count": 12,
+            "centroid_embedding": list(centroid),
+            "events": [
+                {"news_id": "n1", "interaction_type": "click",
+                 "dwell_ms": None, "rating": None, "category": "tech"},
+                {"news_id": "n2", "interaction_type": "click",
+                 "dwell_ms": None, "rating": None, "category": "economy"},
+            ],
+        }
+        mm = MemoryManager(pg_client=pg, embedding_client=_FakeEmbed())
+        result = mm.consolidate("alice")
+
+        assert result["status"] == "applied"
+        assert result["distinct_news_count"] == 12
+        assert result["category_weights_count"] == 2
+
+        # Verify EWMA: α=0.2 → new = 0.2×0 + 0.8×1 = 0.8
+        assert len(pg.upsert_calls) == 1
+        upserted_emb = pg.upsert_calls[0]["preference_embedding"]
+        assert upserted_emb[0] == pytest.approx(0.8)
+        assert all(v == pytest.approx(0.8) for v in upserted_emb[:10])
+
+        # Verify category_weights normalized to unit sum
+        upserted_cats = pg.upsert_calls[0]["category_weights"]
+        assert sum(upserted_cats.values()) == pytest.approx(1.0)
+        # 1 click each — equal weight
+        assert upserted_cats["tech"] == pytest.approx(0.5)
+        assert upserted_cats["economy"] == pytest.approx(0.5)
+
+    def test_v2_3_5_applied_no_existing_embedding_uses_centroid_outright(self):
+        pg = _FakePg()
+        pg.profiles["alice"] = {
+            "user_id": "alice", "mbti_type": "INTJ",
+            "category_weights": {}, "created_at": None, "updated_at": None,
+        }
+        # No entry in pg.embeddings → get_preference_embedding returns None
+        pg.get_interaction_centroid_data = lambda uid, since: {
+            "distinct_news_count": 12,
+            "centroid_embedding": [0.5] * 1024,
+            "events": [
+                {"news_id": "n1", "interaction_type": "click",
+                 "dwell_ms": None, "rating": None, "category": "tech"},
+            ],
+        }
+        mm = MemoryManager(pg_client=pg, embedding_client=_FakeEmbed())
+        result = mm.consolidate("alice")
+        assert result["status"] == "applied"
+        # No old embedding → use centroid as-is
+        upserted_emb = pg.upsert_calls[0]["preference_embedding"]
+        assert upserted_emb == [0.5] * 1024
+
+    def test_v2_3_5_applied_skips_events_without_category(self):
+        pg = _FakePg()
+        pg.profiles["alice"] = {
+            "user_id": "alice", "mbti_type": "INTJ",
+            "category_weights": {}, "created_at": None, "updated_at": None,
+        }
+        pg.embeddings["alice"] = [0.5] * 1024
+        pg.get_interaction_centroid_data = lambda uid, since: {
+            "distinct_news_count": 12,
+            "centroid_embedding": [0.5] * 1024,
+            "events": [
+                {"news_id": "n1", "interaction_type": "click",
+                 "dwell_ms": None, "rating": None, "category": None},
+                {"news_id": "n2", "interaction_type": "click",
+                 "dwell_ms": None, "rating": None, "category": "tech"},
+            ],
+        }
+        mm = MemoryManager(pg_client=pg, embedding_client=_FakeEmbed())
+        result = mm.consolidate("alice")
+        upserted_cats = pg.upsert_calls[0]["category_weights"]
+        # Only tech survives — null category event dropped
+        assert upserted_cats == {"tech": 1.0}
+
+    def test_v2_3_5_negative_only_categories_yield_empty_weights(self):
+        pg = _FakePg()
+        pg.profiles["alice"] = {
+            "user_id": "alice", "mbti_type": "INTJ",
+            "category_weights": {"tech": 0.7, "economy": 0.3},  # prior
+            "created_at": None, "updated_at": None,
+        }
+        pg.embeddings["alice"] = [0.5] * 1024
+        pg.get_interaction_centroid_data = lambda uid, since: {
+            "distinct_news_count": 12,
+            "centroid_embedding": [0.5] * 1024,
+            "events": [
+                {"news_id": f"n{i}", "interaction_type": "skip",
+                 "dwell_ms": None, "rating": None, "category": "tech"}
+                for i in range(12)
+            ],
+        }
+        mm = MemoryManager(pg_client=pg, embedding_client=_FakeEmbed())
+        result = mm.consolidate("alice")
+        assert result["status"] == "applied"
+        # All-negative → normalized = {} (caller may interpret as "no signal")
+        upserted_cats = pg.upsert_calls[0]["category_weights"]
+        assert upserted_cats == {}

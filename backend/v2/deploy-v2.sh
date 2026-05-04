@@ -56,7 +56,7 @@ CORE3_FUNCTIONS=(
   "sedaily-mbti-v2-feed-dev"          # TASK-6 Feed API (개인화는 TASK-3.4)
   "sedaily-mbti-v2-article-dev"       # TASK-6 Article Detail API
   "sedaily-mbti-v2-interaction-dev"   # TASK-3.4 Record Interaction (Round 5-C)
-  # TASK-3.5 will add: consolidation handler
+  "sedaily-mbti-v2-consolidate-dev"   # TASK-3.5 Daily Consolidation (Round 5-D)
 )
 
 # chat-agent deploys via Docker + ECR + agentcore CLI — not in this list.
@@ -89,6 +89,9 @@ case "$DEPLOY_TARGET" in
   interaction)
     FUNCTIONS=("sedaily-mbti-v2-interaction-dev")
     ;;
+  consolidate)
+    FUNCTIONS=("sedaily-mbti-v2-consolidate-dev")
+    ;;
   chat-agent)
     echo "Chat Agent deploys via Docker build + ECR push + agentcore CLI."
     echo "See backend/v2/agents/chat_agent/deploy.sh (TASK-4.2)."
@@ -105,7 +108,7 @@ case "$DEPLOY_TARGET" in
     ;;
   *)
     echo "Unknown target: $DEPLOY_TARGET"
-    echo "Use: all | api | collector | selector | transform | personalization | feed | article | interaction | chat-agent"
+    echo "Use: all | api | collector | selector | transform | personalization | feed | article | interaction | consolidate | chat-agent"
     exit 1
     ;;
 esac

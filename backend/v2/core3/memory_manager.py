@@ -128,6 +128,84 @@ def _mbti_group_from_full(mbti_full: str) -> str:
     return mbti_full[1:3]
 
 
+# ── Consolidation helpers (Round 5-D) ────────────────────────────────────────
+
+
+# Per-event weight contribution to category_weights summation.
+# Keys are (interaction_type, dwell-bucket-or-rating-marker). The
+# function below picks the right one — kept as code rather than a
+# nested dict to keep edge cases (rating=None, dwell=None) explicit.
+
+# Threshold above which a 'dwell' event counts as engaged reading
+# rather than incidental. 5 seconds is a typical "started reading"
+# threshold; below that it could be a misclick or a glance.
+_DWELL_ENGAGED_MS = 5000
+
+
+def _event_weight(
+    interaction_type: str,
+    dwell_ms: Optional[int],
+    rating: Optional[int],
+) -> float:
+    """Compute the category_weights contribution for a single event.
+
+    Mapping (Round 5-D Q6 = B):
+      click           → +1.0
+      dwell (>5000ms) → +2.0
+      dwell (≤5000ms) → +1.0   # short dwell ~ click intensity
+      react           → +3.0   # explicit positive signal
+      rate (≥4)       → +3.0   # 4-5 stars
+      rate (≤2)       → -1.0   # 1-2 stars
+      rate (3)        →  0.0   # neutral
+      scroll          → +1.0   # progressed somehow
+      skip            → -1.0
+
+    Unknown interaction_type returns 0 (defensive — schema CHECK
+    prevents this but the function shouldn't crash on bad input).
+    """
+    if interaction_type == "click":
+        return 1.0
+    if interaction_type == "dwell":
+        if dwell_ms is not None and dwell_ms > _DWELL_ENGAGED_MS:
+            return 2.0
+        return 1.0
+    if interaction_type == "react":
+        return 3.0
+    if interaction_type == "rate":
+        if rating is None:
+            return 0.0
+        if rating >= 4:
+            return 3.0
+        if rating <= 2:
+            return -1.0
+        return 0.0
+    if interaction_type == "scroll":
+        return 1.0
+    if interaction_type == "skip":
+        return -1.0
+    return 0.0
+
+
+def _normalize_category_weights(raw: Dict[str, float]) -> Dict[str, float]:
+    """Convert raw per-category weight sums to a normalized [0, 1]
+    distribution.
+
+    Negative weights clamp to 0 (a category with skip-only signal
+    contributes 0 to the user's positive preferences — RecommendAgent's
+    Stage 2 ``_category_weight`` expects [0, 1]). Then divide by the
+    total positive mass so the surviving weights sum to 1.
+
+    All-negative or all-zero input → empty dict (caller leaves the
+    user's existing category_weights alone, since "everything is
+    noise" doesn't justify wiping prior signal).
+    """
+    clamped = {c: w for c, w in raw.items() if w > 0}
+    total = sum(clamped.values())
+    if total <= 0:
+        return {}
+    return {c: w / total for c, w in clamped.items()}
+
+
 # ── Memory Manager ───────────────────────────────────────────────────────────
 
 
@@ -139,13 +217,10 @@ class MemoryManager:
     constructs both from environment variables (matching the v2
     client convention).
 
-    Round 5-A scope is read-only + ``get_or_create_profile``. The
-    ``consolidate(user_id)`` write path mentioned in TASK-3.1 spec
-    requires aggregation over interaction history with article
-    metadata (category, embedding) — that pulls in client-level
-    helpers we'll add in Round 5-D when the consolidation Lambda is
-    wired. Adding it here without the Lambda host would leave it
-    untriggered, so we defer.
+    Round 5-A scope was read-only + ``get_or_create_profile``;
+    Round 5-D added ``consolidate(user_id)`` and the supporting
+    pgvector client methods (``find_active_users_since``,
+    ``get_interaction_centroid_data``).
     """
 
     def __init__(
@@ -307,3 +382,151 @@ class MemoryManager:
             "created_at": None,
             "updated_at": None,
         }
+
+    # ---- Consolidation (Round 5-D) -------------------------------------------
+
+    # Threshold for switching from seed embedding to learned EWMA
+    # embedding. Until the user has at least this many distinct
+    # articles touched in the consolidation window, the seed stays.
+    # 10 chosen as a small-but-nonzero floor — fewer than 10 distinct
+    # articles makes the centroid noisy.
+    _CONSOLIDATE_THRESHOLD = 10
+
+    # EWMA smoothing factor (Q5 = B in Round 5-D planning).
+    # new_emb = α × interaction_centroid + (1 - α) × old_emb
+    # 0.2 means the seed's influence halves every ~3 consolidations
+    # (3 days for a daily-batch user); a steady user converges to
+    # interaction-driven preference within ~2 weeks.
+    _EWMA_ALPHA = 0.2
+
+    # Lookback window. Matches Round 5-D Q2 = B (30 days).
+    _CONSOLIDATE_WINDOW_DAYS = 30
+
+    def consolidate(
+        self,
+        user_id: str,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Recompute ``preference_embedding`` (EWMA) and
+        ``category_weights`` (interaction-weighted normalized) for a
+        single user.
+
+        Idempotent over the 30-day window: re-running with the same
+        ``now`` produces the same result because the input set is
+        windowed and EWMA is applied to whatever ``preference_embedding``
+        currently sits in the row (which itself was computed by the
+        previous run on the same windowed input + the run before that's
+        embedding, ad infinitum). The recursion converges as the seed's
+        weight (1-α)^n decays toward zero.
+
+        Returns a status dict for the caller (the consolidation Lambda)
+        to aggregate into per-fire metrics::
+
+            {
+                "user_id": ...,
+                "status": "applied" | "skipped_below_threshold" |
+                          "skipped_no_profile" | "skipped_no_centroid",
+                "distinct_news_count": <int>,
+                "category_weights_count": <int>,  # post-normalization
+            }
+
+        Statuses:
+          * applied — EWMA + category_weights written.
+          * skipped_below_threshold — fewer than 10 distinct articles
+            touched in window; profile unchanged. Most cold-start users
+            remain here for the first ~week.
+          * skipped_no_profile — user has interactions but no profile
+            row (can happen if record_interaction was called before
+            any 4-char-MBTI request). consolidate doesn't synthesize a
+            profile out of thin air; that's get_or_create_profile's
+            job, requiring the user's MBTI which interactions don't
+            necessarily carry.
+          * skipped_no_centroid — articles touched but all their
+            embeddings are NULL (extreme edge — would mean Collector
+            wrote articles without embeddings, schema-impossible
+            normally). Defensive.
+        """
+        if now is None:
+            now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=self._CONSOLIDATE_WINDOW_DAYS)
+
+        profile = self._pg.get_user_profile(user_id)
+        if profile is None:
+            return {
+                "user_id": user_id,
+                "status": "skipped_no_profile",
+                "distinct_news_count": 0,
+                "category_weights_count": 0,
+            }
+
+        agg = self._pg.get_interaction_centroid_data(user_id, cutoff)
+        distinct = agg["distinct_news_count"]
+
+        if distinct < self._CONSOLIDATE_THRESHOLD:
+            return {
+                "user_id": user_id,
+                "status": "skipped_below_threshold",
+                "distinct_news_count": distinct,
+                "category_weights_count": 0,
+            }
+
+        if agg["centroid_embedding"] is None:
+            return {
+                "user_id": user_id,
+                "status": "skipped_no_centroid",
+                "distinct_news_count": distinct,
+                "category_weights_count": 0,
+            }
+
+        # EWMA. old embedding may be None (very early user, profile
+        # exists but seed somehow missed) — in that case use centroid
+        # outright (skip the (1-α)×0 term).
+        old_emb = self._pg.get_preference_embedding(user_id)
+        new_emb = self._ewma(old_emb, agg["centroid_embedding"])
+
+        # Category weights from event-stream
+        raw: Dict[str, float] = {}
+        for ev in agg["events"]:
+            cat = ev.get("category")
+            if not cat:
+                continue
+            w = _event_weight(
+                ev["interaction_type"],
+                ev.get("dwell_ms"),
+                ev.get("rating"),
+            )
+            raw[cat] = raw.get(cat, 0.0) + w
+        normalized = _normalize_category_weights(raw)
+
+        # Persist via existing upsert. mbti_type is preserved from the
+        # current profile (consolidate never changes MBTI).
+        self._pg.upsert_user_profile(
+            user_id=user_id,
+            mbti_type=profile.get("mbti_type"),
+            category_weights=normalized,
+            preference_embedding=new_emb,
+        )
+
+        logger.info(
+            f"consolidate({user_id!r}): applied — "
+            f"distinct={distinct} categories={len(normalized)}"
+        )
+        return {
+            "user_id": user_id,
+            "status": "applied",
+            "distinct_news_count": distinct,
+            "category_weights_count": len(normalized),
+        }
+
+    @classmethod
+    def _ewma(
+        cls,
+        old: Optional[List[float]],
+        centroid: List[float],
+    ) -> List[float]:
+        """Element-wise EWMA. Fallback to centroid when old is missing
+        or dimension-mismatched."""
+        if old is None or len(old) != len(centroid):
+            return list(centroid)
+        a = cls._EWMA_ALPHA
+        return [a * c + (1.0 - a) * o for o, c in zip(old, centroid)]

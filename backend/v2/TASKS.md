@@ -681,15 +681,39 @@ Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이
   - [ ] (수동) API Gateway 라우트 POST `/api/v2/interactions` 추가
   - [ ] (수동) `./deploy-v2.sh feed` + `./deploy-v2.sh interaction` 실행 → curl 동작 확인
 
-### TASK-3.5: Consolidation 배치 Lambda
-- **종속성**: TASK-3.4
-- **Files to create**:
-  - `backend/v2/handlers/core3_consolidation.py`
-- **로직**: EventBridge rate(1 hour)로 트리거 → 모든 활성 유저의 `Memory Manager.consolidate()` 실행
+### TASK-3.5: Consolidation Lambda + EventBridge
+- **종속성**: TASK-3.1 ~ TASK-3.4
+- **커밋**: TBD (이 라운드에서 생성)
+- **Files modified/created**:
+  - `backend/v2/clients/pgvector_v2_client.py` *(find_active_users_since, get_interaction_centroid_data 메서드 추가)*
+  - `backend/v2/core3/memory_manager.py` *(consolidate 메서드 본체 + helper 2개)*
+  - `backend/v2/handlers/core3_consolidate.py` *(신규)*
+  - `backend/v2/tests/test_pgvector_v2_client.py` *(신규 메서드 통합 테스트)*
+  - `backend/v2/tests/test_memory_manager.py` *(consolidate + helper 단위 테스트)*
+  - `backend/v2/tests/test_core3_consolidate.py` *(신규)*
+  - `backend/v2/tests/conftest.py` *(test_v2_3_5_ prefix 추가)*
+  - `backend/v2/deploy-v2.sh` *(CORE3_FUNCTIONS + consolidate 디스패치)*
+- **결정 (Round 5-D)**:
+  - Q1=C 일배치: EventBridge cron(0 18 * * ? *) — UTC 18:00 = KST 03:00
+  - Q2=B 30일 윈도우: 매번 now-30d 이후 interactions만 — idempotent
+  - Q3=B 활성 user: 최근 30일 내 ≥1 interaction
+  - Q4=B engagement deferred: user-level만 이번 라운드
+  - Q5=B α=0.2, threshold ≥10 distinct news
+  - Q6=B interaction_type 가중: click=1, dwell(>5s)=2, react=3, rate(≥4)=3, scroll=1, rate(≤2)/skip=-1
+- **Lambda 동작**:
+  - Trigger: EventBridge schedule (수동 등록)
+  - Per-fire: find_active_users_since → for each user, MemoryManager.consolidate
+  - 4 status 분기: applied / skipped_below_threshold / skipped_no_profile / skipped_no_centroid
+  - per-user error는 batch를 멈추지 않음 (로그 + counts.errored++)
 - **Definition of Done**:
-  - [ ] 함수명 `sedaily-mbti-v2-consolidation-dev`
-  - [ ] 1시간 스케줄 등록
-  - [ ] 실행 후 `user_profiles.category_weights`, `preference_embedding` 업데이트 확인
+  - [x] consolidate가 EWMA(α=0.2) 적용해서 preference_embedding 갱신
+  - [x] category_weights 가 interaction_type 가중 + 정규화로 갱신
+  - [x] threshold(<10 distinct)에서 skipped 처리
+  - [x] 핸들러가 active user 전체 순회 + 에러 격리
+  - [ ] (수동) Lambda 함수 sedaily-mbti-v2-consolidate-dev AWS 콘솔 생성
+  - [ ] (수동) EventBridge schedule rule 생성 + Lambda target 연결
+  - [ ] (수동) ./deploy-v2.sh consolidate 실행
+  - [ ] (수동) 첫 fire 검증: CloudWatch에서 consolidate_run_complete 이벤트 + DB에서 user_profiles 갱신 확인
 
 ---
 

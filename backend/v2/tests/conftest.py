@@ -37,6 +37,7 @@ _TEST_PREFIXES: tuple[str, ...] = (
     "test_v2_3_2_",  # test_context_broker.py — TASK-3.2 (Round 5-A)
     "test_v2_3_3_",  # test_recommend_agent.py — TASK-3.3 (Round 5-B)
     "test_v2_3_4_",  # test_core3_feed/record_interaction — TASK-3.4 (Round 5-C)
+    "test_v2_3_5_",  # test_core3_consolidate + memory_manager.consolidate — TASK-3.5 (Round 5-D)
 )
 
 

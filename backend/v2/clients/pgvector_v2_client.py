@@ -764,6 +764,183 @@ class PgVectorV2Client:
             logger.warning(f"get_user_interactions({user_id!r}) failed: {exc}")
             return []
 
+    def find_active_users_since(
+        self,
+        cutoff: datetime,
+        limit: int = 10000,
+    ) -> List[str]:
+        """Return distinct user_ids with at least one interaction since
+        ``cutoff``. Used by the consolidation Lambda to scope its work
+        to actively-engaged users — inactive users keep their seeded
+        embedding unchanged (Q3 = B in Round 5-D).
+
+        ``limit`` is a safety rail; default 10k handles dev-size dataset
+        comfortably. If the number of active users exceeds the limit
+        the consolidation Lambda will silently miss the tail — log
+        a warning but don't fail. Production scaling beyond 10k would
+        warrant a chunked approach (out of Round 5-D scope).
+        """
+        if not self._enabled:
+            return []
+        try:
+            rows = self.conn.run(
+                """
+                SELECT DISTINCT user_id
+                FROM user_interactions
+                WHERE created_at >= :cutoff
+                ORDER BY user_id
+                LIMIT :lim
+                """,
+                cutoff=cutoff,
+                lim=limit,
+            )
+            users = [r[0] for r in rows]
+            if len(users) >= limit:
+                logger.warning(
+                    f"find_active_users_since hit limit={limit}; tail "
+                    f"users may not be consolidated this run."
+                )
+            return users
+        except Exception as exc:
+            logger.warning(f"find_active_users_since failed: {exc}")
+            return []
+
+    def get_interaction_centroid_data(
+        self,
+        user_id: str,
+        since: datetime,
+    ) -> Dict[str, Any]:
+        """Aggregate a user's interactions for consolidation.
+
+        Single round-trip that returns the data Round 5-D consolidate
+        needs — interaction centroid (mean of article embeddings for
+        distinct news_ids the user touched) plus per-event detail
+        rows (interaction_type, dwell_ms, rating, category) for
+        category_weights computation.
+
+        Returns shape::
+
+            {
+                "distinct_news_count": <int>,  # how many distinct news_ids
+                                               # touched in window
+                "centroid_embedding": <List[float] | None>,
+                                               # element-wise mean of
+                                               # articles.embedding for
+                                               # those distinct ids;
+                                               # None if zero ids or
+                                               # all embeddings null
+                "events": [
+                    {
+                        "news_id": ...,
+                        "interaction_type": ...,
+                        "dwell_ms": ...,
+                        "rating": ...,
+                        "category": ...,        # from articles.metadata
+                                                # via the JOIN
+                    },
+                    ...
+                ],
+            }
+
+        ``events`` is a flat list of every interaction (not deduped),
+        because category_weights summation needs the full event stream
+        — a user clicking the same article twice should count twice
+        for "this category gets +2 click weight". distinct_news_count
+        comes from a separate aggregation on the same data so the
+        EWMA threshold check (≥10 distinct) and the events list stay
+        consistent.
+
+        The embedding centroid uses ``articles.embedding`` (the source
+        article-level embedding), not ``article_versions.embedding``,
+        because a user's preference is over articles regardless of
+        which MBTI variant they read. Variant-level signal is
+        captured by the user already having an MBTI-specific
+        category_weights distribution.
+        """
+        if not self._enabled:
+            return {
+                "distinct_news_count": 0,
+                "centroid_embedding": None,
+                "events": [],
+            }
+        try:
+            # Two queries: one to get the events list with article
+            # metadata for category aggregation, one to compute the
+            # centroid via SQL aggregation (avoiding shipping every
+            # 1024-dim vector across the wire).
+            event_rows = self.conn.run(
+                """
+                SELECT ui.news_id, ui.interaction_type, ui.dwell_ms,
+                       ui.rating,
+                       a.metadata->>'category' AS category
+                FROM user_interactions ui
+                JOIN articles a ON a.news_id = ui.news_id
+                WHERE ui.user_id = :uid
+                  AND ui.created_at >= :since
+                ORDER BY ui.created_at ASC
+                """,
+                uid=user_id,
+                since=since,
+            )
+            events = [
+                {
+                    "news_id": r[0],
+                    "interaction_type": r[1],
+                    "dwell_ms": r[2],
+                    "rating": r[3],
+                    "category": r[4],
+                }
+                for r in event_rows
+            ]
+
+            # Distinct news count from the event list (avoid second
+            # round-trip — small in-Python work).
+            distinct_news_ids = {e["news_id"] for e in events if e["news_id"]}
+
+            centroid: Optional[List[float]] = None
+            if distinct_news_ids:
+                # AVG over vectors via pgvector. Skip articles where
+                # embedding IS NULL so the average is over the actual
+                # population. avg() of vector returns vector;
+                # cast to text for parsing identical to
+                # get_preference_embedding.
+                centroid_rows = self.conn.run(
+                    """
+                    SELECT AVG(embedding)::text
+                    FROM articles
+                    WHERE news_id = ANY(:ids::text[])
+                      AND embedding IS NOT NULL
+                    """,
+                    ids=list(distinct_news_ids),
+                )
+                if centroid_rows and centroid_rows[0][0] is not None:
+                    literal = centroid_rows[0][0].strip()
+                    if literal.startswith("[") and literal.endswith("]"):
+                        literal = literal[1:-1]
+                    if literal:
+                        try:
+                            centroid = [float(x) for x in literal.split(",")]
+                        except ValueError:
+                            logger.warning(
+                                f"get_interaction_centroid_data: failed to "
+                                f"parse centroid for user_id={user_id!r}"
+                            )
+
+            return {
+                "distinct_news_count": len(distinct_news_ids),
+                "centroid_embedding": centroid,
+                "events": events,
+            }
+        except Exception as exc:
+            logger.warning(
+                f"get_interaction_centroid_data({user_id!r}) failed: {exc}"
+            )
+            return {
+                "distinct_news_count": 0,
+                "centroid_embedding": None,
+                "events": [],
+            }
+
     # =========================================================================
     # feed ranking
     # =========================================================================

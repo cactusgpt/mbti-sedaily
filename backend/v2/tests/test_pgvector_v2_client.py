@@ -2062,3 +2062,192 @@ class TestGetVersionEmbeddings:
         result = pg.get_version_embeddings([present, missing], "NT")
         assert present in result
         assert missing not in result
+
+
+# =============================================================================
+# Round 5-D: find_active_users_since + get_interaction_centroid_data
+# =============================================================================
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not (os.getenv("PG_V2_HOST") and os.getenv("PG_V2_PASSWORD")),
+    reason="PG_V2_HOST/PG_V2_PASSWORD required",
+)
+class TestFindActiveUsersSince:
+    PREFIX = "test_v2_3_5_active_"
+
+    @pytest.fixture
+    def pg(self):
+        c = PgVectorV2Client()
+        c.conn.run(
+            f"DELETE FROM user_interactions WHERE user_id LIKE '{self.PREFIX}%'"
+        )
+        yield c
+        c.conn.run(
+            f"DELETE FROM user_interactions WHERE user_id LIKE '{self.PREFIX}%'"
+        )
+        c.close()
+
+    def test_returns_distinct_users_in_window(self, pg):
+        from datetime import datetime, timedelta, timezone
+        now = datetime.now(timezone.utc)
+
+        # Insert: u1 has 2 interactions today, u2 has 1 today, u3 only old
+        for nid_suffix in ("a", "b"):
+            pg.record_interaction(
+                user_id=f"{self.PREFIX}u1",
+                news_id=f"{self.PREFIX}news_{nid_suffix}",
+                mbti_type="NT",
+                interaction_type="click",
+            )
+        pg.record_interaction(
+            user_id=f"{self.PREFIX}u2",
+            news_id=f"{self.PREFIX}news_c",
+            mbti_type="NT",
+            interaction_type="click",
+        )
+        # u3: insert with old created_at (40 days ago)
+        pg.conn.run(
+            """
+            INSERT INTO user_interactions
+                (user_id, news_id, mbti_type, interaction_type, created_at)
+            VALUES (:uid, :nid, 'NT', 'click', now() - interval '40 days')
+            """,
+            uid=f"{self.PREFIX}u3",
+            nid=f"{self.PREFIX}news_d",
+        )
+
+        cutoff = now - timedelta(days=30)
+        active = pg.find_active_users_since(cutoff)
+
+        # u1, u2 in window; u3 outside; other PREFIX-unrelated users
+        # may be in the result too (live DB) — filter to ours
+        ours = [u for u in active if u.startswith(self.PREFIX)]
+        assert set(ours) == {f"{self.PREFIX}u1", f"{self.PREFIX}u2"}
+
+    def test_empty_when_no_active(self, pg):
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        active = pg.find_active_users_since(cutoff)
+        ours = [u for u in active if u.startswith(self.PREFIX)]
+        assert ours == []
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not (os.getenv("PG_V2_HOST") and os.getenv("PG_V2_PASSWORD")),
+    reason="PG_V2_HOST/PG_V2_PASSWORD required",
+)
+class TestGetInteractionCentroidData:
+    PREFIX = "test_v2_3_5_centroid_"
+
+    @pytest.fixture
+    def pg(self):
+        c = PgVectorV2Client()
+        c.conn.run(
+            f"DELETE FROM user_interactions WHERE user_id LIKE '{self.PREFIX}%'"
+        )
+        c.conn.run(
+            f"DELETE FROM articles WHERE news_id LIKE '{self.PREFIX}%'"
+        )
+        yield c
+        c.conn.run(
+            f"DELETE FROM user_interactions WHERE user_id LIKE '{self.PREFIX}%'"
+        )
+        c.conn.run(
+            f"DELETE FROM articles WHERE news_id LIKE '{self.PREFIX}%'"
+        )
+        c.close()
+
+    def test_no_interactions_returns_empty(self, pg):
+        from datetime import datetime, timedelta, timezone
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        result = pg.get_interaction_centroid_data(
+            f"{self.PREFIX}ghost", since
+        )
+        assert result["distinct_news_count"] == 0
+        assert result["centroid_embedding"] is None
+        assert result["events"] == []
+
+    def test_aggregates_events_and_computes_centroid(self, pg):
+        from datetime import datetime, timedelta, timezone
+        # Insert 3 articles with distinct embeddings + categories
+        for i, (cat, vec_val) in enumerate([
+            ("economy", 0.1),
+            ("tech", 0.5),
+            ("economy", 0.3),
+        ]):
+            nid = f"{self.PREFIX}art_{i}"
+            pg.insert_article(
+                news_id=nid,
+                metadata={"title": f"t{i}", "category": cat},
+                embedding=[vec_val] * 1024,
+            )
+
+        uid = f"{self.PREFIX}user_a"
+        # User clicked all 3 + reacted to one
+        for i in range(3):
+            pg.record_interaction(
+                user_id=uid,
+                news_id=f"{self.PREFIX}art_{i}",
+                mbti_type="NT",
+                interaction_type="click",
+            )
+        pg.record_interaction(
+            user_id=uid,
+            news_id=f"{self.PREFIX}art_0",
+            mbti_type="NT",
+            interaction_type="react",
+            reaction_type="like",
+        )
+
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        result = pg.get_interaction_centroid_data(uid, since)
+
+        # 3 distinct news_ids (4 events but 3 distinct articles)
+        assert result["distinct_news_count"] == 3
+        assert len(result["events"]) == 4
+
+        # Centroid = avg of 0.1, 0.5, 0.3 = 0.3 in every dim
+        assert result["centroid_embedding"] is not None
+        assert len(result["centroid_embedding"]) == 1024
+        # pgvector AVG returns float32 — small tolerance
+        for v in result["centroid_embedding"][:10]:  # sample
+            assert v == pytest.approx(0.3, rel=1e-4, abs=1e-4)
+
+        # Events have category populated from articles JOIN
+        cats_in_events = {e["category"] for e in result["events"]}
+        assert cats_in_events == {"economy", "tech"}
+
+    def test_only_returns_in_window(self, pg):
+        from datetime import datetime, timedelta, timezone
+        nid_old = f"{self.PREFIX}old"
+        nid_new = f"{self.PREFIX}new"
+        for nid in (nid_old, nid_new):
+            pg.insert_article(
+                news_id=nid,
+                metadata={"title": nid, "category": "tech"},
+                embedding=[0.5] * 1024,
+            )
+
+        uid = f"{self.PREFIX}user_b"
+        # Old: 40 days ago
+        pg.conn.run(
+            """
+            INSERT INTO user_interactions
+                (user_id, news_id, mbti_type, interaction_type, created_at)
+            VALUES (:uid, :nid, 'NT', 'click', now() - interval '40 days')
+            """,
+            uid=uid, nid=nid_old,
+        )
+        # New: just now
+        pg.record_interaction(
+            user_id=uid, news_id=nid_new,
+            mbti_type="NT", interaction_type="click",
+        )
+
+        since = datetime.now(timezone.utc) - timedelta(days=30)
+        result = pg.get_interaction_centroid_data(uid, since)
+        assert result["distinct_news_count"] == 1
+        assert {e["news_id"] for e in result["events"]} == {nid_new}
