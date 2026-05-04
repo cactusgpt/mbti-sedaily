@@ -770,7 +770,18 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
     async function fetchArticles() {
       try {
         setLoading(true);
-        const url = `${API_URL}/api/v2/feed?mbti=${selectedGroup}&limit=30`;
+        // Round 5-E wire-up: include user_id when the user is logged in so
+        // the backend can route to the personalized path. Frontend currently
+        // sends the 2-char MBTI group only — the lazy profile-create on the
+        // backend requires the 4-char form (INTJ/ENFP/...) which a separate
+        // round will collect via an MBTI quiz. Until then, all calls land
+        // on the cold path (Phase 2.5 selection feed unchanged), but
+        // user_interactions still accumulates from ArticleView so the
+        // Consolidation Lambda has data ready when profiles arrive.
+        const userIdParam = user?.userId
+          ? `&user_id=${encodeURIComponent(user.userId)}`
+          : "";
+        const url = `${API_URL}/api/v2/feed?mbti=${selectedGroup}&limit=30${userIdParam}`;
         const res = await fetch(url);
         if (!res.ok) {
           console.warn(`v2 feed returned ${res.status}`);
@@ -788,7 +799,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
       }
     }
     fetchArticles();
-  }, [selectedDate, selectedGroup]);
+  }, [selectedDate, selectedGroup, user?.userId]);
 
   // 질문 답변 선택
   const activeQuestionsList = aiQuestions.length > 0 ? aiQuestions : dailyQuestions;

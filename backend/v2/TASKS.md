@@ -717,6 +717,30 @@ Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이
 
 ---
 
+### TASK-3.6: Frontend wire-up (Round 5-E)
+- **종속성**: TASK-3.4 (백엔드 endpoints 가 production)
+- **커밋**: TBD (이 라운드에서 생성)
+- **Files modified**:
+  - `frontend-next/src/shared/lib/userApi.ts` *(recordArticleReadV2 함수 추가)*
+  - `frontend-next/src/components/mbti/FeedPage.tsx` *(feed URL에 user_id 조건부 추가)*
+  - `frontend-next/src/components/mbti/ArticleView.tsx` *(dual-write — v1 + v2 interaction record)*
+- **결정 (Round 5-E)**:
+  - Q1=C 4-char MBTI 롤아웃: frontend는 group(2-char)만 전달. lazy profile-create는 4-char 수집 UI 도입 후 활성화. 그때까지 backend는 cold path로 응답.
+  - Q2=C dual-write: v1 `/api/user/read` 유지 + v2 `/api/v2/interactions` 추가. 기존 DNA탭/추천 API 파괴 0.
+  - Q3=A UI 가시화 없음. badge / status indicator 는 5-F (TASK-3.7 예정).
+  - Q4=C 5-E는 wire-up만. 5-F (가시화) 는 5-D consolidation 실 데이터 검증 후.
+- **이 라운드 후 동작**:
+  - 익명 user → 기존 그대로 cold path
+  - 로그인 user → feed 에 user_id 동반 (그러나 4-char MBTI 부재로 lazy profile-create 미트리거 → 여전히 cold path 응답)
+  - 로그인 user 의 article click → v1 + v2 interaction 양쪽 기록
+  - 5-D consolidate 첫 fire (KST 03시) 시점에 v2 user_interactions 누적분 발견 가능. 단 profile 없는 user 는 `skipped_no_profile` 처리되므로 EWMA 미적용. 의미 있는 personalization 은 4-char MBTI 수집 UI (별도 라운드) 도입 후.
+- **Definition of Done**:
+  - [x] feed 호출에 user_id 조건부 추가
+  - [x] interaction dual-write
+  - [x] 빌드 통과 / lint 통과
+  - [ ] (수동) production 배포 후 CloudWatch 에서 v2 interaction Lambda 가 실 트래픽 수신 확인
+  - [ ] (수동) DB query 로 v2 user_interactions 행 누적 확인
+
 ## Phase 4: AgentCore + MCP (목표 3주)
 
 ### TASK-4.1: Chat Agent MCP 서버 골격

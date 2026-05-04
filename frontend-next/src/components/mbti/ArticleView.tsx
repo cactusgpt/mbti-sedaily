@@ -4,7 +4,7 @@ import remarkGfm from "remark-gfm";
 import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
 import type { MbtiVersion } from "@/shared/types/mbti";
 import { useAuth } from "@/features/auth";
-import { recordArticleRead } from "@/shared/lib/userApi";
+import { recordArticleRead, recordArticleReadV2 } from "@/shared/lib/userApi";
 import { trackArticleRead } from "@/shared/lib/readingTracker";
 import { API_URL } from "@/shared/config/api";
 
@@ -202,7 +202,14 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
   useEffect(() => {
     trackArticleRead(article.news_id);
     if (isAuthenticated && user) {
+      // Dual-write (Round 5-E wire-up):
+      //   - v1 endpoint feeds existing DNA-tab / recommend-API features
+      //   - v2 endpoint feeds Phase 3 user_interactions for the
+      //     Consolidation Lambda. currentGroup is the 2-char MBTI group
+      //     (NT/NF/ST/SF) which the v2 backend records as-is on the
+      //     user_interactions row.
       recordArticleRead(user.userId, article.news_id, article.title);
+      recordArticleReadV2(user.userId, article.news_id, currentGroup);
     }
   }, [article.news_id, isAuthenticated, user]);
 
