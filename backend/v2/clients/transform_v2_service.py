@@ -101,7 +101,10 @@ class TransformV2Service:
         ``usage`` (aggregated token counts including cache breakdown).
         Raises ``TransformError`` if all 4 groups fail.
         """
-        return await self._svc.transform_article(*args, **kwargs)
+        result = await self._svc.transform_article(*args, **kwargs)
+        if isinstance(result, dict):
+            self._emit_token_usage(result.get("usage") or {})
+        return result
 
     async def transform_article_for_groups(
         self,
@@ -210,11 +213,31 @@ class TransformV2Service:
         # failed_groups lets the handler stamp transformed_at=NULL but a
         # separate "tried and failed" signal (Q4=B: articles.status='failed'
         # at article level only when ALL requested groups fail).
+        self._emit_token_usage(total_usage)
         return {
             "versions": versions,
             "usage": total_usage,
             "failed_groups": failed_groups,
         }
+
+    def _emit_token_usage(self, usage: Dict[str, Any]) -> None:
+        try:
+            from v2.clients.cloudwatch_metrics import emit_bedrock_token_usage
+            in_tok = (
+                usage.get("input_tokens", 0)
+                + usage.get("cache_creation_input_tokens", 0)
+                + usage.get("cache_read_input_tokens", 0)
+            )
+            out_tok = usage.get("output_tokens", 0)
+            if in_tok == 0 and out_tok == 0:
+                return
+            emit_bedrock_token_usage(
+                model_id=_OPUS_4_6_MODEL_ID,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+            )
+        except Exception as exc:
+            logger.warning(f"Cost-1b emit failed (non-fatal): {exc}")
 
     async def close(self) -> None:
         """Close the wrapped v1 service (no-op in v1 — Bedrock client needs no tear-down)."""

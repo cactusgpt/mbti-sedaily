@@ -191,6 +191,21 @@ class EmbeddingV2Client:
             )
 
             result = json.loads(response["body"].read())
+
+            try:
+                from v2.clients.cloudwatch_metrics import (
+                    emit_bedrock_token_usage,
+                    parse_bedrock_response_tokens,
+                )
+                in_tok, out_tok = parse_bedrock_response_tokens(response)
+                emit_bedrock_token_usage(
+                    model_id=self.model_id,
+                    input_tokens=in_tok,
+                    output_tokens=out_tok,
+                )
+            except Exception as metric_exc:
+                logger.warning(f"Cost-1b emit failed (non-fatal): {metric_exc}")
+
             embedding = result.get("embedding")
 
             if not embedding:

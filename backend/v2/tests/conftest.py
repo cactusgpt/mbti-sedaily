@@ -38,6 +38,7 @@ _TEST_PREFIXES: tuple[str, ...] = (
     "test_v2_3_3_",  # test_recommend_agent.py — TASK-3.3 (Round 5-B)
     "test_v2_3_4_",  # test_core3_feed/record_interaction — TASK-3.4 (Round 5-C)
     "test_v2_3_5_",  # test_core3_consolidate + memory_manager.consolidate — TASK-3.5 (Round 5-D)
+    "test_v2_3_8_",  # test_cloudwatch_metrics.py — Cost-1b (Bedrock token tracking)
 )
 
 
