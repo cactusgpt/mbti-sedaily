@@ -202,14 +202,19 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
   useEffect(() => {
     trackArticleRead(article.news_id);
     if (isAuthenticated && user) {
-      // Dual-write (Round 5-E wire-up):
+      // Dual-write:
       //   - v1 endpoint feeds existing DNA-tab / recommend-API features
       //   - v2 endpoint feeds Phase 3 user_interactions for the
-      //     Consolidation Lambda. currentGroup is the 2-char MBTI group
-      //     (NT/NF/ST/SF) which the v2 backend records as-is on the
-      //     user_interactions row.
+      //     Consolidation Lambda. mbtiForV2 prefers the 4-char form
+      //     (Round 5-G — captured at OnboardingPage editor selection)
+      //     so the backend can lazy-create the user_profiles row with a
+      //     proper CHAR(4) value. Falls back to the 2-char currentGroup
+      //     for legacy users until app/page.tsx backfills on next mount.
+      const mbtiForV2 = (typeof window !== "undefined"
+        ? localStorage.getItem("mbti-type")
+        : null) || currentGroup;
       recordArticleRead(user.userId, article.news_id, article.title);
-      recordArticleReadV2(user.userId, article.news_id, currentGroup);
+      recordArticleReadV2(user.userId, article.news_id, mbtiForV2);
     }
   }, [article.news_id, isAuthenticated, user]);
 

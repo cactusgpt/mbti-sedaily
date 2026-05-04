@@ -6,7 +6,7 @@ import { FeedPage } from "@/components/mbti/FeedPage";
 import { MbtiChatBot } from "@/components/mbti/MbtiChatBot";
 import { OnboardingPage } from "@/components/mbti/OnboardingPage";
 import { BriefingPage } from "@/components/mbti/BriefingPage";
-import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
+import { groupToDefaultMbti, type MbtiGroupId } from "@/shared/data/mbtiGroups";
 
 type ViewMode = "story" | "feed" | "editor-select" | "briefing";
 
@@ -18,6 +18,15 @@ function HomeContent() {
     const savedGroup = localStorage.getItem("mbti-group") as MbtiGroupId | null;
     if (savedGroup) {
       setUserGroup(savedGroup);
+    }
+    // Round 5-G: backfill 4-char MBTI for legacy users who only have group.
+    // Picks the group's default editor MBTI (NT→INTJ, NF→INFP, ST→ISTJ,
+    // SF→ESFP). Idempotent on absence — only writes when mbti-type is missing.
+    // In-session group changes via handleMbtiChange / StoryNewsFeed leave
+    // the existing mbti-type until the next mount; precise mid-session MBTI
+    // edits will be a future settings-page concern.
+    if (savedGroup && !localStorage.getItem("mbti-type")) {
+      localStorage.setItem("mbti-type", groupToDefaultMbti[savedGroup]);
     }
   }, []);
 

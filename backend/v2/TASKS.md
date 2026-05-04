@@ -741,6 +741,31 @@ Phase 3 (개인화 기반 ranking)는 **이 위에 얹는 추가 layer**고, 이
   - [ ] (수동) production 배포 후 CloudWatch 에서 v2 interaction Lambda 가 실 트래픽 수신 확인
   - [ ] (수동) DB query 로 v2 user_interactions 행 누적 확인
 
+### TASK-3.7: Frontend 4-char MBTI 수집 (Round 5-G)
+- **종속성**: TASK-3.4 (백엔드), TASK-3.6 (frontend wire-up)
+- **커밋**: TBD (이 라운드에서 생성)
+- **Files modified**:
+  - `frontend-next/src/shared/data/mbtiGroups.ts` *(groupToDefaultMbti export 추가)*
+  - `frontend-next/src/components/mbti/OnboardingPage.tsx` *(에디터 선택 시 mbti-type localStorage 저장)*
+  - `frontend-next/src/app/page.tsx` *(기존 user 마이그레이션 — group→default mbti backfill)*
+  - `frontend-next/src/components/mbti/FeedPage.tsx` *(feed URL의 mbti param을 4-char preferred)*
+  - `frontend-next/src/components/mbti/ArticleView.tsx` *(recordArticleReadV2 mbti 인자를 4-char preferred)*
+- **결정 (Round 5-G)**:
+  - 옵션 2-bis 채택: 에디터 선택 자체를 그 에디터의 4-char MBTI 채택으로 해석 (시현=INTJ / 지원=INFP / 정훈=ISTJ / 하은=ESFP). 추가 UI 0.
+  - 정확성 trade-off: 모든 NT user → INTJ로 분류. 하지만 backend 시드 임베딩이 그룹 단위라 personalization 효과 차이 없음 (cosmetic).
+  - localStorage 만 사용 (Cognito custom attribute 미사용). Multi-device sync는 별도 라운드.
+  - 기존 user 마이그레이션 자동화: app/page.tsx 가 mount 시 mbti-group 있고 mbti-type 없는 user 에게 default mbti backfill.
+- **이 라운드 후 동작**:
+  - 신규 user → OnboardingPage 에디터 선택 → 4-char + group 동시 localStorage 저장 → 첫 feed 호출에 mbti=INTJ (등 4-char) 동반 → backend lazy create → warm path 즉시 활성
+  - 기존 user → 다음 page mount 시 mbti-type 자동 채워짐 → 그 다음 feed 호출부터 warm path
+  - 익명 user → 변화 없음
+- **Definition of Done**:
+  - [x] OnboardingPage 에서 mbti-type localStorage 저장
+  - [x] 기존 user 마이그레이션 자동화
+  - [x] FeedPage / ArticleView 가 4-char preferred로 backend 호출
+  - [x] Build 통과 / lint 통과
+  - [ ] (수동) production 배포 후 R5-D consolidate Lambda 첫 fire 에서 `applied` count > 0 확인
+
 ## Phase 4: AgentCore + MCP (목표 3주)
 
 ### TASK-4.1: Chat Agent MCP 서버 골격

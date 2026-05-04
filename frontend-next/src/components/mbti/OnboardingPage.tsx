@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
+import { groupToDefaultMbti, type MbtiGroupId } from "@/shared/data/mbtiGroups";
 import { playEditorIntro, stopAudio } from "@/shared/lib/elevenlabs";
 
 // 샘플 뉴스 - 같은 뉴스를 다르게 표현
@@ -126,6 +126,10 @@ export function OnboardingPage({ onSelectGroup, onStartBriefing, onBack }: Props
     stopAudio(); // 재생 중인 음성 정지
     setPlayingId(null);
     localStorage.setItem("mbti-group", id);
+    // Round 5-G: persist 4-char MBTI for backend lazy profile-create.
+    // Each editor's persona maps to a fixed 4-char (시현=INTJ, 지원=INFP,
+    // 정훈=ISTJ, 하은=ESFP) — selecting an editor adopts that MBTI.
+    localStorage.setItem("mbti-type", groupToDefaultMbti[id]);
     onSelectGroup(id);
   };
 
@@ -291,6 +295,8 @@ export function OnboardingPage({ onSelectGroup, onStartBriefing, onBack }: Props
                     stopAudio(); // 재생 중인 음성 정지
                     setPlayingId(null);
                     localStorage.setItem("mbti-group", editor.id);
+                    // Round 5-G: see handleSelect — same 4-char persistence.
+                    localStorage.setItem("mbti-type", editor.mbti);
                     onStartBriefing(editor.id);
                   }}
                   className={`px-6 py-3 ${editor.cardBg} text-white text-[14px] font-semibold rounded-full border border-white/30 hover:bg-white/20 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-105`}

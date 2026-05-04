@@ -93,3 +93,28 @@ export const mbtiTypeToGroup: Record<MbtiType, MbtiGroupId> = {
   ISTJ: 'ST', ISTP: 'ST', ESTJ: 'ST', ESTP: 'ST',
   ISFJ: 'SF', ISFP: 'SF', ESFJ: 'SF', ESFP: 'SF',
 }
+
+/**
+ * Default 4-char MBTI for each group, used when the user picks an editor in
+ * OnboardingPage but doesn't tell us their precise MBTI. The selection of
+ * defaults mirrors the 4 editor personas defined in OnboardingPage.tsx
+ * (시현=INTJ, 지원=INFP, 정훈=ISTJ, 하은=ESFP) so picking an editor is
+ * functionally equivalent to adopting that editor's MBTI.
+ *
+ * Phase 3 personalization (Round 5-C/D) lazy-creates the user_profiles row
+ * when a 4-char MBTI accompanies the request. Without this default mapping,
+ * group-only requests would never trigger the lazy-create and consolidate
+ * would always report skipped_no_profile.
+ *
+ * Users who know their precise MBTI (and want to override INTJ → INTP, etc)
+ * can adjust via a future settings page (separate round). Until then, all
+ * NT users share the INTJ seed embedding — which is identical to the NT
+ * group seed at the backend (Round 5-A canonical sentence is per-group),
+ * so the loss of precision is cosmetic.
+ */
+export const groupToDefaultMbti: Record<MbtiGroupId, MbtiType> = {
+  NT: 'INTJ',
+  NF: 'INFP',
+  ST: 'ISTJ',
+  SF: 'ESFP',
+}

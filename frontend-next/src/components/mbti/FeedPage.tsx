@@ -778,10 +778,19 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
         // on the cold path (Phase 2.5 selection feed unchanged), but
         // user_interactions still accumulates from ArticleView so the
         // Consolidation Lambda has data ready when profiles arrive.
+        // Round 5-G: prefer the 4-char MBTI from localStorage when present —
+        // backend's _extract_full_mbti recognizes it and triggers the lazy
+        // profile-create / EWMA path. Fall back to the 2-char selectedGroup
+        // for users whose localStorage hasn't been migrated yet (the
+        // backfill in app/page.tsx covers them on next mount, but the
+        // first feed call after R5-G deploy may still fire with group only).
+        const mbtiParam = (typeof window !== "undefined"
+          ? localStorage.getItem("mbti-type")
+          : null) || selectedGroup;
         const userIdParam = user?.userId
           ? `&user_id=${encodeURIComponent(user.userId)}`
           : "";
-        const url = `${API_URL}/api/v2/feed?mbti=${selectedGroup}&limit=30${userIdParam}`;
+        const url = `${API_URL}/api/v2/feed?mbti=${mbtiParam}&limit=30${userIdParam}`;
         const res = await fetch(url);
         if (!res.ok) {
           console.warn(`v2 feed returned ${res.status}`);
