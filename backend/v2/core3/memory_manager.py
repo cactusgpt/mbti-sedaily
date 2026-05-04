@@ -37,6 +37,7 @@ interactions continue using the seed.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -153,9 +154,20 @@ class MemoryManager:
         embedding_client: Optional[EmbeddingV2Client] = None,
     ) -> None:
         self._pg = pg_client if pg_client is not None else PgVectorV2Client()
-        self._embed = (
-            embedding_client if embedding_client is not None else EmbeddingV2Client()
-        )
+        if embedding_client is not None:
+            self._embed = embedding_client
+        else:
+            # VPC-routed Bedrock requires explicit endpoint_url. Default
+            # boto3 fallback resolves the public hostname which has no
+            # route from inside this VPC (Private DNS disabled at the
+            # interface endpoint per CLAUDE.md). Mirroring the
+            # core1_collector pattern keeps every Bedrock consumer
+            # consistent — and prevents this default constructor from
+            # silently hanging in production for future callers
+            # (Round 5-D consolidation, etc.).
+            self._embed = EmbeddingV2Client(
+                endpoint_url=os.getenv("BEDROCK_RUNTIME_ENDPOINT_URL", "")
+            )
 
     # ---- Short-term -----------------------------------------------------------
 

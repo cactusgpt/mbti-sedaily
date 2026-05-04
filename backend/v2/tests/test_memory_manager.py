@@ -412,3 +412,87 @@ class TestMemoryManagerLive:
         all_news = {r["news_id"] for r in episodic}
         assert f"{self.PREFIX}fresh_news" in all_news
         assert f"{self.PREFIX}old_news" in all_news
+
+
+# ── Default constructor regression guard (Round 5-C fix) ─────────────────────
+
+
+class TestDefaultConstructorPassesEndpointUrl:
+    """Regression guard for the Round 5-C VPC-routing bug.
+
+    EmbeddingV2Client must receive ``endpoint_url`` from the
+    BEDROCK_RUNTIME_ENDPOINT_URL env var when MemoryManager
+    default-constructs it. Without this, boto3 resolves the
+    public Bedrock hostname which has no route from inside the
+    Lambda VPC (Private DNS disabled at the interface endpoint
+    per CLAUDE.md), causing 30-second timeouts on first cold-start
+    profile-create.
+
+    Tests patch the EmbeddingV2Client class to capture init kwargs.
+    """
+
+    def test_v2_3_1_default_passes_env_endpoint_url(self, monkeypatch):
+        captured = {}
+
+        class _CapturingEmbed:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setattr(
+            "v2.core3.memory_manager.EmbeddingV2Client", _CapturingEmbed
+        )
+        monkeypatch.setenv(
+            "BEDROCK_RUNTIME_ENDPOINT_URL",
+            "https://vpce-test.bedrock-runtime.us-east-1.vpce.amazonaws.com",
+        )
+        # Skip pg client construction by injecting a fake
+        MemoryManager(pg_client=_FakePg())
+
+        assert "endpoint_url" in captured, (
+            "MemoryManager default constructor must pass endpoint_url "
+            "to EmbeddingV2Client (regression: Round 5-C VPC routing bug)"
+        )
+        assert captured["endpoint_url"] == (
+            "https://vpce-test.bedrock-runtime.us-east-1.vpce.amazonaws.com"
+        )
+
+    def test_v2_3_1_default_passes_empty_string_when_env_unset(self, monkeypatch):
+        """When env var is unset, pass empty string (matches
+        core1_collector pattern). EmbeddingV2Client treats empty
+        string as falsy and skips the boto3 endpoint_url override —
+        same behavior as before, but explicit."""
+        captured = {}
+
+        class _CapturingEmbed:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+        monkeypatch.setattr(
+            "v2.core3.memory_manager.EmbeddingV2Client", _CapturingEmbed
+        )
+        monkeypatch.delenv("BEDROCK_RUNTIME_ENDPOINT_URL", raising=False)
+        MemoryManager(pg_client=_FakePg())
+
+        assert captured.get("endpoint_url") == ""
+
+    def test_v2_3_1_injected_embedding_client_skips_construction(
+        self, monkeypatch
+    ):
+        """When caller passes embedding_client explicitly, no
+        EmbeddingV2Client construction should happen at all (no env
+        var read, no class instantiation)."""
+        construction_count = {"n": 0}
+
+        class _ShouldNotBeCalled:
+            def __init__(self, **kwargs):
+                construction_count["n"] += 1
+
+        monkeypatch.setattr(
+            "v2.core3.memory_manager.EmbeddingV2Client", _ShouldNotBeCalled
+        )
+        fake_embed = _FakeEmbed()
+        MemoryManager(pg_client=_FakePg(), embedding_client=fake_embed)
+
+        assert construction_count["n"] == 0, (
+            "Injected embedding_client should bypass default construction"
+        )
