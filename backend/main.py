@@ -10,7 +10,6 @@ import uvicorn
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from config import settings
-from handlers.saju_handler import lambda_handler as saju_handler
 from handlers.time_machine_handler import get_time_machine_data
 from clients.s3_xml_client import S3XMLClient
 from fastapi.responses import StreamingResponse
@@ -43,18 +42,6 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "sedaily-mbti-backend"}
-
-@app.post("/saju")
-async def saju(request: Request):
-    """사주 분석 엔드포인트"""
-    body = await request.body()
-    event = {"httpMethod": "POST", "body": body.decode("utf-8"), "isBase64Encoded": False}
-    result = saju_handler(event, None)
-    content = json.loads(result["body"])
-    if result["statusCode"] == 200:
-        return content
-    return JSONResponse(status_code=result["statusCode"], content=content)
-
 
 @app.post("/api/chat")
 async def chat(request: Request):

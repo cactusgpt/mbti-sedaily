@@ -23,13 +23,13 @@ AI LENS — 서울경제신문의 MBTI 맞춤형 경제 뉴스 서비스. 원본
 The repo currently holds two backend stacks side by side:
 
 - **v1** — everything in `backend/` **outside** `backend/v2/`. This is the production backend serving `mbti.sedaily.ai` today. The rest of this CLAUDE.md describes v1 unless explicitly noted.
-- **v2** — `backend/v2/`. A parallel redesign on branch `feature/backend-redesign` (recent commits are tagged `[v2]`). pgvector-centric storage hub; whole-corpus ingest followed by a **Core 1.5 Selector** that uses Nova Lite to score raw articles per MBTI and flag a top-N subset in the `article_selections` table; **Core 2 Transform** polls `article_selections.selected=TRUE AND transformed_at IS NULL` (not `articles.status='raw'`) and runs Opus 4.6 only for the MBTI groups the Selector chose (1–4 per article); **Core 3** exposes per-user reads via the Feed and Article Detail Lambdas, with a **Recommend Agent** (3-stage cosine + category + recency ranking) and **Memory Manager** / **Context Broker** layered on top of pgvector; Chat Agent eventually on Bedrock AgentCore Runtime. **Status (as of 2026-05-04):** v2 Feed (`/api/v2/feed`) and Article Detail (`/api/v2/article/{id}`) Lambdas serve production traffic at `mbti.sedaily.ai` (TASK-7 frontend cutover deployed 2026-04-27); the `sedaily-mbti-v2-selector-trigger` and `sedaily-mbti-v2-transform-trigger` EventBridge rules are ENABLED, so the Selector → Transform pipeline runs on schedule. Core 3 personalization (TASK-3.1–3.4, Round 5-A/B/C) shipped: the Feed Lambda now runs `MemoryManager` → `ContextBroker` → `RecommendAgent` inline for ranking, and `sedaily-mbti-v2-interaction-dev` is deployed for click/dwell/scroll/skip/react/rate event capture (no frontend caller yet). Still future: TASK-3.5 consolidation batch and the Chat Agent on AgentCore Runtime.
+- **v2** — `backend/v2/`. A parallel redesign on branch `feature/backend-redesign` (recent commits are tagged `[v2]`). pgvector-centric storage hub; whole-corpus ingest followed by a **Core 1.5 Selector** that uses Nova Lite to score raw articles per MBTI and flag a top-N subset in the `article_selections` table; **Core 2 Transform** polls `article_selections.selected=TRUE AND transformed_at IS NULL` (not `articles.status='raw'`) and runs Opus 4.6 only for the MBTI groups the Selector chose (1–4 per article); **Core 3** exposes per-user reads via the Feed and Article Detail Lambdas, with a **Recommend Agent** (3-stage cosine + category + recency ranking) and **Memory Manager** / **Context Broker** layered on top of pgvector; Chat Agent eventually on Bedrock AgentCore Runtime. **Status (as of 2026-05-04):** v2 Feed (`/api/v2/feed`) and Article Detail (`/api/v2/article/{id}`) Lambdas serve production traffic at `mbti.sedaily.ai` (TASK-7 frontend cutover deployed 2026-04-27); the `sedaily-mbti-v2-selector-trigger` and `sedaily-mbti-v2-transform-trigger` EventBridge rules are ENABLED, so the Selector → Transform pipeline runs on schedule. Core 3 personalization (TASK-3.1–3.4, plus the frontend-side TASK-3.6/3.7 in Round 5-E/G) shipped: the Feed Lambda runs `MemoryManager` → `ContextBroker` → `RecommendAgent` inline for ranking, `sedaily-mbti-v2-interaction-dev` captures click/dwell/scroll/skip/react/rate events, and the frontend now dual-writes interactions to v1 + v2 and persists a 4-char MBTI derived from editor selection (시현=INTJ / 지원=INFP / 정훈=ISTJ / 하은=ESFP) so logged-in users hit the personalization warm path. TASK-3.5 (Round 5-D) consolidation Lambda code is committed (`backend/v2/handlers/core3_consolidate.py` + `MemoryManager.consolidate()` for EWMA-based preference updates, α=0.2, ≥10-distinct-news threshold) and listed in `deploy-v2.sh` as `sedaily-mbti-v2-consolidate-dev`, but the AWS Lambda + EventBridge daily cron (KST 03:00 / UTC 18:00) still need manual provisioning per the Definition of Done in `backend/v2/TASKS.md`. Still future: Chat Agent on AgentCore Runtime.
 
 **If you're doing v2 work, read `backend/v2/CLAUDE.md` and `backend/v2/.clauderules` first — they override this file for v2-scoped changes.** Hard rules from `.clauderules` worth knowing even from outside v2: v2 work must not modify v1 files (including this CLAUDE.md, `deploy.sh`, or anything in `handlers/`, `clients/`, `core/`, `services/`, `config/`); AWS resource creation is conditional — allowed only after a documented plan with cost estimate, explicit user approval, and stop-on-anomaly + ID tracking, while Lambda function create/delete and any secret env-var writes (e.g. `PG_V2_PASSWORD`) remain always-manual; `update-function-code` and non-secret config updates on existing Lambdas are the only fully-automated path. Commit trailer must read exactly `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>` — no model-capability suffix like "(1M context)" (GitHub parses author identity from the email, and parentheticals break the author-count stats).
 
-v2 resources are namespaced `sedaily-mbti-v2-*-dev` (Lambda — `v2` goes in the middle, e.g. `sedaily-mbti-v2-collector-dev`, `sedaily-mbti-v2-selector-dev`, `sedaily-mbti-v2-transform-dev`, `sedaily-mbti-v2-feed-dev`, `sedaily-mbti-v2-article-dev`, `sedaily-mbti-v2-interaction-dev`, `sedaily-mbti-v2-health-dev`), `sedaily-mbti-pgvector-v2-dev` (RDS), `sedaily-mbti-article-body-v2-dev` (S3 — these two keep `v2` at the end) and ship via `backend/v2/deploy-v2.sh` (builds `lambda_package_v2.zip` that bundles v1 source so v2 handlers can `from clients.xxx import ...`). The authoritative v2 function list is `API_V2_FUNCTIONS` / `CORE1_FUNCTIONS` / `CORE1_5_FUNCTIONS` / `CORE2_FUNCTIONS` / `CORE3_FUNCTIONS` in `deploy-v2.sh`. The v1 `./deploy.sh` never includes `v2/`.
+v2 resources are namespaced `sedaily-mbti-v2-*-dev` (Lambda — `v2` goes in the middle, e.g. `sedaily-mbti-v2-collector-dev`, `sedaily-mbti-v2-selector-dev`, `sedaily-mbti-v2-transform-dev`, `sedaily-mbti-v2-feed-dev`, `sedaily-mbti-v2-article-dev`, `sedaily-mbti-v2-interaction-dev`, `sedaily-mbti-v2-consolidate-dev`, `sedaily-mbti-v2-health-dev`), `sedaily-mbti-pgvector-v2-dev` (RDS), `sedaily-mbti-article-body-v2-dev` (S3 — these two keep `v2` at the end) and ship via `backend/v2/deploy-v2.sh` (builds `lambda_package_v2.zip` that bundles v1 source so v2 handlers can `from clients.xxx import ...`). The authoritative v2 function list is `API_V2_FUNCTIONS` / `CORE1_FUNCTIONS` / `CORE1_5_FUNCTIONS` / `CORE2_FUNCTIONS` / `CORE3_FUNCTIONS` in `deploy-v2.sh`. The v1 `./deploy.sh` never includes `v2/`.
 
-A few v2 internals worth knowing without opening `backend/v2/CLAUDE.md`: the **Validator runs inline inside the Core 2 Transform handler** (`backend/v2/core2/validator.py`) — not a separate Lambda — and rejects bad versions before any S3/pgvector write; the `# TASK-2.4 will add sedaily-mbti-v2-validator-dev` placeholder in `deploy-v2.sh` is intentionally unfilled. **`image_url` extraction lives in Transform, not Collector** (TASK-7-Z-2): it lands in per-version `version_metadata` (alongside the MBTI version body) and surfaces in both `/api/v2/feed` and `/api/v2/article/{id}` responses, while article-level metadata (`press`, `sub_title`, `url`, `byline`, `content_preview`) sits flat on `articles.metadata`. v2-specific clients/services live in `backend/v2/clients/` (`pgvector_v2_client`, `embedding_v2_client`, `s3_article_v2_client`, `selector_service`, `transform_v2_service`); the Core 3 personalization libraries live in `backend/v2/core3/` (`memory_manager.py`, `context_broker.py`, `recommend_agent.py`) and run inline inside the v2 Feed Lambda — same pattern as the Validator inline inside Transform; the one-shot v1→v2 backfill is `backend/v2/tools/backfill_from_v1.py`.
+A few v2 internals worth knowing without opening `backend/v2/CLAUDE.md`: the **Validator runs inline inside the Core 2 Transform handler** (`backend/v2/core2/validator.py`) — not a separate Lambda — and rejects bad versions before any S3/pgvector write; the `# TASK-2.4 will add sedaily-mbti-v2-validator-dev` placeholder in `deploy-v2.sh` is intentionally unfilled. **`image_url` extraction lives in Transform, not Collector** (TASK-7-Z-2): it lands in per-version `version_metadata` (alongside the MBTI version body) and surfaces in both `/api/v2/feed` and `/api/v2/article/{id}` responses, while article-level metadata (`press`, `sub_title`, `url`, `byline`, `content_preview`) sits flat on `articles.metadata`. v2-specific clients/services live in `backend/v2/clients/` (`pgvector_v2_client`, `embedding_v2_client`, `s3_article_v2_client`, `selector_service`, `transform_v2_service`); the Core 3 personalization libraries live in `backend/v2/core3/` (`memory_manager.py`, `context_broker.py`, `recommend_agent.py`) — `MemoryManager` runs inline inside the v2 Feed Lambda for read-time ranking (same pattern as the Validator inline inside Transform) and is also called by the Consolidation Lambda (`core3_consolidate.py`) at write-time to roll user_interactions into `user_profiles.preference_embedding` + `category_weights`. The one-shot v1→v2 backfill is `backend/v2/tools/backfill_from_v1.py`.
 
 ## Commands
 
@@ -56,7 +56,7 @@ python3 -m pytest tests/test_split_storage.py           # single test file
 python3 -c "import ast; ast.parse(open('file.py').read())"  # syntax check
 ```
 
-`main.py` is a local-only FastAPI server with limited endpoints (health, saju, time-machine, raw S3 articles). It does **not** serve MBTI-transformed versions or the full API surface. The authoritative API runs as **23 Lambda functions** behind API Gateway.
+`main.py` is a local-only FastAPI server with limited endpoints (health, time-machine, raw S3 articles). It does **not** serve MBTI-transformed versions or the full API surface. The authoritative API runs as **23 Lambda functions** behind API Gateway.
 
 `backend/tests/` contains integration tests (`test_split_storage`, `test_pipeline`, `test_pgvector`, `test_opensearch`, `test_full_integration`, `test_model_comparison`, etc.) that hit real AWS resources — they need AWS credentials and Bedrock access to run, and are not wired into CI. Treat them as operational smoke tests, not a unit-test safety net.
 
@@ -95,7 +95,7 @@ Monorepo with two independent applications:
 ├── backend/           # Python Lambda functions (FastAPI for local dev only)
 │   ├── infrastructure/  # v1 Step Functions definition + provisioning scripts
 │   └── v2/              # parallel redesign — see "v1 / v2 Parallel Redesign" above
-└── docs/              # informal dev notes (chatbot-saju-timeline.md, chatbot-todo.md)
+└── docs/              # informal dev notes (chatbot-todo.md)
 ```
 
 There is no `infrastructure/` at the repo root — it lives under `backend/`. Both `backend/infrastructure/` (v1) and `backend/v2/infrastructure/` exist and are not deployed as Lambdas.
@@ -155,7 +155,6 @@ handlers/           → Lambda entry points. Each handler does its own HTTP meth
                      Deployed (18): article_collector, search, article, chatbot, engagement,
                      tts, time_machine, s3_articles, user, archive, podcast, recommendation,
                      post, question, metrics, abtest, translation, briefing.
-                     Not in deploy.sh (local-only): saju.
   pipeline/         → Step Functions stages (5 deployed Lambdas):
                      step1_select, step2_classify, step3_transform, step4_validate, supervisor.
                      translation_pipeline.py also lives here but is not in deploy.sh.
@@ -204,13 +203,13 @@ The frontend is migrating toward Feature-Sliced Design but is not fully there ye
 
 ```
 src/app/            → Next.js App Router routes (flat, no route groups yet):
-                     /, /login, /auth/callback, /editors, /saju, /subscription,
+                     /, /login, /auth/callback, /editors, /subscription,
                      /timeline, /timemachine
 src/components/     → Most UI still lives here: mbti/ (FeedPage ~1950 lines,
                      ArticleView, MbtiChatBot, OnboardingPage, BriefingPage),
                      story/, timeline/, character/
 src/features/       → 7 FSD modules migrated so far: auth, news-feed, question,
-                     community, archive, news-dna, fortune. Import only via
+                     community, archive, news-dna. Import only via
                      index.ts barrel exports (ESLint `boundaries` plugin enforces this).
 src/shared/         → api/, config/ (api.ts, auth.ts), constants/ (categories.ts,
                      reporterNames.ts), data/ (mbtiGroups.ts — 24+ imports),
@@ -220,7 +219,7 @@ src/widgets/        → Placeholder (index.ts exports nothing yet) — reserved 
                      Header/BottomNav once FeedPage is broken up
 ```
 
-The main page (`/`) has 4 view modes: `feed` (default), `editor-select`, `briefing`, `story`. `src/components/mbti/FeedPage.tsx` contains 6 tabs: question, feed, community, archive, dna, fortune. Tab state syncs to URL via `?tab=feed`. The `/editors` route is a standalone dark-themed editor-intro page (Radix Sand Dark palette) separate from the `editor-select` view inside `/`.
+The main page (`/`) has 4 view modes: `feed` (default), `editor-select`, `briefing`, `story`. `src/components/mbti/FeedPage.tsx` contains 5 tabs: question, feed, community, archive, dna. Tab state syncs to URL via `?tab=feed`. The `/editors` route is a standalone dark-themed editor-intro page (Radix Sand Dark palette) separate from the `editor-select` view inside `/`.
 
 Planned FSD layers not yet implemented: `entities/`, `pages/`.
 
@@ -360,7 +359,6 @@ After the TASK-7 cutover (deployed 2026-04-27), the article-list and article-det
 | `GET /api/v2/article/{news_id}?mbti={MBTI}` | `ArticleView.tsx` (called 4× in parallel for NT/NF/ST/SF on entry) + `FeedPage.tsx` prefetch | **v2** (`sedaily-mbti-v2-article-dev`) |
 | `POST /api/chat`, `POST /api/chat/stream` | `MbtiChatBot`, `BriefingPage` | v1 |
 | `POST /api/search` | `StoryNewsFeed`, `TimelineNewsFeed` | v1 |
-| `POST /saju` | `SajuPage` | v1 |
 | `GET /time-machine?date=YYYY-MM-DD` | `TimeMachinePage` | v1 |
 | `POST /api/user/profile`, `POST /api/user/read`, `GET /api/user/stats`, `GET /api/user/history` | `AuthContext`, `ArticleView` reading tracker, profile views | v1 |
 | `/api/posts*`, `/api/podcast/*`, `/api/questions`, `/api/recommend*`, `/api/archive*` | community / podcast / question / recommendation / archive features | v1 |

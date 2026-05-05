@@ -69,7 +69,6 @@ def test_api_latencies() -> List[Dict[str, Any]]:
         ('POST', '/api/search', None),
         ('POST', '/api/chat', None),
         ('GET', '/time-machine', '/time-machine?date=2025-06-15'),
-        ('POST', '/saju', None),
         ('GET', '/api/metrics/dashboard', '/api/metrics/dashboard?days=3'),
         ('GET', '/api/recommend', '/api/recommend?user_id=perf-test&limit=3'),
         ('GET', '/api/archive', '/api/archive?user_id=perf-test'),
@@ -78,7 +77,6 @@ def test_api_latencies() -> List[Dict[str, Any]]:
     bodies = {
         '/api/search': {'query': '*', 'filters': {'published_from': '2026-04-01', 'published_until': TODAY}, 'page': 1, 'page_size': 5},
         '/api/chat': {'message': '오늘 경제 뉴스', 'mbti_group': 'NT', 'conversation_history': []},
-        '/saju': {'birth_year': 1995, 'birth_month': 3, 'birth_day': 15, 'gender': 'male'},
     }
 
     results = []

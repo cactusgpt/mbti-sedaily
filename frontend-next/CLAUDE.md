@@ -25,7 +25,6 @@
 │   ├── (main)/elderly/
 │   ├── (main)/timeline/
 │   ├── (main)/timemachine/
-│   ├── (main)/saju/
 │   ├── (main)/subscription/
 │   ├── (main)/listen/
 │   └── layout.tsx
@@ -43,7 +42,6 @@
     │   ├── elderly/             # 어르신 모드
     │   ├── timeline/            # 타임라인 뉴스
     │   ├── timemachine/         # 과거 날짜 뉴스
-    │   ├── saju/                # 사주/운세
     │   ├── subscription/        # 구독 관리
     │   ├── onboarding/          # 사용자 온보딩
     │   ├── story/               # 스토리 뉴스

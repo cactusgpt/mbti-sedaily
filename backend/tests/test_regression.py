@@ -322,39 +322,6 @@ def test_user_profile():
     results.ok(name, ms, f'user_id={user_id}, is_new={is_new}')
 
 
-def test_saju():
-    """POST /saju — fortune analysis"""
-    name = 'POST /saju'
-    payload = {
-        'birth_year': 1995,
-        'birth_month': 3,
-        'birth_day': 15,
-        'birth_hour': 5,
-        'gender': 'male',
-    }
-
-    resp, ms = timed_request('post', f'{API_URL}/saju',
-                             json=payload,
-                             headers={'Content-Type': 'application/json'})
-
-    if isinstance(resp, Exception):
-        results.fail(name, ms, f'Request error: {resp}')
-        return
-
-    if resp.status_code != 200:
-        results.fail(name, ms, f'Status {resp.status_code}: {resp.text[:100]}')
-        return
-
-    data = resp.json()
-
-    if 'saju_pillar' not in data:
-        results.fail(name, ms, 'Missing "saju_pillar" in response')
-        return
-
-    pillars = list(data['saju_pillar'].keys())
-    results.ok(name, ms, f'pillars={pillars}')
-
-
 def test_s3_article_detail(news_id: str):
     """GET /s3-article/{id} — raw S3 XML article detail"""
     name = f'GET /s3-article/{news_id[:12]}...'
@@ -485,9 +452,6 @@ def main():
 
     # 6. User profile
     test_user_profile()
-
-    # 7. Saju
-    test_saju()
 
     # ── New APIs (may not be wired yet) ────────────────────────
     print('')

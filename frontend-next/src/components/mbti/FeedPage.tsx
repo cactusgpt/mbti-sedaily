@@ -18,7 +18,6 @@ import { NewsFeedTab } from "@/features/news-feed";
 import { CommunityTab } from "@/features/community";
 import { ArchiveTab } from "@/features/archive";
 import { DnaTab } from "@/features/news-dna";
-import { FortuneTab } from "@/features/fortune";
 
 // 프리페칭 캐시
 const prefetchCache = new Map<string, Article>();
@@ -180,8 +179,8 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   // URL에서 초기 탭 상태 읽기
   const getInitialTab = useCallback(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam && ['question', 'feed', 'community', 'archive', 'dna', 'fortune'].includes(tabParam)) {
-      return tabParam as "question" | "feed" | "community" | "archive" | "dna" | "fortune";
+    if (tabParam && ['question', 'feed', 'community', 'archive', 'dna'].includes(tabParam)) {
+      return tabParam as "question" | "feed" | "community" | "archive" | "dna";
     }
     return "question";
   }, [searchParams]);
@@ -283,10 +282,10 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   const [showArchive, setShowArchive] = useState(false);
 
   // 탭 상태 - URL에서 초기값 읽기
-  const [activeTab, setActiveTabState] = useState<"question" | "feed" | "community" | "archive" | "dna" | "fortune">(getInitialTab);
+  const [activeTab, setActiveTabState] = useState<"question" | "feed" | "community" | "archive" | "dna">(getInitialTab);
 
   // 탭 변경 함수 - URL도 함께 업데이트 (replaceState로 히스토리에 안 쌓임)
-  const setActiveTab = useCallback((tab: "question" | "feed" | "community" | "archive" | "dna" | "fortune") => {
+  const setActiveTab = useCallback((tab: "question" | "feed" | "community" | "archive" | "dna") => {
     setActiveTabState(tab);
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', tab);
@@ -738,7 +737,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
       // URL에서 탭 상태 복원
       const params = new URLSearchParams(window.location.search);
       const tabParam = params.get('tab');
-      if (tabParam && ['question', 'feed', 'community', 'archive', 'dna', 'fortune'].includes(tabParam)) {
+      if (tabParam && ['question', 'feed', 'community', 'archive', 'dna'].includes(tabParam)) {
         setActiveTabState(tabParam as typeof activeTab);
       }
     };
@@ -750,7 +749,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   // (useState 초기값이 prerender 시점의 빈 searchParams를 캡처할 수 있어 별도 동기화 필요)
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam && ['question', 'feed', 'community', 'archive', 'dna', 'fortune'].includes(tabParam)) {
+    if (tabParam && ['question', 'feed', 'community', 'archive', 'dna'].includes(tabParam)) {
       setActiveTabState(tabParam as typeof activeTab);
     }
   }, [searchParams]);
@@ -969,17 +968,6 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
               >
                 나의 DNA
               </button>
-
-              <button
-                onClick={() => setActiveTab("fortune")}
-                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
-                  activeTab === "fortune"
-                    ? "bg-gray-100 text-gray-900"
-                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                }`}
-              >
-                오늘의 운세
-              </button>
             </nav>
 
             {/* 우측 메뉴 */}
@@ -1077,13 +1065,6 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
             selectedGroup={selectedGroup}
             setActiveTab={setActiveTab}
           />
-        )}
-
-        {/* 오늘의 운세 */}
-        {activeTab === "fortune" && (
-          <div className="flex-1 py-6">
-            <FortuneTab />
-          </div>
         )}
       </main>
 

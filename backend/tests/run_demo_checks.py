@@ -195,7 +195,6 @@ def main():
     api_check('GET', f'/s3-articles?date={TODAY}&limit=3', name='뉴스 피드 (S3 articles)')
     api_check('POST', '/api/search', {'query': '*', 'filters': {'published_from': '2026-04-01', 'published_until': TODAY_ISO}, 'page': 1, 'page_size': 3}, name='기사 검색')
     api_check('POST', '/api/chat', {'message': '오늘 뉴스', 'mbti_group': 'NT', 'conversation_history': []}, name='AI 챗봇')
-    api_check('POST', '/saju', {'birth_year': 1990, 'birth_month': 1, 'birth_day': 1, 'gender': 'female'}, name='사주 분석')
     api_check('GET', '/time-machine?date=2025-06-01', name='타임머신')
 
     # New APIs (may be 404 if not wired)
