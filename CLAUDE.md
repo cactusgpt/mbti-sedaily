@@ -48,6 +48,18 @@ npx tsc --noEmit     # type check
 
 The frontend uses `output: "export"` (static HTML, no SSR). There are no API routes or server components — all data fetching is client-side via `useEffect` + `fetch()`.
 
+### Admin Frontend (Next.js 16 + Tailwind v4 — Admin-4)
+
+```bash
+cd frontend-admin
+npm install
+npm run dev          # http://localhost:3000 (do NOT run alongside frontend-next on same port)
+npm run build        # static export → out/ — 8 routes, ready for S3 sync
+npm run lint         # eslint (clean — set-state-in-effect rule disabled inline for legitimate cases)
+```
+
+Same stack as `frontend-next` (Next 16.2.4 + React 19.2.4 + Tailwind v4 + TS), separate `package.json` and lockfile. `.env.local` carries `NEXT_PUBLIC_ADMIN_API_BASE_URL` (admin Lambda's API Gateway base, currently the same `chzwwtjtgk` HTTP API as the v1 frontend). Not yet behind a domain — Admin-5 covers S3 + CloudFront + ACM + Route53 provisioning.
+
 ### Backend (Python 3.11 + FastAPI)
 
 ```bash
@@ -93,7 +105,8 @@ Monorepo with two independent applications:
 
 ```
 /
-├── frontend-next/     # Next.js 16 App Router (partial Feature-Sliced Design)
+├── frontend-next/     # Next.js 16 App Router (partial Feature-Sliced Design) — mbti.sedaily.ai
+├── frontend-admin/    # Next.js 16 admin console (Admin-4) — pending deploy at mbti-admin.sedaily.ai
 ├── backend/           # Python Lambda functions (FastAPI for local dev only)
 │   ├── admin/           # standalone admin-API Lambda (deployed, own bespoke build; NOT in deploy.sh)
 │   ├── common/          # shared utilities for v1/v2/admin (feature_flag, secrets) — bundled by deploy.sh + deploy-v2.sh
@@ -302,6 +315,33 @@ SSM SecureString reader for v1 / v2 / admin Lambdas, replacing plaintext passwor
   | `feature_flag.py` | DDB `sedaily-mbti-admin-config-dev` | 5 min, stale-cache fallback | Use stale cache if any, else `_DEFAULT_ON_MISSING=True` (enabled) | A flag flap shouldn't take a feature down; admin must explicitly disable. |
   | `secrets.py` | SSM SecureString | 5 min, no fallback | Raise | A DB password the Lambda can't fetch is uniformly worse than crashing — silent fallbacks would hide IAM / KMS / param-name regressions. |
 - **Test fallout (known follow-up)**: integration tests under `backend/v2/tests/` historically use `monkeypatch.setenv("PG_V2_PASSWORD", "...")` then construct `PgVectorV2Client()` with no args — that path now calls `get_pg_password()` and hits real SSM. Tests that don't already pass `password=` explicitly need to mock `common.secrets.get_pg_password`. Out of scope for the Admin-2c commit; treat as a follow-up.
+
+### Admin Frontend (Admin-4)
+
+`frontend-admin/` is a **second Next.js app** alongside `frontend-next/`, dedicated to the admin console targeting `mbti-admin.sedaily.ai`. Built by Admin-4 in commit `bb0c900` and **not yet deployed** — Admin-5 covers the AWS-side work. The two frontends share **zero source code and zero state**; they are independently versioned, built, and (eventually) hosted.
+
+- **Stack consistency with `frontend-next`**: Next.js 16.2.4 + React 19.2.4 + Tailwind v4 + TypeScript 5. Generated via `create-next-app@latest --app --src-dir --tailwind --typescript --eslint`. The lockfile and `node_modules` are independent — keep dependency versions intentionally in sync when bumping either app, but do not symlink.
+- **Output**: `next.config.ts` sets `output: "export"` + `images: { unoptimized: true }`. `npm run build` writes static HTML/JS/CSS to `frontend-admin/out/` — eight routes: `/`, `/login`, `/cost`, `/drivers`, `/prompts`, `/prompts/edit`, `/settings`, `/_not-found`. Admin-5 will `aws s3 sync out/ s3://...` this directory.
+- **Tailwind v4 — config-less**: there is no `tailwind.config.{js,ts}`. Theme is declared inside `src/app/globals.css` via `@import "tailwindcss";` followed by a `@theme inline { ... }` block. PostCSS pipeline is one plugin (`@tailwindcss/postcss`) — `autoprefixer` and `postcss-import` are bundled into v4 itself. When porting components between this app and `frontend-next/`, class names work identically but custom CSS variables must be redeclared in this app's `globals.css`.
+- **Auth model — localStorage JWT, not Cognito**: Admin-1 chose argon2id + JWT for the admin Lambda specifically. `src/lib/auth.ts` handles save / clear / expiry of `admin_jwt` + `admin_jwt_expires` (8h TTL). `src/components/AuthGuard.tsx` is a client-side gate placed in `src/app/(authenticated)/layout.tsx` so every page in that route group is protected. 401 from any API call → `clearAuth()` + `window.location.href = "/login"`.
+- **API client**: `src/lib/adminClient.ts` is the single fetch wrapper for all 9 admin endpoints (`adminApi.login` / `changePassword` / `getDrivers` / `updateRule` / `toggleFeatureFlag` / `updateThreshold` / `listPrompts` / `getPrompt` / `updatePrompt` / `getCost` / `getAudit`). `AdminApiError` carries the HTTP status. Base URL from `NEXT_PUBLIC_ADMIN_API_BASE_URL` env var (`.env.local` for dev, build-env for production).
+- **Routing — query params, not dynamic segments**: `/prompts/edit?id=<category>/<name>` instead of `/prompts/[category]/[name]`. Reason: `output: "export"` requires `generateStaticParams` for dynamic routes, and the 13 prompt list is data-driven — hardcoding it in build config would go stale when admin adds new categories. Query params keep the route count fixed at 8 and stay static-export friendly. Trade-off: URLs are slightly less semantic; for a one-admin tool this is fine.
+- **Suspense boundary for `useSearchParams`**: any page that reads search params during static export must be wrapped in `<Suspense>` — `prompts/edit/page.tsx` exports a `PromptEditPageWrapper` that wraps the actual editor in `<Suspense>` for this reason. If you add another search-params page, follow the same pattern.
+- **Zero-new-dependency policy**: the only npm packages installed are what `create-next-app --tailwind --typescript --eslint` brought in (175 packages, all transitive). Toast notifications are a 30-line custom `ToastProvider` (createContext + setTimeout); the diff preview is a simple line-by-line component (no `diff-match-patch` / Monaco / CodeMirror). The frontend half of `.clauderules` "Frontend 신규 의존성 금지" is enforced via reviewer discretion — when adding features, prefer custom over deps unless the saved code is more than ~100 lines.
+- **`set-state-in-effect` exemptions**: React 19's lint rule fires on two legitimate patterns: `AuthGuard.tsx` (mount-detection flag for SSG → CSR handoff) and `drivers/page.tsx` (initial async fetch on mount). Both are annotated with `// eslint-disable-next-line react-hooks/set-state-in-effect` and a comment explaining why. Don't add new exemptions without justifying — most setState-in-effect cases are real anti-patterns.
+
+### Admin-5 (pending) — deployment preview
+
+Admin-5 is the final round in the admin track. It does not change any code in `frontend-admin/` or `backend/admin/`; it only provisions AWS infrastructure to put `frontend-admin/out/` behind `https://mbti-admin.sedaily.ai`. Planned resources (subject to Admin-5 reconnaissance — versions/regions may change):
+
+- **S3 bucket** `sedaily-mbti-admin-frontend-dev` (region likely `ap-northeast-2` to match `sedaily-mbti-frontend-dev`). Per deploy: `aws s3 sync frontend-admin/out/ s3://sedaily-mbti-admin-frontend-dev/ --delete`.
+- **CloudFront distribution** with **OAC** (Origin Access Control — modern replacement for OAI) pointing at the S3 bucket. Default root object `index.html`; SPA fallback rule for 404 → `/index.html` so `/login`, `/prompts/edit?id=...` etc. resolve correctly on hard reload.
+- **ACM certificate** for `mbti-admin.sedaily.ai` issued in **us-east-1** (CloudFront's only supported certificate region). DNS validation via the existing `sedaily.ai` Route53 hosted zone.
+- **Route53 A-alias record** `mbti-admin.sedaily.ai` → CloudFront distribution.
+- **API Gateway CORS narrowing**: `chzwwtjtgk` API currently allows `Access-Control-Allow-Origin: *` (wildcard, set by Admin-1). Admin-5 should narrow to a list including `https://mbti-admin.sedaily.ai` once the domain is live. Coordinate with the v1 frontend at `mbti.sedaily.ai` so legitimate origins keep working.
+- **Deploy script**: `frontend-admin/deploy.sh` (or similar) runs `npm run build && aws s3 sync ... && aws cloudfront create-invalidation`. Same shape as the existing `frontend-next` deploy steps in this CLAUDE.md.
+
+The build artifacts and code are deploy-ready — Admin-5 work is AWS-side only.
 
 ### Frontend Structure
 
