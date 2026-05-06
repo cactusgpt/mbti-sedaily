@@ -330,18 +330,22 @@ SSM SecureString reader for v1 / v2 / admin Lambdas, replacing plaintext passwor
 - **Zero-new-dependency policy**: the only npm packages installed are what `create-next-app --tailwind --typescript --eslint` brought in (175 packages, all transitive). Toast notifications are a 30-line custom `ToastProvider` (createContext + setTimeout); the diff preview is a simple line-by-line component (no `diff-match-patch` / Monaco / CodeMirror). The frontend half of `.clauderules` "Frontend 신규 의존성 금지" is enforced via reviewer discretion — when adding features, prefer custom over deps unless the saved code is more than ~100 lines.
 - **`set-state-in-effect` exemptions**: React 19's lint rule fires on two legitimate patterns: `AuthGuard.tsx` (mount-detection flag for SSG → CSR handoff) and `drivers/page.tsx` (initial async fetch on mount). Both are annotated with `// eslint-disable-next-line react-hooks/set-state-in-effect` and a comment explaining why. Don't add new exemptions without justifying — most setState-in-effect cases are real anti-patterns.
 
-### Admin-5 (pending) — deployment preview
+### Admin-5 — deployment ✓
 
-Admin-5 is the final round in the admin track. It does not change any code in `frontend-admin/` or `backend/admin/`; it only provisions AWS infrastructure to put `frontend-admin/out/` behind `https://mbti-admin.sedaily.ai`. Planned resources (subject to Admin-5 reconnaissance — versions/regions may change):
+Admin-5 (commit pending) is the final round in the admin track and is **complete**. It did not change any code in `frontend-admin/` or `backend/admin/`; it provisioned AWS infrastructure to put `frontend-admin/out/` behind `https://mbti-admin.sedaily.ai`. Live resources are listed in the **"Admin Frontend Infrastructure (Admin-5)"** section above. Per-deploy workflow:
 
-- **S3 bucket** `sedaily-mbti-admin-frontend-dev` (region likely `ap-northeast-2` to match `sedaily-mbti-frontend-dev`). Per deploy: `aws s3 sync frontend-admin/out/ s3://sedaily-mbti-admin-frontend-dev/ --delete`.
-- **CloudFront distribution** with **OAC** (Origin Access Control — modern replacement for OAI) pointing at the S3 bucket. Default root object `index.html`; SPA fallback rule for 404 → `/index.html` so `/login`, `/prompts/edit?id=...` etc. resolve correctly on hard reload.
-- **ACM certificate** for `mbti-admin.sedaily.ai` issued in **us-east-1** (CloudFront's only supported certificate region). DNS validation via the existing `sedaily.ai` Route53 hosted zone.
-- **Route53 A-alias record** `mbti-admin.sedaily.ai` → CloudFront distribution.
-- **API Gateway CORS narrowing**: `chzwwtjtgk` API currently allows `Access-Control-Allow-Origin: *` (wildcard, set by Admin-1). Admin-5 should narrow to a list including `https://mbti-admin.sedaily.ai` once the domain is live. Coordinate with the v1 frontend at `mbti.sedaily.ai` so legitimate origins keep working.
-- **Deploy script**: `frontend-admin/deploy.sh` (or similar) runs `npm run build && aws s3 sync ... && aws cloudfront create-invalidation`. Same shape as the existing `frontend-next` deploy steps in this CLAUDE.md.
+```bash
+cd frontend-admin
+./deploy-admin.sh   # npm build → S3 sync (long cache for /_next/, short for entries) → CloudFront /* invalidation
+```
 
-The build artifacts and code are deploy-ready — Admin-5 work is AWS-side only.
+Decisions worth knowing for future maintenance (Admin-5 reconnaissance learnings):
+
+- **`sedaily-mbti-frontend-dev` is in `us-east-1`, not `ap-northeast-2`** — earlier CLAUDE.md notes had this wrong. Admin-5 corrected the record and chose `us-east-1` for `sedaily-mbti-admin-frontend-dev` to keep both frontend buckets in the same region (CloudFront is global; bucket region only affects origin-fetch latency).
+- **CustomError = 403 + 404 → /index.html (200)** — both error codes route to the SPA shell because S3 with OAC returns 403 (not 404) for missing objects. This matches the v1 frontend's existing pattern.
+- **CORS narrowing must list both domains** — narrowing `chzwwtjtgk` from `["*"]` to a single origin would have broken whichever frontend was excluded. The current allowlist `["https://mbti.sedaily.ai", "https://mbti-admin.sedaily.ai"]` covers both. Adding a third origin (e.g. a future staging frontend) requires `aws apigatewayv2 update-api --cors-configuration ...`.
+- **Route53 A + AAAA both aliased** — the v1 frontend's record set has both, so the admin domain mirrors that. CloudFront supports IPv6 by default (`IsIPV6Enabled: true` in distribution config).
+- **CloudFront deployment latency**: ~90 seconds end-to-end (modern), not the 15–20 minutes that older docs sometimes quote. ACM DNS validation was similarly fast (~30 seconds once the Route53 record landed).
 
 ### Frontend Structure
 
@@ -489,13 +493,25 @@ The legacy `PromptService` (DynamoDB `settings_config` fallback) is a separate s
 | `sedaily-mbti-article-body-dev` | us-east-1 | Split-storage body JSON (MBTI versions, content_ko, content_blocks) |
 | `sedaily-mbti-audio-dev` | us-east-1 | Polly TTS audio files for podcasts |
 | `sedaily-news-xml-storage` | ap-northeast-2 | Source XML feed from 서울경제 (read-only), keyed `daily-xml/{YYYYMMDD}.xml` |
-| `sedaily-mbti-frontend-dev` | ap-northeast-2 | Frontend static files (Next.js export) |
+| `sedaily-mbti-frontend-dev` | us-east-1 | Frontend static files (Next.js export) — `mbti.sedaily.ai` |
+| `sedaily-mbti-admin-frontend-dev` | us-east-1 | Admin frontend static files (Admin-5) — `mbti-admin.sedaily.ai` |
 
 ### Frontend Infrastructure
 
-- **S3**: `sedaily-mbti-frontend-dev` (ap-northeast-2)
+- **S3**: `sedaily-mbti-frontend-dev` (us-east-1)
 - **CloudFront**: Distribution `E1QS7PY350VHF6` → `mbti.sedaily.ai`
 - **Cognito**: User Pool `us-east-1_ZS8PgF3iX`, config in `frontend-next/src/shared/config/auth.ts`
+
+### Admin Frontend Infrastructure (Admin-5)
+
+- **S3**: `sedaily-mbti-admin-frontend-dev` (us-east-1, private + OAC-only access)
+- **CloudFront**: Distribution `E1MITYI58DB9UW` → `mbti-admin.sedaily.ai` (`d1xxhie8x7ljjz.cloudfront.net`)
+- **OAC**: `E1JULOH7UELG4I` (Origin Access Control, sigv4 always)
+- **ACM**: `arn:aws:acm:us-east-1:887078546492:certificate/cdca2fe5-df66-4cb1-a91d-90fffd10b9cf` (us-east-1, DNS validated via Route53)
+- **Route53**: `mbti-admin.sedaily.ai` A + AAAA aliases → CloudFront (zone `Z07543813V4FC5RK599U0`)
+- **API Gateway CORS**: `chzwwtjtgk` HTTP API narrowed from `["*"]` to `["https://mbti.sedaily.ai", "https://mbti-admin.sedaily.ai"]` in Admin-5 (must include both — narrowing without v1 would have broken the production frontend)
+- **CustomError SPA fallback**: 403 + 404 → `/index.html` (200) so deep links like `/prompts/edit?id=cat/name` resolve on hard reload (clean-URL paths return index.html and the React Router handles `pathname` client-side; the prerendered `/login.html` is also reachable directly)
+- **Auth**: localStorage JWT (Admin-1 argon2id + JWT, NOT Cognito). 8h expiry → `/login` redirect on 401 from any admin endpoint.
 
 ## Frontend API Contract
 
