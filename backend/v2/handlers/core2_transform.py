@@ -109,7 +109,7 @@ logging.getLogger().setLevel(logging.INFO)
 # well under the per-minute cap. Real limit is Lambda wall-clock + deadline
 # guard below; see Phase A2 Section 3 design notes.
 #
-# Admin-2d (commit pending) — runtime override via DDB threshold/transform-max-articles.
+# Admin-2d (commit e172175) — runtime override via DDB threshold/transform-max-articles.
 # This constant remains the fallback default if DDB is unreachable or the row is
 # missing (5-min TTL cache inside common.feature_flag.get_threshold).
 BATCH_SIZE = 20
