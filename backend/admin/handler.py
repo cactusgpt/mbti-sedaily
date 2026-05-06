@@ -22,6 +22,7 @@ HANDLERS: dict[str, tuple] = {
     "POST /admin/password-change": (admin_password.handle_change, True),
     "GET /admin/drivers": (drivers.handle_list, True),
     "POST /admin/drivers/{id}": (drivers.handle_update, True),
+    "POST /admin/drivers/feature-flag/{name}": (drivers.handle_feature_flag_update, True),
     "GET /admin/prompts": (prompts.handle_list, True),
     "GET /admin/prompts/{category}/{name}": (prompts.handle_get, True),
     "POST /admin/prompts/{category}/{name}": (prompts.handle_update, True),

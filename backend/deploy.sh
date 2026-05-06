@@ -45,7 +45,7 @@ pip3 install \
 
 # Copy source code modules
 echo "  -> Copying source code..."
-for dir in clients handlers config core models repositories services utils; do
+for dir in clients handlers config core models repositories services utils common; do
   if [ -d "$dir" ]; then
     echo "    -> $dir/"
     cp -r "$dir" lambda-build/

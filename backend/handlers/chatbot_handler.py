@@ -19,6 +19,7 @@ from config.constants import (
     NEWS_BRIEFING_ID,
     NEWS_BRIEFING_MAX_AGE_HOURS,
 )
+from common.feature_flag import is_enabled
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -689,6 +690,12 @@ def lambda_handler(event: dict, context) -> dict:
         }
     }
     """
+    if not is_enabled("chatbot"):
+        return {
+            "statusCode": 503,
+            "headers": {**CORS_HEADERS, "Content-Type": "application/json"},
+            "body": json.dumps({"error": "chatbot disabled by admin"}),
+        }
     try:
         # Support both HTTP API v2 and REST API v1 event formats
         request_context = event.get('requestContext', {})

@@ -1,9 +1,11 @@
 """드라이버 (EventBridge rule + feature flag) 관리.
 
-list: list_rules(NamePrefix='sedaily-mbti-') + DDB CONFIG/feature-flag/* (Admin-2 까지 빈 dict).
-update: action ∈ {enable, disable, set-cron}. cron 은 preset 만 허용 (자유 입력 거부).
+list: list_rules(NamePrefix='sedaily-mbti-') + DDB CONFIG/feature-flag/* read.
+rule update (handle_update): action ∈ {enable, disable, set-cron}. cron preset 만.
+flag update (handle_feature_flag_update): action ∈ {enable, disable}. — Admin-2a 추가.
 """
 
+import datetime as dt
 import logging
 
 from boto3.dynamodb.conditions import Attr, Key
@@ -23,7 +25,8 @@ def _load_feature_flags() -> dict:
     for item in resp.get("Items", []):
         sk = item.get("sk", "")
         flag_name = sk.replace("feature-flag/", "", 1)
-        flags[flag_name] = item.get("value")
+        value = item.get("value") or {}
+        flags[flag_name] = bool(value.get("enabled", True))
     return flags
 
 
@@ -67,3 +70,34 @@ def handle_update(body: dict, path_params: dict, query_params: dict) -> dict:
 
     auth.audit_log("driver-update", detail)
     return response.ok({"ok": True, "rule": eb_client.describe_rule(driver_id)})
+
+
+def handle_feature_flag_update(body: dict, path_params: dict, query_params: dict) -> dict:
+    flag_name = (path_params or {}).get("name", "")
+    if not flag_name:
+        return response.err("flag name required", 400)
+
+    action = body.get("action", "")
+    if action not in {"enable", "disable"}:
+        return response.err("action must be one of: enable, disable", 400)
+
+    enabled = (action == "enable")
+    now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    try:
+        ddb_client.config_table().update_item(
+            Key={"pk": "CONFIG", "sk": f"feature-flag/{flag_name}"},
+            UpdateExpression="SET #v = :v, updated_at = :ts, actor = :a",
+            ExpressionAttributeNames={"#v": "value"},
+            ExpressionAttributeValues={
+                ":v": {"enabled": enabled},
+                ":ts": now,
+                ":a": "admin",
+            },
+        )
+    except Exception as e:
+        logger.exception(f"feature-flag-update failed: {flag_name} {action}")
+        return response.err(f"feature flag update failed: {type(e).__name__}", 500)
+
+    auth.audit_log("feature-flag-update", {"flag": flag_name, "action": action})
+    return response.ok({"flag": flag_name, "enabled": enabled, "updated_at": now})
