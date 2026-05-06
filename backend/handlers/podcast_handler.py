@@ -42,6 +42,7 @@ from clients.dynamodb_client import DynamoDBClient
 from core.decorators import lambda_handler as handler_decorator
 from core.auth import get_authenticated_user_id
 from core.exceptions import AuthenticationError
+from common.feature_flag import is_enabled
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -463,6 +464,13 @@ async def lambda_handler(event: dict, context) -> dict:
 
     if method == 'OPTIONS':
         return {'statusCode': 200, 'headers': CORS_HEADERS, 'body': ''}
+
+    if not is_enabled("podcast"):
+        return {
+            "statusCode": 503,
+            "headers": {**CORS_HEADERS, "Content-Type": "application/json"},
+            "body": json.dumps({"error": "podcast disabled by admin"}),
+        }
 
     logger.info(f"Podcast request: {method} {path}")
 

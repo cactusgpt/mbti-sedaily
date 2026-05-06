@@ -690,12 +690,6 @@ def lambda_handler(event: dict, context) -> dict:
         }
     }
     """
-    if not is_enabled("chatbot"):
-        return {
-            "statusCode": 503,
-            "headers": {**CORS_HEADERS, "Content-Type": "application/json"},
-            "body": json.dumps({"error": "chatbot disabled by admin"}),
-        }
     try:
         # Support both HTTP API v2 and REST API v1 event formats
         request_context = event.get('requestContext', {})
@@ -707,12 +701,20 @@ def lambda_handler(event: dict, context) -> dict:
             # REST API v1 format
             http_method = event.get('httpMethod', 'GET')
 
-        # Handle CORS preflight
+        # Handle CORS preflight — must precede feature-flag gate so disabled state
+        # still returns a successful preflight (browser refuses non-2xx preflight).
         if http_method == 'OPTIONS':
             return {
                 'statusCode': 200,
                 'headers': CORS_HEADERS,
                 'body': ''
+            }
+
+        if not is_enabled("chatbot"):
+            return {
+                "statusCode": 503,
+                "headers": {**CORS_HEADERS, "Content-Type": "application/json"},
+                "body": json.dumps({"error": "chatbot disabled by admin"}),
             }
 
         # Parse request body (handle base64 encoding for HTTP API v2)

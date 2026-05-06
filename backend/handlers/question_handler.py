@@ -24,6 +24,7 @@ from config.constants import (
     DYNAMODB_TABLE_ARTICLES_DEV,
 )
 from services.prompt_loader import load_prompt
+from common.feature_flag import is_enabled
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -198,6 +199,13 @@ def lambda_handler(event: dict, context) -> dict:
 
         if method == 'OPTIONS':
             return _cors(200, {'message': 'OK'})
+
+        if not is_enabled("question"):
+            return {
+                "statusCode": 503,
+                "headers": {**CORS_HEADERS, "Content-Type": "application/json"},
+                "body": json.dumps({"error": "question disabled by admin"}),
+            }
 
         # GET /api/questions?date=YYYYMMDD
         if method == 'GET':
