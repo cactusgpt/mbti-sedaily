@@ -144,7 +144,10 @@ def _get_nova_client():
 
 from services.prompt_loader import load_prompt
 
-SCORING_SYSTEM_PROMPT = load_prompt('selection', 'article_scorer')
+# Admin-3: prompt loaded inside `_score_one_batch` (call site below) instead of
+# at module-import time. Module-level reads happen once at cold start and then
+# never refresh, defeating the 5-min TTL cache that backs DDB-sourced prompts.
+# The cache makes repeated calls per Lambda invocation effectively free.
 
 SCORING_BATCH_SIZE = 20
 SCORING_MAX_CONCURRENCY = 5
@@ -184,7 +187,7 @@ async def _score_one_batch(
         )
 
     user_content = (
-        f"{SCORING_SYSTEM_PROMPT}\n\n"
+        f"{load_prompt('selection', 'article_scorer')}\n\n"
         f"## 후보 기사 ({len(batch)}건)\n\n"
         + "\n\n".join(items)
         + "\n\nJSON 배열만 출력하세요. 다른 텍스트는 포함하지 마세요."

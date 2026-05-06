@@ -19,6 +19,7 @@ import boto3
 from botocore.config import Config
 
 from config.constants import MBTI_GROUPS, MBTI_GROUP_INFO, BEDROCK_MODEL_ID_OPUS
+from services.prompt_loader import load_transform_prompt
 
 # Boto3 config with extended timeouts for Bedrock (Opus is slower than Haiku)
 BEDROCK_CONFIG = Config(
@@ -33,15 +34,6 @@ logger = logging.getLogger(__name__)
 MAX_RETRIES = 5
 INITIAL_RETRY_DELAY = 30
 MAX_RETRY_DELAY = 600
-
-# Prompt file names for each MBTI group (under prompts/transform/)
-PROMPT_FILES = {
-    'NT': os.path.join('transform', 'nt.md'),
-    'NF': os.path.join('transform', 'nf.md'),
-    'ST': os.path.join('transform', 'st.md'),
-    'SF': os.path.join('transform', 'sf.md'),
-}
-
 
 class TransformError(Exception):
     """Raised when MBTI transformation fails"""
@@ -82,32 +74,16 @@ class MbtiTransformService:
         logger.info(f"MbtiTransformService initialized with Bedrock model: {self.model_id}")
 
     def _load_group_prompt(self, group: str) -> Optional[str]:
-        """
-        Load prompt for a specific MBTI group from prompts folder.
-
-        Args:
-            group: MBTI group (NT, NF, ST, SF)
-
-        Returns:
-            Prompt content or None if not found
-        """
-        if group not in PROMPT_FILES:
+        """Delegate to prompt_loader (Admin-3 cutover — DDB-backed with 5-min TTL +
+        filesystem fallback). Returns None on unknown group or if every fallback
+        layer fails (preserved by upstream callers that null-check)."""
+        if group not in MBTI_GROUPS:
             logger.warning(f"Unknown MBTI group: {group}")
             return None
-
-        prompts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "prompts")
-        prompt_path = os.path.join(prompts_dir, PROMPT_FILES[group])
-
         try:
-            with open(prompt_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                logger.debug(f"Loaded prompt for {group} from {prompt_path}")
-                return content
-        except FileNotFoundError:
-            logger.warning(f"Prompt file not found: {prompt_path}")
-            return None
+            return load_transform_prompt(group)
         except Exception as e:
-            logger.warning(f"Failed to load prompt for {group}: {e}")
+            logger.warning(f"Failed to load transform prompt for {group}: {e}")
             return None
 
     def _build_group_system_prompt(self, group: str, group_prompt: str) -> str:
