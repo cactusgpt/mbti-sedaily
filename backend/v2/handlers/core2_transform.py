@@ -78,6 +78,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from common.feature_flag import get_threshold
 from config.constants import CORS_HEADERS
 from core.decorators import lambda_handler as handler_decorator
 from core.response import success_response
@@ -107,6 +108,10 @@ logging.getLogger().setLevel(logging.INFO)
 # easily absorbs 20 articles/fire × 4 calls × ~5500 tokens ≈ 440k tokens —
 # well under the per-minute cap. Real limit is Lambda wall-clock + deadline
 # guard below; see Phase A2 Section 3 design notes.
+#
+# Admin-2d (commit pending) — runtime override via DDB threshold/transform-max-articles.
+# This constant remains the fallback default if DDB is unreachable or the row is
+# missing (5-min TTL cache inside common.feature_flag.get_threshold).
 BATCH_SIZE = 20
 
 # Articles processed concurrently within a single Lambda invocation. 5 ×
@@ -151,7 +156,9 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     # chose. Group by news_id so each article fires once per Lambda task
     # with its full MBTI subset (1..4) — preserves Opus prompt-cache hits
     # across the article's groups.
-    queue_rows = pg.get_transform_queue(limit=BATCH_SIZE)
+    batch_size = get_threshold("transform-max-articles", default=BATCH_SIZE)
+    logger.info(json.dumps({"event": "transform_batch_size_resolved", "batch_size": batch_size, "default_fallback": BATCH_SIZE}))
+    queue_rows = pg.get_transform_queue(limit=batch_size)
     if not queue_rows:
         logger.info(json.dumps({"event": "transform_empty_batch"}))
         return success_response({"processed": 0, "empty": True})

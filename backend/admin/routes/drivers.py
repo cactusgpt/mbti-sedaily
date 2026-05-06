@@ -1,8 +1,9 @@
-"""드라이버 (EventBridge rule + feature flag) 관리.
+"""드라이버 (EventBridge rule + feature flag + threshold) 관리.
 
-list: list_rules(NamePrefix='sedaily-mbti-') + DDB CONFIG/feature-flag/* read.
+list: list_rules(NamePrefix='sedaily-mbti-') + DDB CONFIG/feature-flag/* + threshold/* read.
 rule update (handle_update): action ∈ {enable, disable, set-cron}. cron preset 만.
 flag update (handle_feature_flag_update): action ∈ {enable, disable}. — Admin-2a 추가.
+threshold update (handle_threshold_update): integer value, 1..10000 range. — Admin-2d 추가.
 """
 
 import datetime as dt
@@ -30,10 +31,27 @@ def _load_feature_flags() -> dict:
     return flags
 
 
+def _load_thresholds() -> dict:
+    table = ddb_client.config_table()
+    resp = table.query(
+        KeyConditionExpression=Key("pk").eq("CONFIG") & Key("sk").begins_with("threshold/"),
+    )
+    thresholds: dict = {}
+    for item in resp.get("Items", []):
+        sk = item.get("sk", "")
+        name = sk.replace("threshold/", "", 1)
+        value = item.get("value") or {}
+        raw = value.get("threshold", 0)
+        # boto3 resource layer returns DDB Number as Decimal — coerce to int.
+        thresholds[name] = int(raw)
+    return thresholds
+
+
 def handle_list(body: dict, path_params: dict, query_params: dict) -> dict:
     rules = eb_client.list_rules()
     flags = _load_feature_flags()
-    return response.ok({"rules": rules, "feature_flags": flags})
+    thresholds = _load_thresholds()
+    return response.ok({"rules": rules, "feature_flags": flags, "thresholds": thresholds})
 
 
 def handle_update(body: dict, path_params: dict, query_params: dict) -> dict:
@@ -101,3 +119,38 @@ def handle_feature_flag_update(body: dict, path_params: dict, query_params: dict
 
     auth.audit_log("feature-flag-update", {"flag": flag_name, "action": action})
     return response.ok({"flag": flag_name, "enabled": enabled, "updated_at": now})
+
+
+def handle_threshold_update(body: dict, path_params: dict, query_params: dict) -> dict:
+    name = (path_params or {}).get("name", "")
+    if not name:
+        return response.err("threshold name required", 400)
+
+    raw_value = body.get("value")
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        return response.err("value must be integer", 400)
+
+    if value < 1 or value > 10000:
+        return response.err("value out of range (1..10000)", 400)
+
+    now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    try:
+        ddb_client.config_table().update_item(
+            Key={"pk": "CONFIG", "sk": f"threshold/{name}"},
+            UpdateExpression="SET #v = :v, updated_at = :ts, actor = :a",
+            ExpressionAttributeNames={"#v": "value"},
+            ExpressionAttributeValues={
+                ":v": {"threshold": value},
+                ":ts": now,
+                ":a": "admin",
+            },
+        )
+    except Exception as e:
+        logger.exception(f"threshold-update failed: {name} {value}")
+        return response.err(f"threshold update failed: {type(e).__name__}", 500)
+
+    auth.audit_log("threshold-update", {"threshold": name, "value": value})
+    return response.ok({"threshold": name, "value": value, "updated_at": now})
