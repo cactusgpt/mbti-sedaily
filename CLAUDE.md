@@ -96,7 +96,7 @@ Monorepo with two independent applications:
 ├── frontend-next/     # Next.js 16 App Router (partial Feature-Sliced Design)
 ├── backend/           # Python Lambda functions (FastAPI for local dev only)
 │   ├── admin/           # standalone admin-API Lambda (deployed, own bespoke build; NOT in deploy.sh)
-│   ├── common/          # shared utilities for v1/v2/admin (feature_flag) — bundled by deploy.sh
+│   ├── common/          # shared utilities for v1/v2/admin (feature_flag, secrets) — bundled by deploy.sh + deploy-v2.sh
 │   ├── infrastructure/  # v1 Step Functions definition + provisioning scripts
 │   └── v2/              # parallel redesign — see "v1 / v2 Parallel Redesign" above
 ├── scripts/           # one-shot repo-level tools, run manually (e.g. import_prompts_to_admin_ddb.py)
@@ -199,11 +199,14 @@ utils/              → Small helpers included in the Lambda zip: date_utils.py,
                      hash_utils.py. Not a layer in the architectural sense —
                      just shared utilities.
 common/             → Cross-track shared utilities (v1 / v2 / admin all import from here).
-                     Currently holds `feature_flag.py` (Admin-2a, commit `0ee43df`) — DDB-backed
-                     feature flag with 5-min TTL cache. Bundled into the v1 Lambda zip by
-                     `deploy.sh` (added to its copy list in Admin-2a). Import path inside
-                     Lambda: `from common.feature_flag import is_enabled` (zip root, no
-                     `backend.` prefix). v2 / admin code can import the same way.
+                     Each module is a thin wrapper with its own 5-min TTL cache, picking
+                     fail-open vs fail-closed based on what's safer when the upstream
+                     store is unavailable (see "Feature Flags" / "Secrets" sections below).
+                     - `feature_flag.py` — DDB-backed feature flag (Admin-2a, `0ee43df`). Fail-open.
+                     - `secrets.py`      — SSM SecureString reader (Admin-2c, `61b7177`). Fail-closed.
+                     Bundled into the v1 Lambda zip by `deploy.sh` and the v2 zip by
+                     `v2/deploy-v2.sh` (both copy lists include `common`). Import path inside
+                     Lambda: `from common.<module> import ...` (zip root, no `backend.` prefix).
 ```
 
 A legacy `backend/MBTI_TRANSFORM_PROMPT.md` still sits at the backend root as the last-resort fallback for `clients/mbti_transform_service.py`. The canonical prompts live in `prompts/transform/` now — don't edit the root file.
@@ -222,7 +225,7 @@ Seed script `scripts/import_prompts_to_admin_ddb.py` ports the 13 filesystem pro
 
 ### Feature Flags (Admin-2a/2b)
 
-Runtime kill-switch for v1 Lambda handlers, backed by the admin DDB table. Pattern established for chatbot in commit `0ee43df` (Admin-2a) and extended to podcast + question in `3cad18f` (Admin-2b — same commit also fixes an Admin-2a OPTIONS-preflight bug, see "Integration point" below). Intended for incremental adoption across more Lambdas. Admin-2c (`PG_V2_PASSWORD` → Secrets Manager) is a different mechanism and does not reuse this pattern.
+Runtime kill-switch for v1 Lambda handlers, backed by the admin DDB table. Pattern established for chatbot in commit `0ee43df` (Admin-2a) and extended to podcast + question in `3cad18f` (Admin-2b — same commit also fixes an Admin-2a OPTIONS-preflight bug, see "Integration point" below). Intended for incremental adoption across more Lambdas. Admin-2c (`PG_V2_PASSWORD` → SSM SecureString, see "Secrets" below) is a sibling mechanism with the opposite failure mode (fail-closed), not a reuse of this pattern.
 
 - **Storage**: `sedaily-mbti-admin-config-dev`, `pk=CONFIG`, `sk=feature-flag/<name>`, `value={"enabled": bool}` (+ `updated_at`, `actor`). Existing flags: `chatbot`, `podcast`, `question` (all enabled by default).
 - **Read path** (in any Lambda — v1 / v2 / admin): `from common.feature_flag import is_enabled` then `if not is_enabled('<name>'): return <503>`. The module caches per-flag results for **5 minutes** at module level; Lambda cold start re-fetches. On DDB error: stale cache → `_DEFAULT_ON_MISSING=True` (fail-open — admin must explicitly disable).
@@ -245,6 +248,26 @@ Runtime kill-switch for v1 Lambda handlers, backed by the admin DDB table. Patte
       # ... rest of handler
   ```
 - **Verification checklist** (when integrating a new Lambda): baseline POST/GET → 200; baseline OPTIONS → 200; toggle off + cold start → OPTIONS **still 200** (preflight intact), POST/GET → 503 with friendly body; toggle on + cold start → POST/GET → 200. **Always exercise the OPTIONS preflight explicitly** with browser-style headers (`Origin`, `Access-Control-Request-Method`, `Access-Control-Request-Headers`) — server-side `curl -X POST` alone misses the failure mode.
+
+### Secrets (Admin-2c)
+
+SSM SecureString reader for v1 / v2 / admin Lambdas, replacing plaintext password env vars. Pattern established for the v2 Postgres password in commit `61b7177` (Admin-2c — `PG_V2_PASSWORD` env var → `/sedaily-mbti/v2/pg-password`). Same module-level 5-min TTL cache shape as `feature_flag.py`, but **opposite failure mode** — see contrast below.
+
+- **Storage**: SSM Parameter Store SecureString, Standard tier, AWS-managed KMS key (`alias/aws/ssm`). Tagged `Project=sedaily-mbti, Component=backend-v2, Phase=admin-2c, ManagedBy=claude-code` (+ Subsystem / Environment / Owner). The admin SSM params from Admin-1 (`/sedaily-mbti/admin/password-hash`, `/sedaily-mbti/admin/jwt-secret`) are the same shape, predating this module — they're read directly via boto3 inside the admin Lambda and not yet routed through `common.secrets`.
+- **Read path**: `from common.secrets import get_pg_password` (or the lower-level `get_secret(name)`). 5-min TTL module cache. **Fail-closed** — on SSM error or missing parameter the call raises rather than returning a default. Reasoning: a Lambda that reaches the DB code path without a valid password should crash visibly; a fail-open default would mean silently connecting (or pretending to connect) with garbage.
+- **Path override**: `get_pg_password()` reads `PG_PASSWORD_SSM_PARAM` env var, defaulting to `/sedaily-mbti/v2/pg-password`. The 4 v2 Lambdas (collector / selector / transform / consolidate) all set this env var explicitly so the path is visible in their config without grepping code.
+- **IAM**: the v2 Lambdas share role `sedaily-mbti-v2-collector-dev-role-nbf99tic`; Admin-2c added a `V2SecretsAccess` inline policy granting `ssm:GetParameter` / `ssm:GetParameters` on `parameter/sedaily-mbti/v2/*` (wildcard so future v2 secrets don't need IAM changes) plus `kms:Decrypt` conditioned on `kms:ViaService = ssm.us-east-1.amazonaws.com`. v1 / admin Lambdas adding their own SSM-backed secret will need similar inline policies on their roles.
+- **Migration playbook** (one-shot scripts in `scripts/`):
+  1. `scripts/migrate_pg_password_to_ssm.py --dry-run` then `--apply` — copies the password from a Lambda env var into SSM and verifies (length-only output, no value leakage).
+  2. Code change: `os.getenv("PG_V2_PASSWORD", "")` → `get_pg_password()`.
+  3. Deploy with the new code via `deploy-v2.sh` (or `deploy.sh` for v1).
+  4. `scripts/update_v2_lambdas_pg_env.py --apply` — removes `PG_V2_PASSWORD`, adds `PG_PASSWORD_SSM_PARAM`. `update_function_configuration` auto-forces cold start, so the next invoke runs the new SSM path.
+- **Fail-closed vs fail-open** (`secrets.py` vs `feature_flag.py`):
+  | Module | Store | Cache | On store error | Why |
+  |---|---|---|---|---|
+  | `feature_flag.py` | DDB `sedaily-mbti-admin-config-dev` | 5 min, stale-cache fallback | Use stale cache if any, else `_DEFAULT_ON_MISSING=True` (enabled) | A flag flap shouldn't take a feature down; admin must explicitly disable. |
+  | `secrets.py` | SSM SecureString | 5 min, no fallback | Raise | A DB password the Lambda can't fetch is uniformly worse than crashing — silent fallbacks would hide IAM / KMS / param-name regressions. |
+- **Test fallout (known follow-up)**: integration tests under `backend/v2/tests/` historically use `monkeypatch.setenv("PG_V2_PASSWORD", "...")` then construct `PgVectorV2Client()` with no args — that path now calls `get_pg_password()` and hits real SSM. Tests that don't already pass `password=` explicitly need to mock `common.secrets.get_pg_password`. Out of scope for the Admin-2c commit; treat as a follow-up.
 
 ### Frontend Structure
 
