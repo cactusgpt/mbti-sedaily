@@ -220,16 +220,31 @@ A legacy `backend/MBTI_TRANSFORM_PROMPT.md` still sits at the backend root as th
 
 Seed script `scripts/import_prompts_to_admin_ddb.py` ports the 13 filesystem prompts under `backend/prompts/` into the admin-prompts table as `v#1` + `LATEST` rows; run with `--dry-run` first, then `--apply`. The legacy `backend/MBTI_TRANSFORM_PROMPT.md` is intentionally excluded from this import (deferred to Admin-3).
 
-### Feature Flags (Admin-2a)
+### Feature Flags (Admin-2a/2b)
 
-Runtime kill-switch for v1 Lambda handlers, backed by the admin DDB table. Pattern established for the chatbot in commit `0ee43df` and intended for incremental adoption (Admin-2b: podcast/question; Admin-2c: PG_V2_PASSWORD → Secrets Manager; Admin-2d: v2 transform threshold).
+Runtime kill-switch for v1 Lambda handlers, backed by the admin DDB table. Pattern established for chatbot in commit `0ee43df` (Admin-2a) and extended to podcast + question in `3cad18f` (Admin-2b — same commit also fixes an Admin-2a OPTIONS-preflight bug, see "Integration point" below). Intended for incremental adoption across more Lambdas. Admin-2c (`PG_V2_PASSWORD` → Secrets Manager) is a different mechanism and does not reuse this pattern.
 
-- **Storage**: `sedaily-mbti-admin-config-dev`, `pk=CONFIG`, `sk=feature-flag/<name>`, `value={"enabled": bool}` (+ `updated_at`, `actor`).
-- **Read path** (in any Lambda — v1 / v2 / admin): `from common.feature_flag import is_enabled` then `if not is_enabled('chatbot'): return <503>`. The module caches per-flag results for **5 minutes** at module level; Lambda cold start re-fetches. On DDB error: stale cache → `_DEFAULT_ON_MISSING=True` (fail-open — admin must explicitly disable).
-- **Write path**: `POST /admin/drivers/feature-flag/{name}` body `{"action": "enable" | "disable"}` → `drivers.handle_feature_flag_update` runs `update_item` + `audit_log("feature-flag-update", ...)`.
-- **Cache invalidation**: there is no push-based invalidation. Toggle takes effect within 5 minutes naturally, or immediately by forcing a Lambda cold start (`aws lambda update-function-configuration --environment` with a dummy var like `ROTATION_AT=$(date +%s)`). When forcing cold start, **read existing env vars first and merge** — `--environment` replaces the entire dict.
-- **IAM**: the chatbot Lambda role (`sedaily-mbti-lambda-execution-dev`) already has `AmazonDynamoDBFullAccess` attached, so reading `sedaily-mbti-admin-config-dev` works without a new inline policy. If a future v1 Lambda has a more restricted role, scope a new inline policy to `dynamodb:GetItem` on the admin-config table only.
-- **Integration point in handlers**: place the `is_enabled(...)` check at the very top of `lambda_handler` (after the docstring, before the `try:` block). Return a 503 with `{**CORS_HEADERS, "Content-Type": "application/json"}` so the frontend's CORS check passes even on the disabled response.
+- **Storage**: `sedaily-mbti-admin-config-dev`, `pk=CONFIG`, `sk=feature-flag/<name>`, `value={"enabled": bool}` (+ `updated_at`, `actor`). Existing flags: `chatbot`, `podcast`, `question` (all enabled by default).
+- **Read path** (in any Lambda — v1 / v2 / admin): `from common.feature_flag import is_enabled` then `if not is_enabled('<name>'): return <503>`. The module caches per-flag results for **5 minutes** at module level; Lambda cold start re-fetches. On DDB error: stale cache → `_DEFAULT_ON_MISSING=True` (fail-open — admin must explicitly disable).
+- **Write path**: `POST /admin/drivers/feature-flag/{name}` body `{"action": "enable" | "disable"}` → `drivers.handle_feature_flag_update` runs `update_item` + `audit_log("feature-flag-update", ...)`. The single route handles all flags.
+- **Cache invalidation**: there is no push-based invalidation. Toggle takes effect within 5 minutes naturally, or immediately by forcing a Lambda cold start (`aws lambda update-function-configuration --environment` with a dummy var like `ROTATION_AT=$(date +%s)`). Two operational gotchas learned in Admin-2b: (1) read existing env vars first and merge — `--environment` replaces the entire dict; (2) Lambdas with no env vars at all (`Environment: null`, e.g. `sedaily-mbti-question-dev` pre-Admin-2b) need `ROTATION_AT` added once before the rotation pattern works. To avoid shell-quoting bugs with `Variables={K=V,...}` syntax for non-trivial values, write a JSON file and pass `--cli-input-json file:///tmp/env.json`.
+- **IAM**: the role `sedaily-mbti-lambda-execution-dev` is shared by chatbot/podcast/question (and most v1 API Lambdas) and already has `AmazonDynamoDBFullAccess` attached, so reading `sedaily-mbti-admin-config-dev` works without a new inline policy. If a future v1 Lambda has a more restricted role, scope a new inline policy to `dynamodb:GetItem` on the admin-config table only.
+- **Integration point in handlers** ⚠️ **place the `is_enabled(...)` check AFTER the OPTIONS-preflight short-circuit, never before**. Browser CORS preflight requires a 2xx response; if the gate fires on `OPTIONS` and returns 503, the browser refuses the actual request and the user sees only "Failed to fetch" — never the 503 body. This is exactly the bug Admin-2a shipped (chatbot gate placed before the OPTIONS branch) and Admin-2b fixed; the original verification used `curl -X POST` only, so the broken preflight wasn't caught. Correct shape:
+  ```python
+  def lambda_handler(event, context):
+      """docstring"""
+      # ... parse method (HTTP API v2 vs REST API v1) ...
+      if method == 'OPTIONS':
+          return {'statusCode': 200, 'headers': CORS_HEADERS, 'body': ''}
+      if not is_enabled('<name>'):
+          return {
+              'statusCode': 503,
+              'headers': {**CORS_HEADERS, 'Content-Type': 'application/json'},
+              'body': json.dumps({'error': '<name> disabled by admin'}),
+          }
+      # ... rest of handler
+  ```
+- **Verification checklist** (when integrating a new Lambda): baseline POST/GET → 200; baseline OPTIONS → 200; toggle off + cold start → OPTIONS **still 200** (preflight intact), POST/GET → 503 with friendly body; toggle on + cold start → POST/GET → 200. **Always exercise the OPTIONS preflight explicitly** with browser-style headers (`Origin`, `Access-Control-Request-Method`, `Access-Control-Request-Headers`) — server-side `curl -X POST` alone misses the failure mode.
 
 ### Frontend Structure
 
