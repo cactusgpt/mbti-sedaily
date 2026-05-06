@@ -8,12 +8,21 @@ never share state.
 
 Connection
 ----------
-* Env vars: ``PG_V2_HOST``, ``PG_V2_PORT`` (5432), ``PG_V2_DATABASE``
-  (``ailens_v2``), ``PG_V2_USER`` (``ailens``), ``PG_V2_PASSWORD``.
-* If ``PG_V2_PASSWORD`` is blank the client runs in **no-op mode** — every
-  method returns a safe default (``None`` / ``[]`` / ``{}`` / ``''``) and
-  logs a warning. This mirrors v1 ``PgVectorClient`` so local dev and
-  unit tests work without RDS.
+* Host/port/database/user via env vars: ``PG_V2_HOST``, ``PG_V2_PORT``
+  (5432), ``PG_V2_DATABASE`` (``ailens_v2``), ``PG_V2_USER`` (``ailens``).
+* Password via SSM SecureString (Admin-2c migration). Default path
+  ``/sedaily-mbti/v2/pg-password`` — overridable via the
+  ``PG_PASSWORD_SSM_PARAM`` env var. Fetched on first use and cached for
+  5 minutes inside ``common.secrets.get_pg_password``; the Lambda role
+  needs ``ssm:GetParameter`` and ``kms:Decrypt`` (via
+  ``kms:ViaService = ssm.<region>.amazonaws.com``). The SSM path is
+  fail-closed — a missing parameter or denied decrypt raises rather
+  than silently entering no-op mode.
+* Callers may still override by passing ``password=...`` directly to the
+  constructor (tests / one-shot scripts that hold the password elsewhere).
+  Passing an explicit empty string keeps the legacy **no-op mode** —
+  every method returns a safe default (``None`` / ``[]`` / ``{}`` / ``''``)
+  and logs a warning, mirroring v1 ``PgVectorClient`` for local dev.
 * The ``pg8000.native.Connection`` is created lazily on first use and
   reused within the same Lambda container; ``close()`` tears it down.
 
@@ -35,6 +44,8 @@ import os
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
+
+from common.secrets import get_pg_password
 
 logger = logging.getLogger(__name__)
 
@@ -145,15 +156,13 @@ class PgVectorV2Client:
         self._port = port or int(os.getenv("PG_V2_PORT", "5432"))
         self._database = database or os.getenv("PG_V2_DATABASE", "ailens_v2")
         self._user = user or os.getenv("PG_V2_USER", "ailens")
-        self._password = (
-            password if password is not None else os.getenv("PG_V2_PASSWORD", "")
-        )
+        self._password = password if password is not None else get_pg_password()
         self._dimension = dimension
         self._conn = None
         self._enabled = bool(self._password)
         if not self._enabled:
             logger.warning(
-                "PG_V2_PASSWORD is empty — PgVectorV2Client running in no-op mode"
+                "PgVectorV2Client constructed with empty password — running in no-op mode"
             )
 
     # ---- connection ---------------------------------------------------------

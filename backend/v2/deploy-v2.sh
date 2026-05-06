@@ -153,7 +153,7 @@ pip3 install \
 
 # Copy v1 source modules (unchanged — v2 handlers import them).
 echo "  -> Copying v1 source..."
-for dir in clients handlers config core models repositories services utils; do
+for dir in clients handlers config core models repositories services utils common; do
   if [ -d "$dir" ]; then
     echo "    -> $dir/"
     cp -r "$dir" "$BUILD_DIR/"
