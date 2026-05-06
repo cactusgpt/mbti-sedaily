@@ -95,12 +95,15 @@ Monorepo with two independent applications:
 /
 ├── frontend-next/     # Next.js 16 App Router (partial Feature-Sliced Design)
 ├── backend/           # Python Lambda functions (FastAPI for local dev only)
+│   ├── admin/           # standalone admin-API Lambda (deployed, own bespoke build; NOT in deploy.sh)
+│   ├── common/          # shared utilities for v1/v2/admin (feature_flag) — bundled by deploy.sh
 │   ├── infrastructure/  # v1 Step Functions definition + provisioning scripts
 │   └── v2/              # parallel redesign — see "v1 / v2 Parallel Redesign" above
+├── scripts/           # one-shot repo-level tools, run manually (e.g. import_prompts_to_admin_ddb.py)
 └── docs/              # informal dev notes (chatbot-todo.md)
 ```
 
-There is no `infrastructure/` at the repo root — it lives under `backend/`. Both `backend/infrastructure/` (v1) and `backend/v2/infrastructure/` exist and are not deployed as Lambdas.
+There is no `infrastructure/` at the repo root — it lives under `backend/`. Both `backend/infrastructure/` (v1) and `backend/v2/infrastructure/` exist and are not deployed as Lambdas. The repo-root `scripts/` directory holds one-shot tooling that is run manually (not on a schedule and not from `deploy.sh` / `deploy-v2.sh`).
 
 ### Data Flow
 
@@ -195,9 +198,38 @@ prompts/            → AI prompt templates organized by purpose:
 utils/              → Small helpers included in the Lambda zip: date_utils.py,
                      hash_utils.py. Not a layer in the architectural sense —
                      just shared utilities.
+common/             → Cross-track shared utilities (v1 / v2 / admin all import from here).
+                     Currently holds `feature_flag.py` (Admin-2a, commit `0ee43df`) — DDB-backed
+                     feature flag with 5-min TTL cache. Bundled into the v1 Lambda zip by
+                     `deploy.sh` (added to its copy list in Admin-2a). Import path inside
+                     Lambda: `from common.feature_flag import is_enabled` (zip root, no
+                     `backend.` prefix). v2 / admin code can import the same way.
 ```
 
 A legacy `backend/MBTI_TRANSFORM_PROMPT.md` still sits at the backend root as the last-resort fallback for `clients/mbti_transform_service.py`. The canonical prompts live in `prompts/transform/` now — don't edit the root file.
+
+### Backend Admin Lambda
+
+`backend/admin/` is a **standalone Lambda separate from the 23 production Lambdas** — `sedaily-mbti-admin-api-dev`, deployed but **not built by `deploy.sh` / `deploy-v2.sh`** (its own one-shot zip pattern: `pip install argon2-cffi PyJWT --target /tmp/admin-rebuild && cp -r backend/admin/* /tmp/admin-rebuild && zip ...`). Admin-1 skeleton landed in commit `9d94f32`; Admin-2a (commit `0ee43df`) added the feature-flag toggle wire. The admin Lambda intentionally does not share v1's framework:
+
+- **Routing**: dispatches by API Gateway HTTP API `routeKey` directly via `admin/handler.py:HANDLERS`. Does **not** use v1's `@lambda_handler` decorator, `core/response.py`, or `core/exceptions.py` — the admin Lambda has its own minimal `shared/response.py` (no CORS headers; HTTP API handles CORS at the gateway level).
+- **Auth**: argon2id password verify + JWT (HS256, 8h expiry); password hash and JWT secret live in SSM Parameter Store at `/sedaily-mbti/admin/password-hash` and `/sedaily-mbti/admin/jwt-secret`. 5 failed logins → 5-minute global lockout, tracked via `pk=AUTH, sk=lockout/global` in the admin config table. `audit_log()` writes a row per mutating action (`pk=AUDIT, sk=<iso-timestamp-ms>`) and is wrapped in try/except so audit failures never block the main flow.
+- **Tables (separate from the four v1 tables)**: `sedaily-mbti-admin-config-dev` (auth state, feature flags, audit log) and `sedaily-mbti-admin-prompts-dev` (versioned prompt rows: `pk=PROMPT#<category>/<name>`, `sk=v#N` | `LATEST`). Override via env vars `ADMIN_CONFIG_TABLE` / `ADMIN_PROMPTS_TABLE`.
+- **Dependencies**: `argon2-cffi`, `PyJWT` are declared in `backend/admin/requirements.txt` only — **not** in the main `backend/requirements.txt`, so the regular Lambda zip does not bundle them.
+- **Routes (Admin-1 + 2a)**: `POST /admin/login`, `POST /admin/password-change`, `GET /admin/drivers`, `POST /admin/drivers/{id}` (EventBridge rule enable/disable/set-cron — driver_id must start with `sedaily-mbti-`), **`POST /admin/drivers/feature-flag/{name}`** (feature flag enable/disable, Admin-2a — separate route + separate handler `drivers.handle_feature_flag_update`, intentionally not folded into `handle_update`), `GET /admin/prompts`, `GET|POST /admin/prompts/{category}/{name}`, `GET /admin/cost` (Bedrock token → $ estimate over 7d), `GET /admin/audit`.
+
+Seed script `scripts/import_prompts_to_admin_ddb.py` ports the 13 filesystem prompts under `backend/prompts/` into the admin-prompts table as `v#1` + `LATEST` rows; run with `--dry-run` first, then `--apply`. The legacy `backend/MBTI_TRANSFORM_PROMPT.md` is intentionally excluded from this import (deferred to Admin-3).
+
+### Feature Flags (Admin-2a)
+
+Runtime kill-switch for v1 Lambda handlers, backed by the admin DDB table. Pattern established for the chatbot in commit `0ee43df` and intended for incremental adoption (Admin-2b: podcast/question; Admin-2c: PG_V2_PASSWORD → Secrets Manager; Admin-2d: v2 transform threshold).
+
+- **Storage**: `sedaily-mbti-admin-config-dev`, `pk=CONFIG`, `sk=feature-flag/<name>`, `value={"enabled": bool}` (+ `updated_at`, `actor`).
+- **Read path** (in any Lambda — v1 / v2 / admin): `from common.feature_flag import is_enabled` then `if not is_enabled('chatbot'): return <503>`. The module caches per-flag results for **5 minutes** at module level; Lambda cold start re-fetches. On DDB error: stale cache → `_DEFAULT_ON_MISSING=True` (fail-open — admin must explicitly disable).
+- **Write path**: `POST /admin/drivers/feature-flag/{name}` body `{"action": "enable" | "disable"}` → `drivers.handle_feature_flag_update` runs `update_item` + `audit_log("feature-flag-update", ...)`.
+- **Cache invalidation**: there is no push-based invalidation. Toggle takes effect within 5 minutes naturally, or immediately by forcing a Lambda cold start (`aws lambda update-function-configuration --environment` with a dummy var like `ROTATION_AT=$(date +%s)`). When forcing cold start, **read existing env vars first and merge** — `--environment` replaces the entire dict.
+- **IAM**: the chatbot Lambda role (`sedaily-mbti-lambda-execution-dev`) already has `AmazonDynamoDBFullAccess` attached, so reading `sedaily-mbti-admin-config-dev` works without a new inline policy. If a future v1 Lambda has a more restricted role, scope a new inline policy to `dynamodb:GetItem` on the admin-config table only.
+- **Integration point in handlers**: place the `is_enabled(...)` check at the very top of `lambda_handler` (after the docstring, before the `try:` block). Return a 503 with `{**CORS_HEADERS, "Content-Type": "application/json"}` so the frontend's CORS check passes even on the disabled response.
 
 ### Frontend Structure
 
