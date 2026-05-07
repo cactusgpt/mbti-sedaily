@@ -123,17 +123,29 @@ def _extract_date(event: Dict[str, Any]) -> str:
 
 
 def _passes_paper_filter(article: S3Article) -> Tuple[bool, str]:
-    """paper-mode 일 때 paper element 보유 article 만 통과.
+    """paper-mode 일 때 ``paragraph == 'TOP'`` 인 paper article 만 통과.
 
-    Returns ``(ok, reason)``: legacy mode 면 무조건 ``(True, 'legacy-mode')``,
-    paper mode 면 ``article.paper`` 유무로 결정. reason 은 상위 metric/log 가
-    이유별 분포를 집계할 수 있게 하는 라벨이며 사용자 노출 문자열은 아님.
+    paragraph 의 의미 (정찰 5d aggregate, 377 paper articles):
+      ``'TOP'`` = 각 지면 (paperNumber=1..31) 의 메인 기사 — 113건 (30%)
+      ``'9'``   = 각 지면의 sub article (페이지 단 위치) — 264건 (70%)
+      그 외 값 부재 (정확히 2종류만)
+
+    사용자 spec "각 지면 신문의 1면 기사" = paragraph='TOP'. 5d 평균
+    22.6/day, paperNumber 1~31 거의 모든 페이지 분산 — top_n=20 cap 의
+    selector 와 정합. 이전 paperNumber=1-only 가설은 평균 3.6/day 에 불과,
+    spec 미매칭이라 정찰 후 재해석.
+
+    Returns ``(ok, reason)``: legacy mode 면 ``(True, 'legacy-mode')``,
+    paper mode 면 ``article.paper`` 유무 + paragraph 값으로 결정.
     """
     if not feature_flag.is_enabled("collector-paper-mode"):
         return True, "legacy-mode"
     if article.paper is None:
         return False, "no-paper-element"
-    return True, "has-paper"
+    paragraph = (article.paper.paragraph or "").strip()
+    if paragraph != "TOP":
+        return False, "paragraph-not-TOP"
+    return True, "paragraph-TOP"
 
 
 def _is_collectible(article: S3Article) -> Tuple[bool, str]:
@@ -286,13 +298,20 @@ async def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     for a in all_articles:
         action_counts[a.action] = action_counts.get(a.action, 0) + 1
 
-    inserts = [a for a in all_articles if a.action == "I"]
     paper_mode_enabled = feature_flag.is_enabled("collector-paper-mode")
+    # paper-mode: action 무관 — 정찰 결과 paragraph='TOP' 의 paper article 87%
+    # 가 action=U (online published 후 신문 인쇄판 metadata 추가). action=I
+    # only 필터 시 1면 articles 의 100% 누락. legacy mode 만 action=I 유지.
+    if paper_mode_enabled:
+        inserts = list(all_articles)
+    else:
+        inserts = [a for a in all_articles if a.action == "I"]
     filter_reasons: Dict[str, int] = {
         "pass": 0,
         "body-too-short": 0,
         "title-garbage": 0,
         "no-paper-element": 0,
+        "paragraph-not-TOP": 0,
     }
     after_garbage: List[S3Article] = []
     for a in inserts:
@@ -308,6 +327,7 @@ async def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         "total_inserts": len(inserts),
         "paper_pass": filter_reasons["pass"],
         "paper_fail_no_element": filter_reasons["no-paper-element"],
+        "paper_fail_paragraph_not_TOP": filter_reasons["paragraph-not-TOP"],
         "other_filtered": filter_reasons["body-too-short"] + filter_reasons["title-garbage"],
     }, ensure_ascii=False))
     emit_count(
