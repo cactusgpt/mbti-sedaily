@@ -13,10 +13,11 @@ dry-run: enumerate every resource, show WOULD ADD / SKIP per resource, no writes
 apply:   call each service's tag API. S3 uses replace-mode (read existing → append
          Service → put-bucket-tagging); the others use add-style APIs.
 
-Scope (72 resources):
+Scope (109 resources):
     Lambda 32 + DynamoDB 6 + S3 6 + CloudFront 2 + ACM 2 + SSM 3 +
     EventBridge 9 + IAM 7 + RDS 1 + OpenSearch 1 + API Gateway 1 + Cognito 1 +
-    CloudWatch dashboard 1
+    CloudWatch dashboard 1 + Step Functions 1 + CloudWatch log group 31 +
+    EC2 (NAT 1 + VPCE 3 + EIP 1, in mbti VPCs) 5
 
 Exclusions (per Cost-3 handoff):
     - Route53 hosted zone `sedaily.ai` — shared with non-mbti services
@@ -183,14 +184,103 @@ def enumerate_cloudwatch(client) -> list[str]:
     return sorted(names)
 
 
+def enumerate_step_functions(client) -> list[str]:
+    arns: list[str] = []
+    paginator = client.get_paginator("list_state_machines")
+    for page in paginator.paginate():
+        for sm in page.get("stateMachines", []):
+            if sm.get("name", "").startswith("sedaily-mbti-"):
+                arns.append(sm["stateMachineArn"])
+    return sorted(arns)
+
+
+def enumerate_cw_log_groups(client) -> list[str]:
+    """Lambda log groups for sedaily-mbti-* functions only — biggest ongoing log spend."""
+    names: list[str] = []
+    paginator = client.get_paginator("describe_log_groups")
+    for page in paginator.paginate(logGroupNamePrefix="/aws/lambda/sedaily-mbti"):
+        for lg in page.get("logGroups", []):
+            names.append(lg["logGroupName"])
+    return sorted(names)
+
+
+def enumerate_ec2_vpc(client) -> list[str]:
+    """NAT GW + VPC Endpoints + EIPs in sedaily-mbti VPCs.
+
+    The mbti VPC itself currently has no tags, so we discover it via its
+    NAT Gateway's Name tag (`sedaily-mbti-v2-nat`) — pragmatic but means a
+    new mbti VPC without a tagged NAT would be missed. Once VPCs themselves
+    grow Name tags, the second branch below will pick them up directly.
+    EIPs are sourced from the NAT's network-interface; standalone EIPs on
+    non-NAT resources are not enumerated.
+    """
+    mbti_vpc_ids: set[str] = set()
+
+    nat_named_resp = client.describe_nat_gateways(
+        Filters=[{"Name": "tag:Name", "Values": ["sedaily-mbti-*"]}],
+    )
+    for ng in nat_named_resp.get("NatGateways", []):
+        if ng.get("State") not in ("deleted", "deleting", "failed") and ng.get("VpcId"):
+            mbti_vpc_ids.add(ng["VpcId"])
+
+    vpcs_resp = client.describe_vpcs(
+        Filters=[{"Name": "tag:Name", "Values": ["sedaily-mbti-*"]}]
+    )
+    mbti_vpc_ids.update(v["VpcId"] for v in vpcs_resp.get("Vpcs", []))
+
+    if not mbti_vpc_ids:
+        return []
+
+    vpc_id_list = sorted(mbti_vpc_ids)
+    ids: list[str] = []
+
+    nat_resp = client.describe_nat_gateways(
+        Filters=[{"Name": "vpc-id", "Values": vpc_id_list}],
+    )
+    nats = [
+        ng for ng in nat_resp.get("NatGateways", [])
+        if ng.get("State") not in ("deleted", "deleting", "failed")
+    ]
+    ids.extend(ng["NatGatewayId"] for ng in nats)
+
+    vpce_resp = client.describe_vpc_endpoints(
+        Filters=[{"Name": "vpc-id", "Values": vpc_id_list}],
+    )
+    ids.extend(v["VpcEndpointId"] for v in vpce_resp.get("VpcEndpoints", []))
+
+    nat_eni_ids = [
+        addr["NetworkInterfaceId"]
+        for ng in nats
+        for addr in ng.get("NatGatewayAddresses", [])
+        if addr.get("NetworkInterfaceId")
+    ]
+    if nat_eni_ids:
+        eip_resp = client.describe_addresses(
+            Filters=[{"Name": "network-interface-id", "Values": nat_eni_ids}]
+        )
+        ids.extend(
+            a["AllocationId"] for a in eip_resp.get("Addresses", [])
+            if a.get("AllocationId")
+        )
+
+    return sorted(ids)
+
+
 # ── Existing-tag check ──────────────────────────────────────────────────────
 
 def has_service_tag(tags: list | dict) -> bool:
-    """Detect Service=mbti in either list-of-dicts or flat-dict tag formats."""
+    """Detect Service=mbti in list-of-dicts (Key/Value or key/value casing) or flat-dict formats.
+
+    Step Functions returns lowercase `key`/`value`; the rest of AWS is uppercase.
+    """
     if isinstance(tags, dict):
         return tags.get(TAG_KEY) == TAG_VALUE
     if isinstance(tags, list):
-        return any(t.get("Key") == TAG_KEY and t.get("Value") == TAG_VALUE for t in tags)
+        return any(
+            (t.get("Key") == TAG_KEY and t.get("Value") == TAG_VALUE)
+            or (t.get("key") == TAG_KEY and t.get("value") == TAG_VALUE)
+            for t in tags
+        )
     return False
 
 
@@ -361,6 +451,45 @@ def handle_cloudwatch(client, dashboard_name: str, dry: bool) -> tuple[str, str]
     return ("OK", f"({len(existing)} → {len(existing) + 1} tags)")
 
 
+def handle_step_functions(client, arn: str, dry: bool) -> tuple[str, str]:
+    """Step Functions uses lowercase key/value (the only AWS service in this script that does)."""
+    existing = client.list_tags_for_resource(resourceArn=arn).get("tags", [])
+    if has_service_tag(existing):
+        return ("SKIP", f"({len(existing)} tags)")
+    if dry:
+        return ("WOULD ADD", f"(currently {len(existing)} tags)")
+    client.tag_resource(resourceArn=arn, tags=[{"key": TAG_KEY, "value": TAG_VALUE}])
+    return ("OK", f"({len(existing)} → {len(existing) + 1} tags)")
+
+
+def handle_cw_log_group(client, name: str, dry: bool) -> tuple[str, str]:
+    arn = f"arn:aws:logs:{REGION}:{ACCOUNT}:log-group:{name}"
+    existing = client.list_tags_for_resource(resourceArn=arn).get("tags", {})
+    if has_service_tag(existing):
+        return ("SKIP", f"({len(existing)} tags)")
+    if dry:
+        return ("WOULD ADD", f"(currently {len(existing)} tags)")
+    client.tag_resource(resourceArn=arn, tags={TAG_KEY: TAG_VALUE})
+    return ("OK", f"({len(existing)} → {len(existing) + 1} tags)")
+
+
+def handle_ec2_vpc(client, resource_id: str, dry: bool) -> tuple[str, str]:
+    """Tag NAT GW / VPCE / EIP via shared ec2 create-tags API."""
+    tags_resp = client.describe_tags(
+        Filters=[{"Name": "resource-id", "Values": [resource_id]}]
+    )
+    existing = tags_resp.get("Tags", [])
+    if has_service_tag(existing):
+        return ("SKIP", f"({len(existing)} tags)")
+    if dry:
+        return ("WOULD ADD", f"(currently {len(existing)} tags)")
+    client.create_tags(
+        Resources=[resource_id],
+        Tags=[{"Key": TAG_KEY, "Value": TAG_VALUE}],
+    )
+    return ("OK", f"({len(existing)} → {len(existing) + 1} tags)")
+
+
 # ── Dispatch table ─────────────────────────────────────────────────────────
 
 # (label, boto3_service_name, region (None = global), enumerate_fn, handle_fn)
@@ -378,6 +507,9 @@ SERVICES: list[tuple[str, str, str | None, Callable, Callable]] = [
     ("apigatewayv2",          "apigatewayv2",  REGION, enumerate_apigatewayv2, handle_apigatewayv2),
     ("cognito_user_pool",     "cognito-idp",   REGION, enumerate_cognito,      handle_cognito),
     ("cloudwatch_dashboard",  "cloudwatch",    REGION, enumerate_cloudwatch,   handle_cloudwatch),
+    ("step_functions",        "stepfunctions", REGION, enumerate_step_functions, handle_step_functions),
+    ("cw_log_group",          "logs",          REGION, enumerate_cw_log_groups, handle_cw_log_group),
+    ("ec2_vpc",               "ec2",           REGION, enumerate_ec2_vpc,      handle_ec2_vpc),
 ]
 
 
