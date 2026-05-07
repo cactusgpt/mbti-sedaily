@@ -52,7 +52,6 @@ import os
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
-from common import feature_flag
 from config.constants import CORS_HEADERS
 from core.decorators import lambda_handler as handler_decorator
 from core.response import success_response
@@ -230,46 +229,25 @@ async def _diag_paper_metadata(event: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _diag_phase4a_check(event: Dict[str, Any]) -> Dict[str, Any]:
-    """Phase 4-A boost path live verification — three checks in one invoke.
+    """Phase 4-A live verification — metadata + selections check.
 
-    1. ``composite_score`` boost unit test with synthetic scores —
-       proves the function returns ``base + boost_value`` for paper_number
-       == 1 and unchanged base for paper_number > boost_max_page or None.
-       Also reads back the DDB threshold values so a non-default DDB
-       state (eg. boost disabled by setting boost_value=0) is visible.
-    2. Aggregated metadata key/value distribution over the last ``hours``
-       (default 200 ≈ 8d) — confirms Phase 4-A's _build_metadata
-       actually promotes paper_number into JSONB across the production
-       window, and surfaces the paper_number distribution including 1면.
-    3. Today's KST ``article_selections`` rows with selected=TRUE —
-       per-MBTI score range and the paper_number breakdown of what
-       was actually picked, so we can verify boost-driven ranking on
-       real data without waiting for tomorrow's pipeline.
+    1. Aggregated metadata key/value distribution over the last ``hours``
+       (default 200 ≈ 8d) — confirms Phase 4-A's collector
+       ``_build_metadata`` actually promotes paper_number / paper_date /
+       paper_paragraph into JSONB across the production window, and
+       surfaces the paperNumber distribution.
+    2. Today's KST ``article_selections`` rows with selected=TRUE —
+       per-MBTI score range and the paper_number breakdown of what was
+       actually picked, so we can verify the curated paragraph='TOP'
+       pool reaches frontend without waiting for tomorrow's pipeline.
 
-    Read-only: three SELECTs, no UPDATE/INSERT.
+    Read-only: two SELECTs, no UPDATE/INSERT. The earlier
+    ``boost_unit_test`` block was removed when the selector_service
+    ``composite_score`` reverted to its 2-arg signature.
     """
     from collections import Counter
 
     hours = int(event.get("hours") or 200)
-
-    # 1. composite_score unit test — synthetic mbti=5/quality=7 yields base
-    # = 5*0.7 + 7*0.3 = 5.6, so boost (default 2) lifts paper=1 to 7.6.
-    test_scores = {
-        "nt_score": 5.0,
-        "nf_score": 5.0,
-        "st_score": 5.0,
-        "sf_score": 5.0,
-        "quality": 7.0,
-    }
-    boost_unit_test = {
-        "base_no_paper":      composite_score(test_scores, "NT", paper_number=None),
-        "paper_number_1":     composite_score(test_scores, "NT", paper_number=1),
-        "paper_number_2":     composite_score(test_scores, "NT", paper_number=2),
-        "paper_number_5":     composite_score(test_scores, "NT", paper_number=5),
-        "paper_number_23":    composite_score(test_scores, "NT", paper_number=23),
-        "boost_value_ddb":    feature_flag.get_threshold("selector-paper-boost-value", -1),
-        "boost_max_page_ddb": feature_flag.get_threshold("selector-paper-boost-max-page", -1),
-    }
 
     pg = PgVectorV2Client()
 
@@ -353,7 +331,6 @@ async def _diag_phase4a_check(event: Dict[str, Any]) -> Dict[str, Any]:
                 "event": "selector_diag_phase4a_check",
                 "hours": hours,
                 "summary": summary,
-                "boost_unit_test": boost_unit_test,
             },
             ensure_ascii=False,
         )
@@ -363,7 +340,6 @@ async def _diag_phase4a_check(event: Dict[str, Any]) -> Dict[str, Any]:
         {
             "diag": "phase4a_check",
             "hours": hours,
-            "boost_unit_test": boost_unit_test,
             "metadata_distribution": metadata_distribution,
             "selections_today": selections_today,
             "summary": summary,
@@ -460,8 +436,6 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     # batch size — not heavy, but cheap and idempotent (ON CONFLICT
     # DO UPDATE preserves selected/transformed_at across re-runs).
     upsert_count = 0
-    boost_max_page = feature_flag.get_threshold("selector-paper-boost-max-page", 1)
-    boosted_articles = 0
     for article in eligible:
         nid = article["news_id"]
         scores = scores_by_id.get(nid)
@@ -470,18 +444,10 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             # 5.0 on Nova failure), so this should never trigger —
             # defensive guard for future contributors.
             continue
-        # Phase 4-A: paper_number 추출 (metadata JSONB 의 string 형태) → int 변환.
-        # collector 가 _build_metadata 에서 promote 한 paper_number 만 사용 — 정수
-        # 가 아니거나 부재 시 None 으로 fall-through (boost 0).
-        meta = article.get("metadata") or {}
-        pn_str = str(meta.get("paper_number") or "").strip()
-        paper_number_int: Optional[int] = int(pn_str) if pn_str.isdigit() else None
-        if paper_number_int is not None and paper_number_int <= boost_max_page:
-            boosted_articles += 1
         quality = float(scores.get("quality", 5.0))
         for group in _MBTI_GROUPS:
             mbti_val = float(scores.get(f"{group.lower()}_score", 5.0))
-            comp = composite_score(scores, group, paper_number=paper_number_int)
+            comp = composite_score(scores, group)
             pg.upsert_selection_score(
                 news_id=nid,
                 mbti_type=group,
@@ -524,8 +490,6 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         "upserts": upsert_count,
         "rerank": rerank_results,
         "top_n_per_mbti": TOP_N_PER_MBTI,
-        "boosted_articles": boosted_articles,
-        "boost_max_page": boost_max_page,
     }
     logger.info(json.dumps(metrics, ensure_ascii=False))
     return success_response(metrics)

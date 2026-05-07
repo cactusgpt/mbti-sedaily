@@ -49,8 +49,6 @@ from typing import Any, Dict, List, Optional
 import boto3
 from botocore.config import Config
 
-from common import feature_flag
-
 logger = logging.getLogger(__name__)
 
 
@@ -105,38 +103,22 @@ def make_default_scores() -> Dict[str, float]:
     return {k: DEFAULT_SCORE for k in _SCORE_KEYS}
 
 
-def composite_score(
-    scores: Dict[str, float],
-    mbti: str,
-    paper_number: Optional[int] = None,
-) -> float:
-    """0.7 * mbti_score + 0.3 * quality (+ paper boost). Matches v1 _select_per_type.
+def composite_score(scores: Dict[str, float], mbti: str) -> float:
+    """0.7 * mbti_score + 0.3 * quality. Matches v1 _select_per_type.
 
     ``mbti`` is one of ``NT``, ``NF``, ``ST``, ``SF`` (case-insensitive).
     Missing keys fall back to ``DEFAULT_SCORE`` so partial Nova responses
     never crash the caller — they just produce neutral composites.
 
-    Phase 4-A paper boost
-    ---------------------
-    ``paper_number=None`` (legacy / non-paper article) → no boost.
-    ``paper_number <= selector-paper-boost-max-page`` (DDB threshold,
-    default 1) → ``+ selector-paper-boost-value`` (DDB threshold, default
-    2). 1면 (paperNumber=1) 우선순위를 ranking 수준에서 강제하기 위함이고,
-    boost=0 으로 토글하면 (DDB 변경 + 5min cache TTL) 즉시 비활성화.
+    The earlier Phase 4-A boost arg (``paper_number``, +DDB threshold) was
+    reverted after reconnaissance: paragraph='TOP' (각 지면 메인 기사) is
+    already curated by the collector filter, so selector ranking stays
+    pure mbti_score × 0.7 + quality × 0.3.
     """
     key = f"{mbti.lower()}_score"
     mbti_val = float(scores.get(key, DEFAULT_SCORE))
     quality_val = float(scores.get("quality", DEFAULT_SCORE))
-    base = mbti_val * _W_MBTI + quality_val * _W_QUALITY
-
-    if paper_number is None:
-        return base
-
-    boost_value = feature_flag.get_threshold("selector-paper-boost-value", 2)
-    boost_max_page = feature_flag.get_threshold("selector-paper-boost-max-page", 1)
-    if paper_number <= boost_max_page:
-        return base + float(boost_value)
-    return base
+    return mbti_val * _W_MBTI + quality_val * _W_QUALITY
 
 
 def build_user_message(
