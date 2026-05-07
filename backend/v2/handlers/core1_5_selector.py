@@ -123,6 +123,112 @@ def _resolve_selection_date(event: Dict[str, Any]):
     return _date.fromisoformat(raw)
 
 
+async def _diag_paper_metadata(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Diagnostic-only — return recent ``articles`` rows with their
+    paper-related metadata fields, for verifying that Phase 4-A's
+    Collector ``_build_metadata`` actually promotes ``paper_number`` into
+    the JSONB column.
+
+    Read-only (one SELECT). Routed via ``event['_diag'] == 'paper_metadata'``
+    in the lambda_handler dispatch. Kept committed (not a one-shot)
+    because the same shape is reusable for any future "is this metadata
+    field actually getting written?" question.
+
+    Payload
+    -------
+    ``{"_diag": "paper_metadata", "hours": 30, "limit": 50}``
+
+    The ``hours`` cutoff is computed in Python rather than via SQL
+    ``interval`` concatenation — avoids any pg8000.native parameter-
+    binding quirks around text-cast intervals.
+    """
+    hours = int(event.get("hours") or 30)
+    limit = int(event.get("limit") or 50)
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    pg = PgVectorV2Client()
+    rows = pg.conn.run(
+        """
+        SELECT
+            a.news_id,
+            a.status,
+            a.created_at,
+            a.metadata->>'paper_number'    AS paper_number,
+            a.metadata->>'paper_date'      AS paper_date,
+            a.metadata->>'paper_paragraph' AS paper_paragraph,
+            a.category                     AS category,
+            substring(a.title, 1, 60)      AS title_preview,
+            (a.metadata ? 'paper_number')  AS has_paper_number_key
+        FROM articles a
+        WHERE a.created_at >= :cutoff
+        ORDER BY a.created_at DESC
+        LIMIT :lim
+        """,
+        cutoff=cutoff,
+        lim=limit,
+    )
+
+    samples: List[Dict[str, Any]] = []
+    paper_present = 0
+    paper_absent = 0
+    for r in rows:
+        has_key = bool(r[8])
+        d = {
+            "news_id": r[0],
+            "status": r[1],
+            "created_at": r[2].isoformat() if r[2] else None,
+            "paper_number": r[3],
+            "paper_date": r[4],
+            "paper_paragraph": r[5],
+            "category": r[6],
+            "title_preview": r[7],
+            "has_paper_number_key": has_key,
+        }
+        if has_key:
+            paper_present += 1
+        else:
+            paper_absent += 1
+        samples.append(d)
+
+    from collections import Counter
+    pn_counter = Counter(
+        (s.get("paper_number") or "<empty>")
+        for s in samples
+        if s.get("has_paper_number_key")
+    )
+
+    summary = {
+        "total_rows": len(samples),
+        "with_paper_number_key": paper_present,
+        "without_paper_number_key": paper_absent,
+        "paper_number_distribution": dict(pn_counter.most_common(20)),
+        "cutoff_utc": cutoff.isoformat(),
+    }
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "selector_diag_paper_metadata",
+                "hours": hours,
+                "limit": limit,
+                "summary": summary,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    return success_response(
+        {
+            "diag": "paper_metadata",
+            "hours": hours,
+            "limit": limit,
+            "summary": summary,
+            "samples": samples,
+        }
+    )
+
+
 def _filter_articles_with_preview(
     articles: List[Dict[str, Any]],
 ) -> tuple[List[Dict[str, Any]], List[str]]:
@@ -155,6 +261,11 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     )
     if method == "OPTIONS":
         return {"statusCode": 200, "headers": CORS_HEADERS, "body": ""}
+
+    # Diagnostic dispatch — read-only, single SELECT, no upserts.
+    # See _diag_paper_metadata docstring for the payload shape.
+    if event.get("_diag") == "paper_metadata":
+        return await _diag_paper_metadata(event)
 
     sel_date = _resolve_selection_date(event)
 
