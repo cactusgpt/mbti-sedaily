@@ -229,6 +229,148 @@ async def _diag_paper_metadata(event: Dict[str, Any]) -> Dict[str, Any]:
     )
 
 
+async def _diag_phase4a_check(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Phase 4-A boost path live verification — three checks in one invoke.
+
+    1. ``composite_score`` boost unit test with synthetic scores —
+       proves the function returns ``base + boost_value`` for paper_number
+       == 1 and unchanged base for paper_number > boost_max_page or None.
+       Also reads back the DDB threshold values so a non-default DDB
+       state (eg. boost disabled by setting boost_value=0) is visible.
+    2. Aggregated metadata key/value distribution over the last ``hours``
+       (default 200 ≈ 8d) — confirms Phase 4-A's _build_metadata
+       actually promotes paper_number into JSONB across the production
+       window, and surfaces the paper_number distribution including 1면.
+    3. Today's KST ``article_selections`` rows with selected=TRUE —
+       per-MBTI score range and the paper_number breakdown of what
+       was actually picked, so we can verify boost-driven ranking on
+       real data without waiting for tomorrow's pipeline.
+
+    Read-only: three SELECTs, no UPDATE/INSERT.
+    """
+    from collections import Counter
+
+    hours = int(event.get("hours") or 200)
+
+    # 1. composite_score unit test — synthetic mbti=5/quality=7 yields base
+    # = 5*0.7 + 7*0.3 = 5.6, so boost (default 2) lifts paper=1 to 7.6.
+    test_scores = {
+        "nt_score": 5.0,
+        "nf_score": 5.0,
+        "st_score": 5.0,
+        "sf_score": 5.0,
+        "quality": 7.0,
+    }
+    boost_unit_test = {
+        "base_no_paper":      composite_score(test_scores, "NT", paper_number=None),
+        "paper_number_1":     composite_score(test_scores, "NT", paper_number=1),
+        "paper_number_2":     composite_score(test_scores, "NT", paper_number=2),
+        "paper_number_5":     composite_score(test_scores, "NT", paper_number=5),
+        "paper_number_23":    composite_score(test_scores, "NT", paper_number=23),
+        "boost_value_ddb":    feature_flag.get_threshold("selector-paper-boost-value", -1),
+        "boost_max_page_ddb": feature_flag.get_threshold("selector-paper-boost-max-page", -1),
+    }
+
+    pg = PgVectorV2Client()
+
+    # 2. metadata distribution over the recent window
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    meta_rows = pg.conn.run(
+        """
+        SELECT
+            (a.metadata ? 'paper_number')                AS has_paper_key,
+            COALESCE(a.metadata->>'paper_number','')     AS paper_number,
+            COUNT(*)                                     AS cnt
+        FROM articles a
+        WHERE a.created_at >= :cutoff
+        GROUP BY 1, 2
+        ORDER BY cnt DESC
+        """,
+        cutoff=cutoff,
+    )
+    metadata_distribution = [
+        {"has_paper_key": bool(r[0]), "paper_number": r[1], "count": int(r[2])}
+        for r in meta_rows
+    ]
+    total_articles = sum(r["count"] for r in metadata_distribution)
+    with_key = sum(r["count"] for r in metadata_distribution if r["has_paper_key"])
+
+    # 3. today's selected=TRUE rows joined to articles for paper_number
+    sel_rows = pg.conn.run(
+        """
+        SELECT
+            s.mbti_type,
+            s.news_id,
+            s.composite_score,
+            s.mbti_score,
+            s.quality_score,
+            COALESCE(a.metadata->>'paper_number', '<none>') AS paper_number,
+            substring(a.title, 1, 50)                       AS title_preview
+        FROM article_selections s
+        JOIN articles a ON a.news_id = s.news_id
+        WHERE s.selection_date = (now() AT TIME ZONE 'Asia/Seoul')::date
+          AND s.selected = TRUE
+        ORDER BY s.mbti_type, s.composite_score DESC
+        """,
+    )
+    selections_today: List[Dict[str, Any]] = []
+    persona_score_stats: Dict[str, Dict[str, Any]] = {}
+    paper_number_in_selected: Counter = Counter()
+    for r in sel_rows:
+        mbti = r[0]
+        cs = float(r[2]) if r[2] is not None else None
+        d = {
+            "mbti_type": mbti,
+            "news_id": r[1],
+            "composite_score": cs,
+            "mbti_score": float(r[3]) if r[3] is not None else None,
+            "quality_score": float(r[4]) if r[4] is not None else None,
+            "paper_number": r[5],
+            "title_preview": r[6],
+        }
+        selections_today.append(d)
+        paper_number_in_selected[r[5]] += 1
+        stat = persona_score_stats.setdefault(
+            mbti, {"min": None, "max": None, "count": 0}
+        )
+        if cs is not None:
+            stat["min"] = cs if stat["min"] is None else min(stat["min"], cs)
+            stat["max"] = cs if stat["max"] is None else max(stat["max"], cs)
+        stat["count"] += 1
+
+    summary = {
+        "metadata_total_articles": total_articles,
+        "metadata_with_paper_key": with_key,
+        "metadata_without_paper_key": total_articles - with_key,
+        "selections_total_today": len(selections_today),
+        "selections_paper_number_dist": dict(paper_number_in_selected),
+        "selections_score_stats": persona_score_stats,
+    }
+
+    logger.info(
+        json.dumps(
+            {
+                "event": "selector_diag_phase4a_check",
+                "hours": hours,
+                "summary": summary,
+                "boost_unit_test": boost_unit_test,
+            },
+            ensure_ascii=False,
+        )
+    )
+
+    return success_response(
+        {
+            "diag": "phase4a_check",
+            "hours": hours,
+            "boost_unit_test": boost_unit_test,
+            "metadata_distribution": metadata_distribution,
+            "selections_today": selections_today,
+            "summary": summary,
+        }
+    )
+
+
 def _filter_articles_with_preview(
     articles: List[Dict[str, Any]],
 ) -> tuple[List[Dict[str, Any]], List[str]]:
@@ -266,6 +408,8 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     # See _diag_paper_metadata docstring for the payload shape.
     if event.get("_diag") == "paper_metadata":
         return await _diag_paper_metadata(event)
+    if event.get("_diag") == "phase4a_check":
+        return await _diag_phase4a_check(event)
 
     sel_date = _resolve_selection_date(event)
 
