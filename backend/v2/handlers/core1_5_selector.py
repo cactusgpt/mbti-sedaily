@@ -50,8 +50,9 @@ import json
 import logging
 import os
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+from common import feature_flag
 from config.constants import CORS_HEADERS
 from core.decorators import lambda_handler as handler_decorator
 from core.response import success_response
@@ -204,6 +205,8 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     # batch size — not heavy, but cheap and idempotent (ON CONFLICT
     # DO UPDATE preserves selected/transformed_at across re-runs).
     upsert_count = 0
+    boost_max_page = feature_flag.get_threshold("selector-paper-boost-max-page", 1)
+    boosted_articles = 0
     for article in eligible:
         nid = article["news_id"]
         scores = scores_by_id.get(nid)
@@ -212,10 +215,18 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             # 5.0 on Nova failure), so this should never trigger —
             # defensive guard for future contributors.
             continue
+        # Phase 4-A: paper_number 추출 (metadata JSONB 의 string 형태) → int 변환.
+        # collector 가 _build_metadata 에서 promote 한 paper_number 만 사용 — 정수
+        # 가 아니거나 부재 시 None 으로 fall-through (boost 0).
+        meta = article.get("metadata") or {}
+        pn_str = str(meta.get("paper_number") or "").strip()
+        paper_number_int: Optional[int] = int(pn_str) if pn_str.isdigit() else None
+        if paper_number_int is not None and paper_number_int <= boost_max_page:
+            boosted_articles += 1
         quality = float(scores.get("quality", 5.0))
         for group in _MBTI_GROUPS:
             mbti_val = float(scores.get(f"{group.lower()}_score", 5.0))
-            comp = composite_score(scores, group)
+            comp = composite_score(scores, group, paper_number=paper_number_int)
             pg.upsert_selection_score(
                 news_id=nid,
                 mbti_type=group,
@@ -258,6 +269,8 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         "upserts": upsert_count,
         "rerank": rerank_results,
         "top_n_per_mbti": TOP_N_PER_MBTI,
+        "boosted_articles": boosted_articles,
+        "boost_max_page": boost_max_page,
     }
     logger.info(json.dumps(metrics, ensure_ascii=False))
     return success_response(metrics)
