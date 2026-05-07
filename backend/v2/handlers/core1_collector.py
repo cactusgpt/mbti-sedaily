@@ -43,21 +43,28 @@ Phase 2 TODO for the Phase 5 review of this policy.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from clients.s3_xml_client import S3Article, S3XMLClient
+from common import feature_flag
 from config.constants import CORS_HEADERS
 from core.decorators import lambda_handler as handler_decorator
 from core.response import success_response
 
+from v2.clients.cloudwatch_metrics import emit_count
 from v2.clients.embedding_v2_client import EmbeddingV2Client
 from v2.clients.pgvector_v2_client import PgVectorV2Client
 from v2.clients.s3_article_v2_client import S3ArticleV2Client
 
 logger = logging.getLogger(__name__)
+# Lambda 기본 root logger level 이 WARNING — 이 모듈의 collector_paper_mode_run /
+# Collector run started/complete 등 INFO JSON 이벤트가 CloudWatch 에 안 찍히는
+# 문제. 같은 패턴으로 core1_5_selector 도 INFO 강제 (line 69).
+logging.getLogger().setLevel(logging.INFO)
 
 _KST = timezone(timedelta(hours=9))
 
@@ -93,33 +100,57 @@ def _today_kst() -> str:
     return datetime.now(_KST).strftime("%Y%m%d")
 
 
+def _yesterday_kst() -> str:
+    """Yesterday in KST as YYYYMMDD. Phase 4-A paper-mode default."""
+    return (datetime.now(_KST) - timedelta(days=1)).strftime("%Y%m%d")
+
+
 def _extract_date(event: Dict[str, Any]) -> str:
-    """Date precedence: ``event.date`` > ``event.detail.date`` > today KST.
+    """Date precedence: ``event.date`` > ``event.detail.date`` > paper-mode? yesterday : today.
 
     * Manual invoke: ``{"date": "20260419"}``.
     * EventBridge rule with input transformer: ``{"detail": {"date": ...}}``.
-    * EventBridge default (no transformer): neither key — falls back to today.
-
-    Treats ``event.detail = None`` identically to ``event.detail = {}`` so a
-    minimal EventBridge payload doesn't raise AttributeError.
+    * EventBridge default (no transformer): neither key. paper-mode flag
+      enabled → yesterday KST (paper articles 가 D-1 daily-xml 에 push 됨).
+      flag disabled → legacy today KST.
     """
-    return (
-        event.get("date")
-        or (event.get("detail") or {}).get("date")
-        or _today_kst()
-    )
+    raw = event.get("date") or (event.get("detail") or {}).get("date")
+    if raw:
+        return str(raw)
+    if feature_flag.is_enabled("collector-paper-mode"):
+        return _yesterday_kst()
+    return _today_kst()
 
 
-def _is_collectible(article: S3Article) -> bool:
-    """Garbage filter per TASK-2.1 spec.
+def _passes_paper_filter(article: S3Article) -> Tuple[bool, str]:
+    """paper-mode 일 때 paper element 보유 article 만 통과.
 
-    Rejects body shorter than ``_MIN_BODY_LENGTH`` or a title containing
-    ``[인사]`` / ``[부고]``. Intentionally cheap — Nova-based scoring
-    lives in Core 3, not here.
+    Returns ``(ok, reason)``: legacy mode 면 무조건 ``(True, 'legacy-mode')``,
+    paper mode 면 ``article.paper`` 유무로 결정. reason 은 상위 metric/log 가
+    이유별 분포를 집계할 수 있게 하는 라벨이며 사용자 노출 문자열은 아님.
+    """
+    if not feature_flag.is_enabled("collector-paper-mode"):
+        return True, "legacy-mode"
+    if article.paper is None:
+        return False, "no-paper-element"
+    return True, "has-paper"
+
+
+def _is_collectible(article: S3Article) -> Tuple[bool, str]:
+    """Garbage + paper filter. Returns ``(ok, reason)``.
+
+    Reasons: ``body-too-short`` / ``title-garbage`` / ``no-paper-element``
+    (rejects), ``pass`` (accepts). Caller aggregates reasons for the
+    ``collector_paper_mode_run`` log event.
     """
     if len(article.content_clean) < _MIN_BODY_LENGTH:
-        return False
-    return not any(m in article.title for m in _GARBAGE_TITLE_MARKERS)
+        return False, "body-too-short"
+    if any(m in article.title for m in _GARBAGE_TITLE_MARKERS):
+        return False, "title-garbage"
+    ok, reason = _passes_paper_filter(article)
+    if not ok:
+        return False, reason
+    return True, "pass"
 
 
 def _build_embedding_text(article: S3Article) -> str:
@@ -140,7 +171,7 @@ def _build_metadata(article: S3Article) -> Dict[str, Any]:
     for articles that actually surface to users (~13% of raw ingest).
     See core2_transform._extract_image_url.
     """
-    return {
+    base: Dict[str, Any] = {
         "title": article.title,
         "category": article.main_category,
         "published_at": article.published_at,
@@ -151,6 +182,11 @@ def _build_metadata(article: S3Article) -> Dict[str, Any]:
         "sub_title": article.sub_title or "",
         "content_preview": article.content_clean[:_CONTENT_PREVIEW_CHARS],
     }
+    if article.paper is not None:
+        base["paper_number"] = article.paper.paper_number or ""
+        base["paper_date"] = article.paper.publish_date or ""
+        base["paper_paragraph"] = article.paper.paragraph or ""
+    return base
 
 
 def _is_zero_vector(embedding: List[float], tol: float = 1e-9) -> bool:
@@ -251,8 +287,34 @@ async def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
         action_counts[a.action] = action_counts.get(a.action, 0) + 1
 
     inserts = [a for a in all_articles if a.action == "I"]
-    after_garbage = [a for a in inserts if _is_collectible(a)]
+    paper_mode_enabled = feature_flag.is_enabled("collector-paper-mode")
+    filter_reasons: Dict[str, int] = {
+        "pass": 0,
+        "body-too-short": 0,
+        "title-garbage": 0,
+        "no-paper-element": 0,
+    }
+    after_garbage: List[S3Article] = []
+    for a in inserts:
+        ok, reason = _is_collectible(a)
+        filter_reasons[reason] = filter_reasons.get(reason, 0) + 1
+        if ok:
+            after_garbage.append(a)
     garbage_count = len(inserts) - len(after_garbage)
+    logger.info(json.dumps({
+        "event": "collector_paper_mode_run",
+        "target_date": date_str,
+        "paper_mode": paper_mode_enabled,
+        "total_inserts": len(inserts),
+        "paper_pass": filter_reasons["pass"],
+        "paper_fail_no_element": filter_reasons["no-paper-element"],
+        "other_filtered": filter_reasons["body-too-short"] + filter_reasons["title-garbage"],
+    }, ensure_ascii=False))
+    emit_count(
+        "CollectorPaperPass",
+        filter_reasons["pass"],
+        dimensions={"mode": "paper" if paper_mode_enabled else "legacy"},
+    )
 
     candidate_ids = [a.nsid for a in after_garbage]
     existing = pg.filter_existing_news_ids(candidate_ids)

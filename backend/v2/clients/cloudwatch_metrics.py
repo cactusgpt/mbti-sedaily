@@ -82,6 +82,32 @@ def emit_bedrock_token_usage(
         logger.warning(f"emit_bedrock_token_usage failed (non-fatal): {exc}")
 
 
+def emit_count(
+    metric_name: str,
+    value: int,
+    dimensions: dict | None = None,
+    unit: str = "Count",
+) -> None:
+    """범용 count metric emit. Phase 4-A 의 CollectorPaperPass 등에 사용.
+
+    실패 silent — application logic 막지 않음.
+    Lambda 차원은 자동 추가되지 않음 (caller 가 명시 dimension 으로 넘김).
+    """
+    try:
+        dim_list = [{"Name": k, "Value": str(v)} for k, v in (dimensions or {}).items()]
+        _get_cw_client().put_metric_data(
+            Namespace=_CW_NAMESPACE,
+            MetricData=[{
+                "MetricName": metric_name,
+                "Dimensions": dim_list,
+                "Value": value,
+                "Unit": unit,
+            }],
+        )
+    except Exception as exc:
+        logger.warning(f"emit_count({metric_name!r}) failed (non-fatal): {exc}")
+
+
 def parse_bedrock_response_tokens(response: dict) -> tuple:
     """Bedrock invoke_model 응답에서 token count 추출.
 
