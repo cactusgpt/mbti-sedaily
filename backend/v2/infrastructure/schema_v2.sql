@@ -128,16 +128,23 @@ CREATE INDEX IF NOT EXISTS idx_user_interactions_news_created
 -- Multi-run merge-and-rerank within a day uses ON CONFLICT UPSERT on the
 -- UNIQUE constraint, then rerank_selections flips the selected flag.
 CREATE TABLE IF NOT EXISTS article_selections (
-    id                  UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
-    news_id             TEXT          NOT NULL REFERENCES articles(news_id) ON DELETE CASCADE,
-    mbti_type           CHAR(2)       NOT NULL CHECK (mbti_type IN ('NT','NF','ST','SF')),
-    selection_date      DATE          NOT NULL,
-    mbti_score          REAL          NOT NULL CHECK (mbti_score BETWEEN 0 AND 10),
-    quality_score       REAL          CHECK (quality_score IS NULL OR quality_score BETWEEN 0 AND 10),
-    composite_score     REAL          NOT NULL,
-    selected            BOOLEAN       NOT NULL DEFAULT FALSE,
-    scored_at           TIMESTAMPTZ   NOT NULL DEFAULT now(),
-    transformed_at      TIMESTAMPTZ,
+    id                          UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
+    news_id                     TEXT          NOT NULL REFERENCES articles(news_id) ON DELETE CASCADE,
+    mbti_type                   CHAR(2)       NOT NULL CHECK (mbti_type IN ('NT','NF','ST','SF')),
+    selection_date              DATE          NOT NULL,
+    mbti_score                  REAL          NOT NULL CHECK (mbti_score BETWEEN 0 AND 10),
+    quality_score               REAL          CHECK (quality_score IS NULL OR quality_score BETWEEN 0 AND 10),
+    composite_score             REAL          NOT NULL,
+    selected                    BOOLEAN       NOT NULL DEFAULT FALSE,
+    scored_at                   TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    transformed_at              TIMESTAMPTZ,
+    -- Phase 5 retry-limit cost cap. Validator-rejected (article, mbti) pairs
+    -- otherwise loop forever in the 5-min transform polling. Each
+    -- transform_validation_failure increments this; once it reaches
+    -- threshold/transform-retry-limit (default 5) the row is force-released
+    -- by stamping transformed_at = now(). The feed query naturally hides such
+    -- rows because article_versions has no row for them (INNER JOIN).
+    validation_failure_count    INTEGER       NOT NULL DEFAULT 0,
     UNIQUE (news_id, mbti_type, selection_date)
 );
 

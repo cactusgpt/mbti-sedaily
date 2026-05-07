@@ -1379,6 +1379,121 @@ class PgVectorV2Client:
                 exc_info=True,
             )
 
+    # =========================================================================
+    # Phase 5 retry-limit (validation_failure_count cost cap)
+    # =========================================================================
+
+    def ensure_phase5_schema(self) -> None:
+        """Idempotent additive migration: article_selections.validation_failure_count.
+
+        Called once per cold start by the Transform Lambda. ``ADD COLUMN IF
+        NOT EXISTS`` makes the second-and-later runs a no-op (PostgreSQL
+        9.6+). Default 0 lets the row backfill cost stay bounded — Postgres
+        11+ stores the default in pg_attribute without touching existing
+        rows on the ALTER, so this is fast even on a populated table.
+
+        Why here and not in ``init_pgvector_v2.py``: that script is a CLI
+        tool the human operator runs from outside the VPC. The RDS instance
+        sits in a private subnet, so the column has to be added from a
+        Lambda that already has VPC + Secrets Manager access. Idempotency
+        keeps it safe to live on the cold-start path indefinitely.
+        """
+        if not self._enabled:
+            return
+        try:
+            self.conn.run(
+                """
+                ALTER TABLE article_selections
+                ADD COLUMN IF NOT EXISTS validation_failure_count INTEGER NOT NULL DEFAULT 0
+                """
+            )
+        except Exception as exc:
+            logger.warning(
+                f"ensure_phase5_schema (ALTER TABLE article_selections) failed: {exc}"
+            )
+
+    def increment_validation_failure_count(
+        self,
+        news_id: str,
+        mbti_type: str,
+        selection_date: date,
+    ) -> int:
+        """``validation_failure_count += 1`` on the matching selection row,
+        return the new count. Returns 0 if the row is missing or the update
+        otherwise no-ops (defensive; feeds straight into the retry-limit
+        comparison so a missing row should NOT trigger a force-release).
+        """
+        group = _normalize_mbti_group(mbti_type)
+        if not self._enabled:
+            return 0
+        try:
+            rows = self.conn.run(
+                """
+                UPDATE article_selections
+                   SET validation_failure_count = validation_failure_count + 1
+                 WHERE news_id = :nid
+                   AND mbti_type = :g
+                   AND selection_date = :d
+                RETURNING validation_failure_count
+                """,
+                nid=news_id,
+                g=group,
+                d=selection_date,
+            )
+            if rows:
+                return int(rows[0][0])
+            return 0
+        except Exception as exc:
+            logger.warning(
+                f"increment_validation_failure_count({news_id!r},{group},"
+                f"{selection_date}) failed: {exc}"
+            )
+            return 0
+
+    def force_transformed_at_for_retry_limit(
+        self,
+        news_id: str,
+        mbti_type: str,
+        selection_date: date,
+    ) -> bool:
+        """Stamp transformed_at = now() to break out of an infinite retry
+        loop after ``validation_failure_count`` reaches the limit.
+
+        Returns ``True`` if a row was updated, ``False`` otherwise. Only
+        flips rows still ``transformed_at IS NULL`` so a successful retry
+        race doesn't get clobbered.
+
+        Article_versions remains absent for this (news_id, mbti_type) pair,
+        so the feed query (INNER JOIN article_versions) keeps it hidden
+        from frontend even though the selection row is now "complete" from
+        the transform queue's perspective.
+        """
+        group = _normalize_mbti_group(mbti_type)
+        if not self._enabled:
+            return False
+        try:
+            rows = self.conn.run(
+                """
+                UPDATE article_selections
+                   SET transformed_at = now()
+                 WHERE news_id = :nid
+                   AND mbti_type = :g
+                   AND selection_date = :d
+                   AND transformed_at IS NULL
+                RETURNING 1
+                """,
+                nid=news_id,
+                g=group,
+                d=selection_date,
+            )
+            return bool(rows)
+        except Exception as exc:
+            logger.warning(
+                f"force_transformed_at_for_retry_limit({news_id!r},{group},"
+                f"{selection_date}) failed: {exc}"
+            )
+            return False
+
     def get_feed(
         self,
         mbti_type: str,
