@@ -83,6 +83,7 @@ from config.constants import CORS_HEADERS
 from core.decorators import lambda_handler as handler_decorator
 from core.response import success_response
 
+from v2.clients.cloudwatch_metrics import emit_count
 from v2.clients.embedding_v2_client import EmbeddingV2Client
 from v2.clients.pgvector_v2_client import PgVectorV2Client
 from v2.clients.s3_article_v2_client import S3ArticleV2Client
@@ -151,6 +152,9 @@ async def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return {"statusCode": 200, "headers": CORS_HEADERS, "body": ""}
 
     pg = PgVectorV2Client()
+    # Phase 5 — idempotent additive migration for validation_failure_count.
+    # No-op after the first successful run (ADD COLUMN IF NOT EXISTS).
+    pg.ensure_phase5_schema()
     # TASK-5: poll selected+pending rows from article_selections, not raw
     # articles directly. Each row is one (article × MBTI) pair the Selector
     # chose. Group by news_id so each article fires once per Lambda task
@@ -456,6 +460,57 @@ async def _process_one_article(
                     await asyncio.to_thread(
                         pg.update_article_status, news_id, "failed"
                     )
+                # Phase 5 retry-limit: bump validation_failure_count per
+                # requested group; force-release any group at/over the
+                # threshold so the row stops re-entering the 5-min
+                # transform queue. Article_versions row was never written
+                # for these groups (we returned None before _store_one_version),
+                # so the feed query's INNER JOIN article_versions naturally
+                # keeps the released row hidden from frontend.
+                retry_limit = get_threshold("transform-retry-limit", default=5)
+                released_groups: List[str] = []
+                fail_counts: Dict[str, int] = {}
+                for group in requested_groups:
+                    async with db_lock:
+                        new_count = await asyncio.to_thread(
+                            pg.increment_validation_failure_count,
+                            news_id,
+                            group,
+                            selection_date,
+                        )
+                    fail_counts[group] = new_count
+                    if new_count >= retry_limit:
+                        async with db_lock:
+                            released = await asyncio.to_thread(
+                                pg.force_transformed_at_for_retry_limit,
+                                news_id,
+                                group,
+                                selection_date,
+                            )
+                        if released:
+                            released_groups.append(group)
+                            emit_count(
+                                "TransformRetryLimitReached",
+                                1,
+                                dimensions={"mbti": group},
+                            )
+                            logger.warning(
+                                json.dumps(
+                                    {
+                                        "event": "transform_retry_limit_reached",
+                                        "news_id": news_id,
+                                        "mbti_type": group,
+                                        "failure_count": new_count,
+                                        "retry_limit": retry_limit,
+                                        "last_issue": (
+                                            validation.issues[0]
+                                            if validation.issues
+                                            else None
+                                        ),
+                                    },
+                                    ensure_ascii=False,
+                                )
+                            )
                 logger.error(
                     json.dumps(
                         {
@@ -465,6 +520,9 @@ async def _process_one_article(
                             "ai_check_used": validation.ai_check_used,
                             "issues": validation.issues,
                             "usage": usage,
+                            "fail_counts": fail_counts,
+                            "released_groups": released_groups,
+                            "retry_limit": retry_limit,
                         },
                         ensure_ascii=False,
                     )
