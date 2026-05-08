@@ -76,7 +76,7 @@ python3 -m pytest tests/test_split_storage.py           # single test file
 python3 -c "import ast; ast.parse(open('file.py').read())"  # syntax check
 ```
 
-`main.py` is a local-only FastAPI server with limited endpoints (health, time-machine, raw S3 articles). It does **not** serve MBTI-transformed versions or the full API surface. The authoritative API runs as **23 Lambda functions** behind API Gateway.
+`main.py` is a local-only FastAPI server exposing 7 routes (`/`, `/health`, `/api/chat`, `/api/chat/stream`, `/time-machine`, `/articles`, `/article/{id}`). It re-uses the v1 handler functions (`generate_chat_response`, `get_time_machine_data`, etc.) so chat behavior matches production, but it does **not** cover the full API surface (no engagement / search / podcast / archive / etc.). The authoritative API runs as **23 Lambda functions** behind API Gateway.
 
 `backend/tests/` contains integration tests (`test_split_storage`, `test_pipeline`, `test_pgvector`, `test_opensearch`, `test_full_integration`, `test_model_comparison`, etc.) that hit real AWS resources — they need AWS credentials and Bedrock access to run, and are not wired into CI. Treat them as operational smoke tests, not a unit-test safety net.
 
@@ -548,6 +548,8 @@ The v1 `/s3-articles` and `/api/article/{id}` Lambdas still exist and respond, b
 | `ARTICLE_PIPELINE.md` | Step Functions pipeline walkthrough (current chained-Map design) |
 | `frontend-next/CLAUDE.md` | Target FSD architecture rules, naming conventions, dependency direction |
 | `frontend-next/AGENTS.md` | Agent-oriented rules for frontend work |
+| `frontend-admin/CLAUDE.md` | Admin frontend rules — `@`-imports `AGENTS.md` ("This is NOT the Next.js you know" — Next 16 breaking changes warning) |
+| `frontend-admin/AGENTS.md` | Source of truth for the Next 16 caveat — read before writing any admin-frontend code |
 | `backend/infrastructure/README.md` | Step Functions + CloudFormation provisioning guide |
 
 ### v2 (redesign, `backend/v2/`)
@@ -561,5 +563,6 @@ Read these in order when starting any v2 work. `backend/v2/CLAUDE.md` explicitly
 | `backend/v2/TASKS.md` | PR-sized task checklist (Phase 0 scaffolding → Phase 5). Each TASK is one session / one commit |
 | `backend/v2/COMMANDS.md` | Validated v2 commands — use these instead of guessing AWS CLI / pytest / deploy incantations |
 | `backend/v2/README.md` | Quick directory tour + import sanity check (`python3 -c "import v2"`) |
+| `backend/v2/observability/README.md` | Cost-1b/Cost-2 observability notes — what the dashboard JSON pulls and how to apply it |
 
 Note: `README.md` at project root is outdated (still references React+Vite and the old `frontend/` directory). Use this CLAUDE.md as the authoritative reference.
