@@ -167,6 +167,7 @@ article = await db.get_article(news_id)  # unified retrieval
 First three tables have constants in `config/constants.py` and are exposed through `config.settings`. The engagement table is hardcoded as `ENGAGEMENT_TABLE` in `handlers/engagement_handler.py:33` — if you need to add an engagement constant, put it in `config/constants.py` and thread it through settings rather than duplicating the string.
 
 Backend module layers (디렉토리 / 모듈 구조 / v1·v2 layout): see [backend/CLAUDE.md](backend/CLAUDE.md).
+
 Admin stack (Backend Admin Lambda / Feature Flags / Thresholds / Prompts / Secrets / Admin Frontend / Admin-5): see [docs/admin-stack.md](docs/admin-stack.md).
 ### Frontend Structure
 
