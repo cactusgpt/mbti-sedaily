@@ -541,11 +541,11 @@ The v1 `/s3-articles` and `/api/article/{id}` Lambdas still exist and respond, b
 
 | File | Content |
 |------|---------|
-| `AWS_BACKEND_ARCHITECTURE.md` | Verified production AWS inventory — account, ARNs, 62 API routes, 23 Lambda configs, Step Functions state details, cost estimates. Use this when you need exact resource names/IDs. |
-| `FULL_PROJECT_SPEC.md` | Complete codebase spec (all files, APIs, schemas, code examples) |
-| `PROJECT_DOCUMENTATION.md` | Korean-language project spec — service overview, editor personas, data flow. Last refreshed 2026-04-07 so individual values may have drifted; verify against this CLAUDE.md or the source before relying on specifics. |
-| `ai-lens-backend-architecture.md` | To-Be architecture design document |
-| `ARTICLE_PIPELINE.md` | Step Functions pipeline walkthrough (current chained-Map design) |
+| `docs/AWS_BACKEND_ARCHITECTURE.md` | Verified production AWS inventory — account, ARNs, 62 API routes, 23 Lambda configs, Step Functions state details, cost estimates. Use this when you need exact resource names/IDs. |
+| `docs/FULL_PROJECT_SPEC.md` | Complete codebase spec (all files, APIs, schemas, code examples) |
+| `docs/archive/PROJECT_DOCUMENTATION.md` | Korean-language project spec — service overview, editor personas, data flow. Last refreshed 2026-04-07 so individual values may have drifted; verify against this CLAUDE.md or the source before relying on specifics. |
+| `docs/ai-lens-backend-architecture.md` | To-Be architecture design document |
+| `docs/ARTICLE_PIPELINE.md` | Step Functions pipeline walkthrough (current chained-Map design) |
 | `frontend-next/CLAUDE.md` | Target FSD architecture rules, naming conventions, dependency direction |
 | `frontend-next/AGENTS.md` | Agent-oriented rules for frontend work |
 | `frontend-admin/CLAUDE.md` | Admin frontend rules — `@`-imports `AGENTS.md` ("This is NOT the Next.js you know" — Next 16 breaking changes warning) |
