@@ -1,26 +1,108 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Text — high-contrast slate scale (replaces zinc to fix readability on glass surfaces). */
+  --text-primary: #0f172a;    /* slate-900 — headings, primary content */
+  --text-secondary: #334155;  /* slate-700 — body text on glass */
+  --text-muted: #475569;      /* slate-600 — meta / timestamps (was zinc-500/400) */
+  --text-faint: #64748b;      /* slate-500 — only for very ancillary hints */
+
+  /* Glass surfaces */
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-bg-strong: rgba(255, 255, 255, 0.7);
+  --glass-bg-hover: rgba(255, 255, 255, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.55);
+  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.08);
+  --glass-shadow-lg: 0 20px 60px 0 rgba(31, 38, 135, 0.12);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: transparent;
+  --color-foreground: var(--text-primary);
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard",
+    "Noto Sans KR", Roboto, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  min-height: 100vh;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* Soft gradient + radial color blobs — gives glassmorphism something to refract.
+     `background-attachment: fixed` keeps the gradient stable across scroll. */
+  background:
+    radial-gradient(at 8% 4%, rgba(99, 102, 241, 0.18) 0px, transparent 45%),
+    radial-gradient(at 92% 12%, rgba(217, 70, 239, 0.14) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, rgba(56, 189, 248, 0.16) 0px, transparent 55%),
+    linear-gradient(135deg, #f8fafc 0%, #eef2ff 50%, #f0f9ff 100%);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+/* ---------- Glass surface utilities ----------
+   Plain CSS classes (not @utility) so they compose freely with Tailwind classes
+   like rounded-2xl / overflow-hidden / etc. */
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+}
+
+.glass-panel-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow-lg);
+}
+
+.glass-nav {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 1px 0 0 rgba(15, 23, 42, 0.04);
+}
+
+.glass-input {
+  background: rgba(255, 255, 255, 0.65);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(148, 163, 184, 0.4); /* slate-400/40 */
+  color: var(--text-primary);
+  transition: border-color 120ms ease, background 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.glass-input::placeholder {
+  color: var(--text-faint);
+}
+
+.glass-input:focus {
+  outline: none;
+  border-color: rgb(59, 130, 246); /* blue-500 */
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+}
+
+/* Slightly translucent table header — keeps the glass illusion under thead. */
+.glass-thead {
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.glass-row-hover:hover {
+  background: rgba(255, 255, 255, 0.45);
+}
+
+/* Subtle divider between rows that doesn't fight the glass background. */
+.glass-divider {
+  border-color: rgba(148, 163, 184, 0.25);
 }
