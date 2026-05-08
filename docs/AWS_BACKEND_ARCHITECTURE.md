@@ -1,5 +1,7 @@
 # AI LENS — AWS Backend Architecture
 
+> **Status**: v1 production snapshot. As of 2026-04-15. v2 namespace (sedaily-mbti-v2-*-dev), RDS pgvector, S3 article-body-v2 등은 미반영. v1 infra 의 정확한 스냅샷으로 가치 있음. v2 동작은 [backend/CLAUDE.md](../backend/CLAUDE.md) 또는 [v2-phase-history.md](v2-phase-history.md) 참조.
+
 Exact snapshot of production infrastructure as of 2026-04-15.
 All values verified against live AWS resources and codebase.
 

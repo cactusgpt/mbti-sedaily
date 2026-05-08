@@ -169,6 +169,7 @@ First three tables have constants in `config/constants.py` and are exposed throu
 Backend module layers (디렉토리 / 모듈 구조 / v1·v2 layout): see [backend/CLAUDE.md](backend/CLAUDE.md).
 
 Admin stack (Backend Admin Lambda / Feature Flags / Thresholds / Prompts / Secrets / Admin Frontend / Admin-5): see [docs/admin-stack.md](docs/admin-stack.md).
+
 ### Frontend Structure
 
 The frontend is migrating toward Feature-Sliced Design but is not fully there yet. The `frontend-next/CLAUDE.md` describes the **target** architecture — read it before touching frontend code, but be aware of the actual state:
@@ -358,9 +359,9 @@ The v1 `/s3-articles` and `/api/article/{id}` Lambdas still exist and respond, b
 | File | Content |
 |------|---------|
 | `docs/AWS_BACKEND_ARCHITECTURE.md` | Verified production AWS inventory — account, ARNs, 62 API routes, 23 Lambda configs, Step Functions state details, cost estimates. Use this when you need exact resource names/IDs. |
-| `docs/FULL_PROJECT_SPEC.md` | Complete codebase spec (all files, APIs, schemas, code examples) |
+| `docs/archive/FULL_PROJECT_SPEC.md` | Complete codebase spec (all files, APIs, schemas, code examples) |
 | `docs/archive/PROJECT_DOCUMENTATION.md` | Korean-language project spec — service overview, editor personas, data flow. Last refreshed 2026-04-07 so individual values may have drifted; verify against this CLAUDE.md or the source before relying on specifics. |
-| `docs/ai-lens-backend-architecture.md` | To-Be architecture design document |
+| `docs/archive/ai-lens-backend-architecture.md` | To-Be architecture design document |
 | `docs/ARTICLE_PIPELINE.md` | Step Functions pipeline walkthrough (current chained-Map design) |
 | `frontend-next/CLAUDE.md` | Target FSD architecture rules, naming conventions, dependency direction |
 | `frontend-next/AGENTS.md` | Agent-oriented rules for frontend work |

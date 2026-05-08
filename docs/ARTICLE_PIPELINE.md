@@ -1,5 +1,7 @@
 # Article Pipeline — How AI LENS Collects, Transforms, and Serves Articles
 
+> **Status**: v1 reference. Last meaningful update 2026-04-10. TASK-7 v2 cutover (2026-04-27) 이후 미반영. v1 (production) Step Functions pipeline 의 정확한 설명으로 가치 있음. v2 동작은 [backend/CLAUDE.md](../backend/CLAUDE.md) 또는 [v2-phase-history.md](v2-phase-history.md) 참조.
+
 > **Service**: AI LENS — 서울경제신문 MBTI 맞춤형 경제 뉴스
 > **Production**: https://mbti.sedaily.ai
 > **API Gateway**: https://chzwwtjtgk.execute-api.us-east-1.amazonaws.com/dev
