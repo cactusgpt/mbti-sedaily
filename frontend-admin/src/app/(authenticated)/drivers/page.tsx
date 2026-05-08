@@ -75,7 +75,9 @@ export default function DriversPage() {
   if (error && !data) {
     return (
       <div className="space-y-3">
-        <h1 className="text-2xl font-bold">Drivers</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          Drivers
+        </h1>
         <p className="text-sm text-red-600">{error}</p>
       </div>
     );
@@ -84,35 +86,42 @@ export default function DriversPage() {
   if (!data) {
     return (
       <div className="space-y-3">
-        <h1 className="text-2xl font-bold">Drivers</h1>
-        <p className="text-sm text-zinc-500">로드 중...</p>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          Drivers
+        </h1>
+        <p className="text-sm text-slate-600">로드 중...</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-8">
-      <h1 className="text-2xl font-bold">Drivers</h1>
+      <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+        Drivers
+      </h1>
 
       {/* === EventBridge Rules === */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">
-          EventBridge Rules ({data.rules.length})
+        <h2 className="text-lg font-semibold text-slate-900">
+          EventBridge Rules{" "}
+          <span className="text-slate-600 font-normal">
+            ({data.rules.length})
+          </span>
         </h2>
-        <div className="bg-white rounded-lg shadow-sm border border-zinc-200 overflow-hidden">
+        <div className="glass-panel rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-zinc-50 border-b border-zinc-200">
+            <thead className="glass-thead">
               <tr>
-                <th className="text-left px-4 py-2 font-medium text-zinc-700">
+                <th className="text-left px-4 py-3 font-semibold text-slate-800">
                   Rule
                 </th>
-                <th className="text-left px-4 py-2 font-medium text-zinc-700">
+                <th className="text-left px-4 py-3 font-semibold text-slate-800">
                   Schedule
                 </th>
-                <th className="text-left px-4 py-2 font-medium text-zinc-700">
+                <th className="text-left px-4 py-3 font-semibold text-slate-800">
                   Cron Preset
                 </th>
-                <th className="text-center px-4 py-2 font-medium text-zinc-700">
+                <th className="text-center px-4 py-3 font-semibold text-slate-800">
                   State
                 </th>
               </tr>
@@ -121,15 +130,17 @@ export default function DriversPage() {
               {data.rules.map((rule) => (
                 <tr
                   key={rule.name}
-                  className="border-b border-zinc-100 last:border-0"
+                  className="border-b glass-divider last:border-0 glass-row-hover transition-colors"
                 >
-                  <td className="px-4 py-2 font-mono text-xs">{rule.name}</td>
-                  <td className="px-4 py-2 font-mono text-xs text-zinc-500">
+                  <td className="px-4 py-2.5 font-mono text-xs text-slate-800">
+                    {rule.name}
+                  </td>
+                  <td className="px-4 py-2.5 font-mono text-xs text-slate-700">
                     {rule.schedule}
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-2.5">
                     {rule.preset === "custom" ? (
-                      <span className="text-xs text-zinc-500 italic">
+                      <span className="text-xs text-slate-600 italic">
                         custom (manual)
                       </span>
                     ) : (
@@ -137,7 +148,7 @@ export default function DriversPage() {
                         disabled={busy}
                         value={rule.preset}
                         onChange={(e) => setCron(rule.name, e.target.value)}
-                        className="border border-zinc-300 rounded px-2 py-1 text-xs disabled:opacity-50"
+                        className="glass-input rounded-md px-2 py-1 text-xs disabled:opacity-50"
                       >
                         {CRON_PRESETS.map((p) => (
                           <option key={p.value} value={p.value}>
@@ -147,16 +158,16 @@ export default function DriversPage() {
                       </select>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-center">
+                  <td className="px-4 py-2.5 text-center">
                     <button
                       disabled={busy}
                       onClick={() =>
                         toggleRule(rule.name, rule.state !== "ENABLED")
                       }
-                      className={`text-xs px-3 py-1 rounded font-medium transition-colors disabled:opacity-50 ${
+                      className={`text-xs px-3 py-1 rounded-full font-semibold transition-all disabled:opacity-50 ${
                         rule.state === "ENABLED"
-                          ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                          : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                          ? "bg-emerald-500/15 text-emerald-800 ring-1 ring-emerald-500/30 hover:bg-emerald-500/25"
+                          : "bg-slate-500/15 text-slate-700 ring-1 ring-slate-400/30 hover:bg-slate-500/25"
                       }`}
                     >
                       {rule.state}
@@ -171,23 +182,26 @@ export default function DriversPage() {
 
       {/* === Feature Flags === */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">
-          Feature Flags ({Object.keys(data.feature_flags).length})
+        <h2 className="text-lg font-semibold text-slate-900">
+          Feature Flags{" "}
+          <span className="text-slate-600 font-normal">
+            ({Object.keys(data.feature_flags).length})
+          </span>
         </h2>
-        <div className="bg-white rounded-lg shadow-sm border border-zinc-200 divide-y divide-zinc-100">
+        <div className="glass-panel rounded-2xl divide-y divide-slate-300/30 overflow-hidden">
           {Object.entries(data.feature_flags).map(([name, enabled]) => (
             <div
               key={name}
-              className="flex items-center justify-between px-4 py-3"
+              className="flex items-center justify-between px-4 py-3 glass-row-hover transition-colors"
             >
-              <span className="font-mono text-sm">{name}</span>
+              <span className="font-mono text-sm text-slate-800">{name}</span>
               <button
                 disabled={busy}
                 onClick={() => toggleFlag(name, !enabled)}
-                className={`text-xs px-3 py-1 rounded font-medium transition-colors disabled:opacity-50 ${
+                className={`text-xs px-3 py-1 rounded-full font-semibold transition-all disabled:opacity-50 ${
                   enabled
-                    ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200"
-                    : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                    ? "bg-emerald-500/15 text-emerald-800 ring-1 ring-emerald-500/30 hover:bg-emerald-500/25"
+                    : "bg-slate-500/15 text-slate-700 ring-1 ring-slate-400/30 hover:bg-slate-500/25"
                 }`}
               >
                 {enabled ? "ENABLED" : "DISABLED"}
@@ -199,10 +213,13 @@ export default function DriversPage() {
 
       {/* === Thresholds === */}
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">
-          Thresholds ({Object.keys(data.thresholds).length})
+        <h2 className="text-lg font-semibold text-slate-900">
+          Thresholds{" "}
+          <span className="text-slate-600 font-normal">
+            ({Object.keys(data.thresholds).length})
+          </span>
         </h2>
-        <div className="bg-white rounded-lg shadow-sm border border-zinc-200 divide-y divide-zinc-100">
+        <div className="glass-panel rounded-2xl divide-y divide-slate-300/30 overflow-hidden">
           {Object.entries(data.thresholds).map(([name, value]) => (
             <ThresholdRow
               key={name}
@@ -249,20 +266,20 @@ function ThresholdRow({
   const valid = !isNaN(parsed) && parsed >= 1 && parsed <= 10000;
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 gap-3">
-      <span className="font-mono text-sm flex-1">{name}</span>
+    <div className="flex items-center justify-between px-4 py-3 gap-3 glass-row-hover transition-colors">
+      <span className="font-mono text-sm flex-1 text-slate-800">{name}</span>
       <input
         type="number"
         min={1}
         max={10000}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
-        className="w-24 px-2 py-1 border border-zinc-300 rounded text-sm tabular-nums"
+        className="glass-input w-24 px-2 py-1 rounded-md text-sm tabular-nums text-slate-900"
       />
       <button
         disabled={busy || !dirty || !valid}
         onClick={() => onSave(parsed)}
-        className="text-xs px-3 py-1 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm shadow-blue-500/20"
       >
         Save
       </button>

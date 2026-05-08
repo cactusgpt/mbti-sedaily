@@ -46,15 +46,18 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-6 max-w-md">
-      <h1 className="text-2xl font-bold">Settings</h1>
+      <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+        Settings
+      </h1>
 
       <form
         onSubmit={submit}
-        className="bg-white rounded-lg shadow-sm border border-zinc-200 p-6 space-y-4"
+        className="glass-panel rounded-2xl p-6 space-y-4"
       >
-        <h2 className="text-lg font-semibold">비밀번호 변경</h2>
-        <p className="text-xs text-zinc-500">
-          변경 후 SSM /sedaily-mbti/admin/password-hash 에 새 argon2id hash 저장. 기존 JWT 는 만료까지 유효.
+        <h2 className="text-lg font-semibold text-slate-900">비밀번호 변경</h2>
+        <p className="text-xs text-slate-700 leading-snug">
+          변경 후 SSM <code className="font-mono text-slate-800">/sedaily-mbti/admin/password-hash</code> 에 새
+          argon2id hash 저장. 기존 JWT 는 만료까지 유효.
         </p>
 
         <Field
@@ -79,7 +82,7 @@ export default function SettingsPage() {
         <button
           type="submit"
           disabled={saving}
-          className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm shadow-blue-500/20"
         >
           {saving ? "변경 중..." : "변경"}
         </button>
@@ -100,14 +103,14 @@ function Field({
   autoComplete?: string;
 }) {
   return (
-    <div className="space-y-1">
-      <label className="text-sm font-medium text-zinc-700">{label}</label>
+    <div className="space-y-1.5">
+      <label className="text-sm font-semibold text-slate-800">{label}</label>
       <input
         type="password"
         value={value}
         onChange={(e) => setValue(e.target.value)}
         autoComplete={autoComplete}
-        className="w-full px-3 py-2 border border-zinc-300 rounded text-sm focus:border-blue-500 focus:outline-none"
+        className="glass-input w-full px-3 py-2 rounded-lg text-sm text-slate-900"
       />
     </div>
   );

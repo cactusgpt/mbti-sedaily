@@ -38,12 +38,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map((t) => (
           <div
             key={t.id}
-            className={`px-4 py-2 rounded-md shadow-md text-white text-sm font-medium ${
+            className={`px-4 py-2.5 rounded-lg shadow-lg text-white text-sm font-semibold backdrop-blur-md ring-1 ${
               t.type === "success"
-                ? "bg-emerald-600"
+                ? "bg-emerald-600/95 ring-emerald-400/40 shadow-emerald-500/20"
                 : t.type === "error"
-                ? "bg-red-600"
-                : "bg-zinc-700"
+                ? "bg-red-600/95 ring-red-400/40 shadow-red-500/20"
+                : "bg-slate-800/95 ring-slate-500/40 shadow-slate-700/20"
             }`}
             role="status"
           >

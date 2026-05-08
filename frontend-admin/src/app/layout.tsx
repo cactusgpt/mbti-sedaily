@@ -14,7 +14,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko" className="h-full">
-      <body className="min-h-full flex flex-col bg-zinc-50 text-zinc-900 antialiased font-sans">
+      <body className="min-h-full flex flex-col text-slate-900 antialiased font-sans">
         <ToastProvider>{children}</ToastProvider>
       </body>
     </html>

@@ -38,28 +38,30 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-50">
+    <div className="min-h-screen flex items-center justify-center px-4">
       <form
         onSubmit={submit}
-        className="bg-white p-8 rounded-lg shadow-md w-full max-w-sm space-y-4"
+        className="glass-panel-strong p-8 rounded-3xl w-full max-w-sm space-y-5"
       >
-        <h1 className="text-xl font-bold text-zinc-900">
-          mbti-admin.sedaily.ai
-        </h1>
-        <p className="text-sm text-zinc-500">관리자 비밀번호 입력</p>
+        <div className="space-y-1">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            mbti-admin.sedaily.ai
+          </h1>
+          <p className="text-sm text-slate-700">관리자 비밀번호 입력</p>
+        </div>
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="비밀번호"
-          className="w-full px-4 py-2 border border-zinc-300 rounded focus:border-blue-500 focus:outline-none text-sm"
+          className="glass-input w-full px-4 py-2.5 rounded-lg text-sm text-slate-900"
           autoFocus
           required
         />
         <button
           type="submit"
           disabled={loading || !password}
-          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium transition-colors"
+          className="w-full bg-blue-600 text-white py-2.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold transition-all shadow-md shadow-blue-500/25"
         >
           {loading ? "로그인 중..." : "로그인"}
         </button>

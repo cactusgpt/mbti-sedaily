@@ -35,7 +35,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (!hydrated) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-zinc-500">
+      <div className="min-h-screen flex items-center justify-center text-sm text-slate-700">
         확인 중...
       </div>
     );
@@ -43,7 +43,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 
   if (!authed) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-sm text-zinc-500">
+      <div className="min-h-screen flex items-center justify-center text-sm text-slate-700">
         /login 으로 이동...
       </div>
     );

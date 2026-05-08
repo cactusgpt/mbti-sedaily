@@ -13,8 +13,10 @@ export default function PromptEditPageWrapper() {
     <Suspense
       fallback={
         <div className="space-y-3">
-          <h1 className="text-2xl font-bold">Prompt</h1>
-          <p className="text-sm text-zinc-500">로드 중...</p>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+            Prompt
+          </h1>
+          <p className="text-sm text-slate-600">로드 중...</p>
         </div>
       }
     >
@@ -59,9 +61,14 @@ function PromptEditPage() {
   if (!idParam) {
     return (
       <div className="space-y-3">
-        <h1 className="text-2xl font-bold">Prompt</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          Prompt
+        </h1>
         <p className="text-sm text-red-600">id 쿼리 파라미터 없음</p>
-        <Link href="/prompts" className="text-sm text-blue-600 hover:underline">
+        <Link
+          href="/prompts"
+          className="text-sm text-blue-700 hover:text-blue-900 hover:underline"
+        >
           ← 목록으로
         </Link>
       </div>
@@ -71,9 +78,14 @@ function PromptEditPage() {
   if (error) {
     return (
       <div className="space-y-3">
-        <h1 className="text-2xl font-bold">Prompt: {idParam}</h1>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          Prompt: {idParam}
+        </h1>
         <p className="text-sm text-red-600">{error}</p>
-        <Link href="/prompts" className="text-sm text-blue-600 hover:underline">
+        <Link
+          href="/prompts"
+          className="text-sm text-blue-700 hover:text-blue-900 hover:underline"
+        >
           ← 목록으로
         </Link>
       </div>
@@ -83,8 +95,10 @@ function PromptEditPage() {
   if (!detail) {
     return (
       <div className="space-y-3">
-        <h1 className="text-2xl font-bold">Prompt: {idParam}</h1>
-        <p className="text-sm text-zinc-500">로드 중...</p>
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+          Prompt: {idParam}
+        </h1>
+        <p className="text-sm text-slate-600">로드 중...</p>
       </div>
     );
   }
@@ -118,53 +132,61 @@ function PromptEditPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-bold">Prompt: {detail.id}</h1>
-        <Link href="/prompts" className="text-sm text-blue-600 hover:underline">
+      <div className="flex items-baseline justify-between flex-wrap gap-2">
+        <h1 className="text-3xl font-bold tracking-tight text-slate-900 break-all">
+          Prompt:{" "}
+          <span className="font-mono text-2xl text-blue-700">{detail.id}</span>
+        </h1>
+        <Link
+          href="/prompts"
+          className="text-sm text-blue-700 hover:text-blue-900 hover:underline"
+        >
           ← 목록으로
         </Link>
       </div>
 
-      <div className="text-sm text-zinc-500">
+      <div className="text-sm text-slate-700">
         Active version:{" "}
-        <span className="font-mono font-medium text-zinc-900">
+        <span className="font-mono font-semibold text-slate-900">
           v{detail.active_version}
         </span>
       </div>
 
       <div className="space-y-2">
-        <label className="text-sm font-medium text-zinc-700">Content</label>
+        <label className="text-sm font-semibold text-slate-800">Content</label>
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          className="w-full h-96 px-3 py-2 border border-zinc-300 rounded font-mono text-xs leading-relaxed focus:border-blue-500 focus:outline-none"
+          className="glass-input w-full h-96 px-3 py-2 rounded-xl font-mono text-xs leading-relaxed text-slate-900"
           spellCheck={false}
         />
-        <div className="flex gap-2 items-center text-xs text-zinc-500">
-          <span>{draft.length} chars</span>
-          {dirty && <span className="text-amber-600">●  unsaved</span>}
+        <div className="flex gap-3 items-center text-xs text-slate-700">
+          <span className="tabular-nums">{draft.length} chars</span>
+          {dirty && (
+            <span className="text-amber-700 font-semibold">● unsaved</span>
+          )}
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={save}
           disabled={saving || !dirty}
-          className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm shadow-blue-500/20"
         >
           {saving ? "저장 중..." : `Save → v${detail.active_version + 1}`}
         </button>
         <button
           onClick={reset}
           disabled={!dirty || saving}
-          className="px-4 py-2 border border-zinc-300 rounded text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 transition-colors"
+          className="px-4 py-2 glass-panel rounded-lg text-sm font-semibold text-slate-800 hover:bg-white/70 disabled:opacity-50 transition-all"
         >
           Reset
         </button>
         <button
           onClick={() => setShowDiff(!showDiff)}
           disabled={!dirty}
-          className="px-4 py-2 border border-zinc-300 rounded text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 transition-colors"
+          className="px-4 py-2 glass-panel rounded-lg text-sm font-semibold text-slate-800 hover:bg-white/70 disabled:opacity-50 transition-all"
         >
           {showDiff ? "Hide" : "Show"} Diff
         </button>
@@ -175,23 +197,26 @@ function PromptEditPage() {
       )}
 
       <section className="space-y-3">
-        <h2 className="text-lg font-semibold">
-          History ({detail.history.length})
+        <h2 className="text-lg font-semibold text-slate-900">
+          History{" "}
+          <span className="text-slate-600 font-normal">
+            ({detail.history.length})
+          </span>
         </h2>
-        <div className="bg-white rounded-lg shadow-sm border border-zinc-200 overflow-hidden">
+        <div className="glass-panel rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-zinc-50 border-b border-zinc-200">
+            <thead className="glass-thead">
               <tr>
-                <th className="text-left px-4 py-2 font-medium text-zinc-700">
+                <th className="text-left px-4 py-3 font-semibold text-slate-800">
                   Version
                 </th>
-                <th className="text-left px-4 py-2 font-medium text-zinc-700">
+                <th className="text-left px-4 py-3 font-semibold text-slate-800">
                   Created
                 </th>
-                <th className="text-left px-4 py-2 font-medium text-zinc-700">
+                <th className="text-left px-4 py-3 font-semibold text-slate-800">
                   Actor
                 </th>
-                <th className="text-right px-4 py-2 font-medium text-zinc-700">
+                <th className="text-right px-4 py-3 font-semibold text-slate-800">
                   Action
                 </th>
               </tr>
@@ -200,25 +225,32 @@ function PromptEditPage() {
               {detail.history.map((h) => (
                 <tr
                   key={h.version}
-                  className="border-b border-zinc-100 last:border-0"
+                  className="border-b glass-divider last:border-0 glass-row-hover transition-colors"
                 >
-                  <td className="px-4 py-2 font-mono text-xs">
+                  <td className="px-4 py-2.5 font-mono text-xs text-slate-800">
                     v{h.version}
                     {h.version === detail.active_version && (
-                      <span className="ml-1 text-emerald-600">●</span>
+                      <span
+                        className="ml-1 text-emerald-600"
+                        aria-label="active"
+                      >
+                        ●
+                      </span>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-xs text-zinc-500">
+                  <td className="px-4 py-2.5 text-xs text-slate-700 tabular-nums">
                     {h.created_at
                       ? new Date(h.created_at).toLocaleString("ko-KR", {
                           timeZone: "Asia/Seoul",
                         })
                       : "-"}
                   </td>
-                  <td className="px-4 py-2 font-mono text-xs">{h.actor}</td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-4 py-2.5 font-mono text-xs text-slate-800">
+                    {h.actor}
+                  </td>
+                  <td className="px-4 py-2.5 text-right">
                     <button
-                      onClick={async () => {
+                      onClick={() => {
                         // load that version's content via getPrompt — but API doesn't
                         // expose individual versions in detail; the history rows are
                         // metadata-only. To restore, admin would need a v#N read API.
@@ -228,7 +260,7 @@ function PromptEditPage() {
                           "info"
                         );
                       }}
-                      className="text-xs text-zinc-500 hover:text-zinc-900"
+                      className="text-xs text-slate-700 hover:text-slate-900 underline-offset-2 hover:underline"
                     >
                       load
                     </button>
@@ -254,13 +286,13 @@ function SimpleDiff({
   const modLines = modified.split("\n");
   const maxLen = Math.max(origLines.length, modLines.length);
   return (
-    <div className="bg-zinc-900 text-zinc-100 rounded p-3 overflow-auto max-h-80 font-mono text-xs leading-relaxed">
+    <div className="rounded-xl p-3 overflow-auto max-h-80 font-mono text-xs leading-relaxed bg-slate-900/95 text-slate-100 border border-slate-700/50 shadow-lg shadow-slate-900/20">
       {Array.from({ length: maxLen }).map((_, i) => {
         const o = origLines[i];
         const m = modLines[i];
         if (o === m) {
           return (
-            <div key={i} className="text-zinc-500">
+            <div key={i} className="text-slate-400">
               {"  "}
               {o ?? ""}
             </div>
