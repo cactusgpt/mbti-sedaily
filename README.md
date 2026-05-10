@@ -1,198 +1,131 @@
-# K-Stock Insight - MBTI 맞춤 경제 뉴스
+# AI LENS — MBTI 맞춤 경제 뉴스
 
-서울경제신문의 MBTI 기반 맞춤형 경제 뉴스 서비스
-
-## 서비스 URL
+서울경제신문의 MBTI 기반 맞춤형 경제 뉴스 서비스. 원본 기사를 4개 MBTI 그룹(NT/NF/ST/SF) 스타일로 AI가 리라이팅하여 제공한다.
 
 - **Production**: https://mbti.sedaily.ai
+- **Admin**: https://mbti-admin.sedaily.ai
 - **API**: https://chzwwtjtgk.execute-api.us-east-1.amazonaws.com/dev
 
+> 본 README 는 GitHub landing-page reference. 깊이 있는 architecture / convention 정보는 [`CLAUDE.md`](./CLAUDE.md) 를 참조.
+
 ---
 
-## 인프라 아키텍처
+## Repository Layout
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           데이터 소스                                    │
-│  S3: sedaily-news-xml-storage/daily-xml/YYYYMMDD.xml                   │
-│  (서울경제신문 원본 기사 XML - 매일 업데이트)                              │
-│  리전: ap-northeast-2                                                   │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     Article Collector Lambda                            │
-│  함수명: sedaily-mbti-article-collector-dev                             │
-│  - S3 XML에서 기사 수집                                                  │
-│  - Claude Bedrock으로 4가지 MBTI 스타일 변환 (NT, NF, ST, SF)             │
-│  - EventBridge 스케줄로 자동 실행                                        │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        DynamoDB 저장소                                   │
-│  테이블: sedaily-mbti-articles-dev                                      │
-│  리전: us-east-1                                                        │
-│                                                                         │
-│  저장 데이터:                                                            │
-│  - news_id (PK)                                                         │
-│  - title_ko, content_ko (원본 한글)                                      │
-│  - version_NT, version_NF, version_ST, version_SF (MBTI 변환본)          │
-│  - category, published_at, author, images 등                            │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    API Gateway (HTTP API)                               │
-│  ID: chzwwtjtgk                                                         │
-│  이름: sedaily-mbti-api-dev                                             │
-│  엔드포인트: https://chzwwtjtgk.execute-api.us-east-1.amazonaws.com/dev │
-└──────────────────────────────┬──────────────────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                      Frontend (React + Vite)                            │
-│  S3: sedaily-mbti-frontend-dev                                          │
-│  CloudFront: E1QS7PY350VHF6                                             │
-│  도메인: mbti.sedaily.ai                                                │
-└─────────────────────────────────────────────────────────────────────────┘
+.
+├── frontend-next/      # Next.js 16 (App Router, static export) — mbti.sedaily.ai
+├── frontend-admin/     # Next.js 16 admin console (Admin-4) — mbti-admin.sedaily.ai
+├── backend/            # Python 3.11 Lambda functions
+│   ├── admin/            # standalone admin-API Lambda (own bespoke build, NOT in deploy.sh)
+│   ├── common/           # shared utilities (feature_flag, secrets) — bundled by both deploy scripts
+│   ├── infrastructure/   # v1 Step Functions definition + provisioning scripts
+│   └── v2/               # parallel redesign — pgvector-centric storage hub + 3-Core architecture
+├── scripts/            # one-shot repo-level tools (manual run)
+└── docs/               # architecture references + phase history
+    └── archive/          # outdated docs (kept for historical context)
 ```
 
----
+## v1 / v2 Parallel Backend
 
-## AWS 리소스 목록
+Two backend stacks side by side:
 
-### Lambda 함수 (리전: us-east-1)
+- **v1** — `backend/` outside `backend/v2/`. Original production Lambda set (Step Functions pipeline + 18 API + 5 Pipeline = 23 functions).
+- **v2** — `backend/v2/`. pgvector-centric redesign with 3-Core architecture (Collection / Transform / Personalization). v2 Feed (`/api/v2/feed`) and Article Detail (`/api/v2/article/{id}`) Lambdas already serve production traffic at `mbti.sedaily.ai` (TASK-7 frontend cutover deployed 2026-04-27).
 
-| 함수명 | 설명 |
-|--------|------|
-| `sedaily-mbti-search-dev` | 기사 검색 API |
-| `sedaily-mbti-article-dev` | 기사 상세 조회 |
-| `sedaily-mbti-article-collector-dev` | S3 XML 수집 및 MBTI 변환 |
-| `sedaily-mbti-chatbot-dev` | AI 챗봇 |
-| `sedaily-mbti-tts-dev` | 텍스트 음성 변환 |
-| `sedaily-mbti-engagement-dev` | 반응/댓글 관리 |
-| `sedaily-mbti-user-dev` | 사용자 관리 |
+For v2-specific work read [`backend/v2/CLAUDE.md`](./backend/v2/CLAUDE.md) + [`backend/v2/.clauderules`](./backend/v2/.clauderules) first — they override the root CLAUDE.md.
 
-### S3 버킷
+## MBTI Editor Personas
 
-| 버킷명 | 용도 | 리전 |
-|--------|------|------|
-| `sedaily-news-xml-storage` | 서울경제 원본 XML | ap-northeast-2 |
-| `sedaily-mbti-frontend-dev` | 프론트엔드 정적 파일 | ap-northeast-2 |
-| `sedaily-mbti-lambda-packages-dev` | Lambda 배포 패키지 | us-east-1 |
+| Group | Editor | Style |
+|-------|--------|-------|
+| NT | 시현 | 전략형 분석가 — 애널리스트 리포트 |
+| NF | 지원 | 가치형 해석자 — 칼럼/에세이 |
+| ST | 정훈 | 실용형 실무자 — 팩트시트 |
+| SF | 하은 | 공감형 소통가 — 친구 톡 |
 
-### DynamoDB
+## Data Flow (v1, current production pipeline)
 
-| 테이블명 | 용도 | 리전 |
-|----------|------|------|
-| `sedaily-mbti-articles-dev` | MBTI 변환 기사 저장 | us-east-1 |
+```
+서울경제 XML (S3, ap-northeast-2)
+  → Step Functions pipeline (EventBridge every 3 hours)
+    Step 1: Select   (Nova, per-category allocation)
+    Step 2: Classify (Nova, MBTI bucket)
+    Map (MaxConcurrency=3) per article:
+      Step 3: Transform (Claude Opus 4.6 → 4 parallel MBTI calls)
+      Step 4: Validate  (Nova validates spelling/style/facts)
+      Store             (Supervisor: cross-version review + write + vector index)
+  → DynamoDB (metadata + S3 pointer) + S3 (body JSON)
+  → OpenSearch (RAG) + pgvector (similarity)
+  → API Gateway → Frontend
+```
 
-### CloudFront
+v2 pipeline replaces this for the `feed` / `article` paths — see [`docs/ARTICLE_PIPELINE.md`](./docs/ARTICLE_PIPELINE.md) (v1 walkthrough) and [`backend/v2/CLAUDE.md`](./backend/v2/CLAUDE.md) (v2 details).
 
-| Distribution ID | 도메인 |
-|-----------------|--------|
-| `E1QS7PY350VHF6` | mbti.sedaily.ai |
+## Local Development
 
----
-
-## MBTI 그룹별 에디터
-
-| MBTI 그룹 | 에디터 | 스타일 |
-|-----------|--------|--------|
-| NT | 시현 | 전략형 분석가 - 애널리스트 리포트 |
-| NF | 지원 | 가치형 해석자 - 칼럼/에세이 |
-| ST | 정훈 | 실용형 실무자 - 팩트시트 |
-| SF | 하은 | 공감형 소통가 - 친구 톡 |
-
----
-
-## 데이터 플로우
-
-1. **수집**: 서울경제 원본 기사가 `sedaily-news-xml-storage` S3에 XML 형태로 저장
-2. **변환**: `sedaily-mbti-article-collector-dev` Lambda가 XML 파싱 후 Claude Bedrock으로 4가지 MBTI 스타일 변환
-3. **저장**: 변환된 기사가 `sedaily-mbti-articles-dev` DynamoDB에 저장
-4. **서빙**: API Gateway를 통해 프론트엔드에서 조회
-
----
-
-## 영문사이트와의 분리
-
-**MBTI 서비스는 영문사이트(en.sedaily.com)와 완전히 분리된 인프라를 사용합니다.**
-
-| 구분 | MBTI 서비스 | 영문사이트 |
-|------|-------------|------------|
-| DynamoDB | `sedaily-mbti-articles-dev` | `seodaily-eng-articles-dev` |
-| CloudFront | `E1QS7PY350VHF6` | `EUWQ1K71CXJUH` |
-| 도메인 | mbti.sedaily.ai | en.sedaily.com |
-| S3 Frontend | `sedaily-mbti-frontend-dev` | `origin-en.sedaily.ai` |
-
----
-
-## 로컬 개발
-
-### 프론트엔드
+### Frontend (mbti.sedaily.ai)
 
 ```bash
-cd frontend
+cd frontend-next
 npm install
-npm run dev
+npm run dev          # http://localhost:3000
+npm run build        # static export → out/
 ```
 
-### 백엔드 배포
+### Admin Frontend (mbti-admin.sedaily.ai)
+
+```bash
+cd frontend-admin
+npm install
+npm run dev          # do NOT run alongside frontend-next on same port
+npm run build        # static export → out/ (8 routes)
+```
+
+### Backend (Lambda local dev)
 
 ```bash
 cd backend
-./deploy.sh
+pip install -r requirements.txt
+python3 main.py      # FastAPI local dev server, http://localhost:8000
 ```
 
----
+`main.py` exposes a subset of the API (chat / time-machine / articles) for local iteration. The authoritative API runs as 23 Lambda functions behind API Gateway.
 
-## 환경 변수
+## Deploy
 
-### Backend (.env)
-
-```env
-# BigKinds API
-BIGKINDS_API_KEY=your-api-key
-BIGKINDS_API_URL=https://tools.kinds.or.kr
-
-# AWS
-AWS_REGION=us-east-1
-
-# DynamoDB
-DYNAMODB_TABLE_ARTICLES=sedaily-mbti-articles-dev
+```bash
+# Backend (Lambda)
+cd backend
+./deploy.sh                    # all 23 Lambda functions
+./deploy.sh api                # 18 API functions only
+./deploy.sh pipeline           # 5 Pipeline functions only
+cd v2 && ./deploy-v2.sh        # v2 stack (separate zip + function set)
 
 # Frontend
-FRONTEND_URL=https://mbti.sedaily.ai
-```
-
----
-
-## 배포
-
-### 프론트엔드 배포
-
-```bash
-cd frontend
+cd frontend-next
 npm run build
-aws s3 sync dist/ s3://sedaily-mbti-frontend-dev --delete
+aws s3 sync out/ s3://sedaily-mbti-frontend-dev --delete
 aws cloudfront create-invalidation --distribution-id E1QS7PY350VHF6 --paths "/*"
+
+# Admin Frontend
+cd frontend-admin
+./deploy-admin.sh              # build + S3 sync + CloudFront invalidation
 ```
 
-### 백엔드 배포
+## Authoritative References
 
-```bash
-cd backend
-./deploy.sh
-```
+- [`CLAUDE.md`](./CLAUDE.md) — full architecture, conventions, AWS resources, AI model selection, frontend API contract
+- [`backend/CLAUDE.md`](./backend/CLAUDE.md) — backend module layers (handlers/clients/services/...) for v1 / v2 / admin
+- [`backend/v2/CLAUDE.md`](./backend/v2/CLAUDE.md) — v2 3-Core architecture, naming conventions, pgvector schema
+- [`backend/v2/.clauderules`](./backend/v2/.clauderules) — v2 hard rules (don't modify v1, AWS resource creation policy, prompt-cache requirement)
+- [`docs/admin-stack.md`](./docs/admin-stack.md) — Admin track (Backend Admin Lambda / Feature Flags / Thresholds / Prompts / Secrets / Admin Frontend / Admin-5)
+- [`docs/v2-phase-history.md`](./docs/v2-phase-history.md) — v2 phase history (Phase 4-A / Phase 5 / Cost-3) + repo cleanup history (R1-R7)
+- [`docs/ARTICLE_PIPELINE.md`](./docs/ARTICLE_PIPELINE.md) — v1 Step Functions pipeline walkthrough (v1 reference, banner 명시)
+- [`docs/AWS_BACKEND_ARCHITECTURE.md`](./docs/AWS_BACKEND_ARCHITECTURE.md) — v1 production AWS inventory snapshot (2026-04-15, banner 명시)
+- [`frontend-next/CLAUDE.md`](./frontend-next/CLAUDE.md) / [`frontend-next/AGENTS.md`](./frontend-next/AGENTS.md) — frontend FSD architecture, Next 16 caveat
+- [`frontend-admin/CLAUDE.md`](./frontend-admin/CLAUDE.md) / [`frontend-admin/AGENTS.md`](./frontend-admin/AGENTS.md) — admin frontend conventions
 
----
+## Out of Scope
 
-## 문서
-
-- [프롬프트 가이드](./docs/prompts/README.md) - MBTI 변환 AI 프롬프트 상세 문서
-  - [NT 전략형 분석가](./docs/prompts/NT.md)
-  - [NF 가치형 해석자](./docs/prompts/NF.md)
-  - [ST 실용형 실무자](./docs/prompts/ST.md)
-  - [SF 공감형 소통가](./docs/prompts/SF.md)
+**Saju (사주/운세)** — 2026-05-04 본 repo 에서 분리되어 별도 GitHub repository + `saju.sedaily.ai` 도메인으로 이전. AI LENS / MBTI 와 완전 무관한 별도 프로젝트. 본 repo 에 saju 코드를 추가하지 마라.
