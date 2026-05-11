@@ -65,12 +65,20 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
   const [isLoadingContent, setIsLoadingContent] = useState(false);
 
   // 아카이빙 관련
-  const [selectedSentences, setSelectedSentences] = useState<Set<number>>(new Set());
+  const [selectionState, setSelectionState] = useState<{ key: string; items: Set<number> }>({
+    key: "original",
+    items: new Set(),
+  });
   const [savedCount, setSavedCount] = useState(0);
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
 
   const version = article.versions?.[currentGroup];
+  const selectionKey = version ? `version-${currentGroup}` : "original";
+  const selectedSentences = useMemo(
+    () => (selectionState.key === selectionKey ? selectionState.items : new Set<number>()),
+    [selectionKey, selectionState]
+  );
   const bodyText = useMemo(
     () => (version ? getBodyText(version.body) : ""),
     [version]
@@ -94,23 +102,16 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
     [article.content]
   );
 
-  // The two render branches click into different arrays via the same index,
-  // so swapping between them (e.g. v2 versions arrive after the fallback was
-  // shown) would leave indices pointing into the wrong source. Reset.
-  useEffect(() => {
-    setSelectedSentences(new Set());
-  }, [version]);
-
   // 핵심 정리 선택 토글
   const toggleSentence = (index: number) => {
-    setSelectedSentences(prev => {
-      const next = new Set(prev);
+    setSelectionState(prev => {
+      const next = prev.key === selectionKey ? new Set(prev.items) : new Set<number>();
       if (next.has(index)) {
         next.delete(index);
       } else {
         next.add(index);
       }
-      return next;
+      return { key: selectionKey, items: next };
     });
   };
 
@@ -138,16 +139,18 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
   // 받음). 즉 prefetch hit 케이스는 line 99 가드로 fetch 자체가 skip됨.
   useEffect(() => {
     if (!version && !isLoadingContent) {
+      let cancelled = false;
+
+      const loadVersions = async () => {
       setIsLoadingContent(true);
       const groups = ['NT', 'NF', 'ST', 'SF'] as const;
       const primaryGroup = currentGroup;
 
-      const fetchAllInOne = fetch(
-        `${API_URL}/api/v2/article/${article.news_id}?mbti=${primaryGroup}&include_all_mbti=true`
-      ).then((r) => (r.ok ? r.json() : null));
+      try {
+        const data = await fetch(
+          `${API_URL}/api/v2/article/${article.news_id}?mbti=${primaryGroup}&include_all_mbti=true`
+        ).then((r) => (r.ok ? r.json() : null));
 
-      fetchAllInOne
-        .then((data) => {
           // Path A: backend returned all_versions with all 4 MBTI entries.
           if (
             data &&
@@ -161,41 +164,48 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
                 data.all_versions[g] as Record<string, unknown>
               );
             });
-            setArticle((prev) => ({ ...prev, versions: nextVersions }));
+            if (!cancelled) setArticle((prev) => ({ ...prev, versions: nextVersions }));
             return;
           }
           // Path B: fallback to 4-parallel (older backend, partial transform,
           // or include_all_mbti not honored).
-          return Promise.all(
+          const results = await Promise.all(
             groups.map((g) =>
               fetch(`${API_URL}/api/v2/article/${article.news_id}?mbti=${g}`).then(
                 (r) => (r.ok ? r.json() : null)
               )
             )
-          ).then((results) => {
-            const nextVersions: Record<string, MbtiVersion> = {};
-            let allOk = true;
-            results.forEach((r, i) => {
-              if (r && r.version) {
-                nextVersions[groups[i]] = adaptV2Version(
-                  r.version as Record<string, unknown>
-                );
-              } else {
-                allOk = false;
-              }
-            });
-            if (allOk) {
-              setArticle((prev) => ({ ...prev, versions: nextVersions }));
+          );
+          const nextVersions: Record<string, MbtiVersion> = {};
+          let allOk = true;
+          results.forEach((r, i) => {
+            if (r && r.version) {
+              nextVersions[groups[i]] = adaptV2Version(
+                r.version as Record<string, unknown>
+              );
+            } else {
+              allOk = false;
             }
-            // !allOk 케이스: setArticle 안 함 → version 그대로 undefined →
-            // fallback render. 어댑터가 content를 body_preview로 이미
-            // 채워뒀으니 200자라도 표시됨.
           });
-        })
-        .catch((err) => console.error('Failed to load v2 versions:', err))
-        .finally(() => setIsLoadingContent(false));
+          if (allOk && !cancelled) {
+            setArticle((prev) => ({ ...prev, versions: nextVersions }));
+          }
+          // !allOk 케이스: setArticle 안 함 → version 그대로 undefined →
+          // fallback render. 어댑터가 content를 body_preview로 이미
+          // 채워뒀으니 200자라도 표시됨.
+        } catch (err) {
+          console.error('Failed to load v2 versions:', err);
+        } finally {
+          if (!cancelled) setIsLoadingContent(false);
+        }
+      };
+
+      loadVersions();
+      return () => {
+        cancelled = true;
+      };
     }
-  }, [article.news_id, version, currentGroup]);
+  }, [article.news_id, version, currentGroup, isLoadingContent]);
 
   // 읽기 기록 — fires once per article open; version hasn't loaded yet
   // at this point, so we always use the original article title
@@ -225,7 +235,7 @@ export function ArticleView({ article: initialArticle, currentGroup, onClose, on
       const title = version?.title || article.title;
       onArchiveSentence(text, article.news_id, title);
       setSavedCount(prev => prev + selectedSentences.size);
-      setSelectedSentences(new Set());
+      setSelectionState({ key: selectionKey, items: new Set() });
 
       setToastMessage(`${selectedSentences.size}개 문장 저장됨`);
       setShowToast(true);

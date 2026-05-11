@@ -251,14 +251,14 @@ export function DnaTab({
                     <defs>
                       <linearGradient id="areaGradient" x1="0%" y1="0%" x2="0%" y2="100%">
                         <stop offset="0%" stopColor={
-                          persona.color === 'bg-green-500' ? '#86efac' :
-                          persona.color === 'bg-blue-500' ? '#93c5fd' :
-                          persona.color === 'bg-violet-500' ? '#c4b5fd' : '#fed7aa'
+                          persona.colorClass === 'bg-emerald-500' ? '#86efac' :
+                          persona.colorClass === 'bg-blue-500' ? '#93c5fd' :
+                          persona.colorClass === 'bg-violet-500' ? '#c4b5fd' : '#fed7aa'
                         } stopOpacity="0.6" />
                         <stop offset="100%" stopColor={
-                          persona.color === 'bg-green-500' ? '#4ade80' :
-                          persona.color === 'bg-blue-500' ? '#60a5fa' :
-                          persona.color === 'bg-violet-500' ? '#a78bfa' : '#fb923c'
+                          persona.colorClass === 'bg-emerald-500' ? '#4ade80' :
+                          persona.colorClass === 'bg-blue-500' ? '#60a5fa' :
+                          persona.colorClass === 'bg-violet-500' ? '#a78bfa' : '#fb923c'
                         } stopOpacity="0.4" />
                       </linearGradient>
                     </defs>
@@ -284,9 +284,9 @@ export function DnaTab({
                         return `${100 + r * Math.cos(angle)},${100 + r * Math.sin(angle)}`;
                       }).join(' ');
 
-                      const strokeColor = persona.color === 'bg-green-500' ? '#16a34a' :
-                                          persona.color === 'bg-blue-500' ? '#2563eb' :
-                                          persona.color === 'bg-violet-500' ? '#7c3aed' : '#ea580c';
+                      const strokeColor = persona.colorClass === 'bg-emerald-500' ? '#16a34a' :
+                                          persona.colorClass === 'bg-blue-500' ? '#2563eb' :
+                                          persona.colorClass === 'bg-violet-500' ? '#7c3aed' : '#ea580c';
 
                       return (
                         <>
@@ -310,7 +310,7 @@ export function DnaTab({
                 </div>
 
                 <div className="mt-6 flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-full">
-                  <div className={`w-3 h-3 rounded-full ${persona.color}`} />
+                  <div className={`w-3 h-3 rounded-full ${persona.colorClass}`} />
                   <span className="text-[13px] text-gray-700 font-medium">
                     {hasRealData ? '나의 관심사 (실제 데이터)' : `${selectedGroup} 유형 관심사`}
                   </span>
@@ -333,9 +333,9 @@ export function DnaTab({
                     <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all duration-500 ${
-                          persona.color === 'bg-green-500' ? 'bg-green-400' :
-                          persona.color === 'bg-blue-500' ? 'bg-blue-400' :
-                          persona.color === 'bg-violet-500' ? 'bg-violet-400' : 'bg-orange-400'
+                          persona.colorClass === 'bg-emerald-500' ? 'bg-emerald-400' :
+                          persona.colorClass === 'bg-blue-500' ? 'bg-blue-400' :
+                          persona.colorClass === 'bg-violet-500' ? 'bg-violet-400' : 'bg-orange-400'
                         }`}
                         style={{ width: `${value}%` }}
                       />

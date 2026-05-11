@@ -19,7 +19,7 @@ const editors = [
     id: "NT" as MbtiGroupId,
     name: "시현",
     mbti: "INTJ",
-    role: "전략 분석가",
+    role: "전략형 분석가",
     tagline: "숫자 뒤에 숨은 진실을 찾습니다",
     desc: "감정에 휘둘리지 않아요. 차트와 데이터, 논리적 근거만이 제 무기입니다. 복잡한 경제 현상도 명쾌하게 분해해서 핵심만 전달해드릴게요. 시간 낭비 없이, 본질만.",
     image: "/editors/intj.png",
@@ -32,7 +32,7 @@ const editors = [
     id: "NF" as MbtiGroupId,
     name: "지원",
     mbti: "INFP",
-    role: "이야기 큐레이터",
+    role: "가치형 해석자",
     tagline: "뉴스 속 사람들이 보여요...",
     desc: "숫자보다 그 뒤에 있는 사람들의 이야기가 먼저 눈에 들어와요. 금리가 오르면... 누군가는 밤잠을 설치겠죠? 조심스럽지만, 따뜻한 시선으로 뉴스를 읽어드릴게요.",
     image: "/editors/infp.png",
@@ -45,7 +45,7 @@ const editors = [
     id: "ST" as MbtiGroupId,
     name: "정훈",
     mbti: "ISTJ",
-    role: "팩트체커",
+    role: "실용형 실무자",
     tagline: "사실만 말합니다. , .",
     desc: "저는 의견을 덧붙이지 않습니다. 언제, 어디서, 무엇이 일어났는지. 검증된 사실과 정확한 수치만 전달합니다. 믿을 수 있는 뉴스, 그게 제 약속이에요.",
     image: "/editors/istj.png",
@@ -58,7 +58,7 @@ const editors = [
     id: "SF" as MbtiGroupId,
     name: "하은",
     mbti: "ESFP",
-    role: "뉴스 번역가",
+    role: "공감형 소통가",
     tagline: "어려운 건 제가 씹어드릴게요!",
     desc: "경제 뉴스가 어렵다고요? 걱정 마세요! 제가 쉽고 재미있게 풀어드릴게요. 우리 일상이랑 어떻게 연결되는지, 친구한테 얘기하듯 편하게 전해드릴게요 ✨",
     image: "/editors/esfp.png",
@@ -277,7 +277,7 @@ export function OnboardingPage({ onSelectGroup, onStartBriefing, onBack }: Props
                 원문: {sampleNews.original}
               </div>
               <div className={`text-[14px] ${editor.textColor} leading-relaxed`}>
-                "{sampleNews.versions[editor.id]}"
+                {`"${sampleNews.versions[editor.id]}"`}
               </div>
             </div>
 

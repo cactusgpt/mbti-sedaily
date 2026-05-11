@@ -10,22 +10,27 @@ import { groupToDefaultMbti, type MbtiGroupId } from "@/shared/data/mbtiGroups";
 
 type ViewMode = "story" | "feed" | "editor-select" | "briefing";
 
+const mbtiGroupIds: MbtiGroupId[] = ["NT", "NF", "ST", "SF"];
+
+function readStoredGroup(): MbtiGroupId {
+  if (typeof window === "undefined") return "SF";
+  const savedGroup = localStorage.getItem("mbti-group") as MbtiGroupId | null;
+  return savedGroup && mbtiGroupIds.includes(savedGroup) ? savedGroup : "SF";
+}
+
 function HomeContent() {
   const [viewMode, setViewMode] = useState<ViewMode>("feed");
-  const [userGroup, setUserGroup] = useState<MbtiGroupId>("SF");
+  const [userGroup, setUserGroup] = useState<MbtiGroupId>(readStoredGroup);
 
   useEffect(() => {
     const savedGroup = localStorage.getItem("mbti-group") as MbtiGroupId | null;
-    if (savedGroup) {
-      setUserGroup(savedGroup);
-    }
     // Round 5-G: backfill 4-char MBTI for legacy users who only have group.
     // Picks the group's default editor MBTI (NT→INTJ, NF→INFP, ST→ISTJ,
     // SF→ESFP). Idempotent on absence — only writes when mbti-type is missing.
     // In-session group changes via handleMbtiChange / StoryNewsFeed leave
     // the existing mbti-type until the next mount; precise mid-session MBTI
     // edits will be a future settings-page concern.
-    if (savedGroup && !localStorage.getItem("mbti-type")) {
+    if (savedGroup && mbtiGroupIds.includes(savedGroup) && !localStorage.getItem("mbti-type")) {
       localStorage.setItem("mbti-type", groupToDefaultMbti[savedGroup]);
     }
   }, []);

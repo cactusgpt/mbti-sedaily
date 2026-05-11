@@ -4,16 +4,19 @@ import { useState } from 'react';
 import type { MbtiGroupId } from '@/shared/data/mbtiGroups';
 import type { MbtiArticle } from '@/shared/types/mbti';
 import { cleanMarkdown } from '@/shared/utils/textUtils';
+import { CategoryBadge } from './CategoryBadge';
 import { ImagePlaceholder } from './ImagePlaceholder';
+import { pickReasons } from '../constants/editorialLenses';
 
 interface Props {
   article: MbtiArticle;
   selectedGroup: MbtiGroupId;
   onClick: () => void;
-  personaNames: string[];
+  /** Optional editor name label rendered above title (e.g. 시현이 골랐어요) */
+  editorName?: string;
 }
 
-export function ArticleCard({ article, selectedGroup, onClick, personaNames }: Props) {
+export function ArticleCard({ article, selectedGroup, onClick, editorName }: Props) {
   const [imgError, setImgError] = useState(false);
 
   const v = article.versions?.[selectedGroup];
@@ -27,43 +30,65 @@ export function ArticleCard({ article, selectedGroup, onClick, personaNames }: P
   const showImage = imageUrl && !imgError;
 
   const date = article.published_at
-    ? new Date(article.published_at).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+    ? new Date(article.published_at).toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' })
     : '';
+  const [, reason1, reason2] = pickReasons(selectedGroup, article.news_id, article.category);
 
   return (
     <a
       onClick={(e) => { e.preventDefault(); onClick(); }}
-      className="flex flex-row items-center gap-4 cursor-pointer"
+      className="group flex flex-col gap-3 cursor-pointer rounded-2xl border border-stone-200/70 bg-white p-3 transition-shadow hover:shadow-[0_6px_20px_rgba(15,23,42,0.06)] md:p-4"
     >
-      {/* 썸네일 — 모바일 103px 고정, 데스크톱 40% */}
-      <div className="relative w-[103px] md:w-[40%] flex-shrink-0 aspect-[16/9] overflow-hidden rounded-lg border border-gray-100">
-        {showImage ? (
-          <img
-            src={imageUrl}
-            alt={title}
-            className="h-full w-full object-cover"
-            loading="lazy"
-            onError={() => setImgError(true)}
-          />
-        ) : (
-          <ImagePlaceholder category={article.category} />
-        )}
-      </div>
-
-      {/* 콘텐츠 */}
-      <div className="flex flex-col justify-center flex-1 min-w-0">
-        <h2 className="text-base font-bold text-gray-900 lg:text-lg leading-snug line-clamp-2">
-          {title}
-        </h2>
-        <div className="mt-1 hidden text-base text-gray-700 lg:block">
-          <div className="line-clamp-2">{summary}</div>
-        </div>
-        <div className="mt-2 flex flex-row gap-2 text-xs">
-          <div className="line-clamp-1 text-xs font-bold text-gray-700">{personaNames[article.news_id.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % personaNames.length]}</div>
-          {date && (
-            <div className="text-xs text-gray-500">{date}</div>
+      <div className="flex flex-row items-stretch gap-3 md:gap-4">
+        {/* 썸네일 — 모바일 96px, 데스크톱 38% */}
+        <div className="relative w-[96px] flex-shrink-0 aspect-[16/9] overflow-hidden rounded-lg md:w-[38%]">
+          {showImage ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={imageUrl ?? ''}
+              alt={title}
+              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+              loading="lazy"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <ImagePlaceholder category={article.category} />
           )}
         </div>
+
+        {/* 콘텐츠 */}
+        <div className="flex flex-col justify-between flex-1 min-w-0">
+          <div>
+            <div className="mb-1.5 flex items-center gap-2">
+              <CategoryBadge category={article.category} size="sm" />
+              {date && <span className="text-[11px] text-stone-400">{date}</span>}
+            </div>
+            <h3 className="text-[15px] font-bold text-stone-900 lg:text-[17px] leading-[1.35] line-clamp-2">
+              {title}
+            </h3>
+            <p className="mt-1.5 hidden text-[14px] leading-[1.55] text-stone-600 md:line-clamp-2 lg:block">
+              {summary}
+            </p>
+          </div>
+          {editorName && (
+            <p className="mt-2 hidden text-[11px] text-stone-500 md:block">
+              <span className="font-semibold text-stone-700">{editorName}</span>이 골랐어요
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Why-recommended meta row */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="rounded-full bg-stone-100 px-2.5 py-1 text-[11px] font-semibold text-stone-600">
+          추천 이유
+        </span>
+        <span className="rounded-full bg-white px-2.5 py-1 text-[11px] text-stone-500 ring-1 ring-stone-200">
+          {reason1}
+        </span>
+        <span className="rounded-full bg-white px-2.5 py-1 text-[11px] text-stone-500 ring-1 ring-stone-200">
+          {reason2}
+        </span>
       </div>
     </a>
   );

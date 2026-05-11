@@ -37,14 +37,16 @@ export default function RootLayout({
     <html lang="ko" className="antialiased">
       <head>
         <link rel="icon" href="/favicon.ico" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body className="min-h-screen flex flex-col">
         <Providers>
           <a href="#main-content" className="skip-link">
             본문 바로가기
           </a>
-          {children}
+          <div id="main-content" className="contents">
+            {children}
+          </div>
         </Providers>
       </body>
     </html>

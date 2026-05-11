@@ -81,8 +81,13 @@ function fmtRate(rate: number): string {
 
 function TimeMachineContent() {
   const searchParams = useSearchParams();
-  const [step, setStep] = useState<Step>("input");
-  const [targetDate, setTargetDate] = useState("");
+  const today = new Date().toISOString().split("T")[0];
+  const dateParam = searchParams.get("date") ?? "";
+  const modeParam = searchParams.get("mode") ?? "";
+  const hasInitialDate = dateParam !== "" && dateParam < today;
+
+  const [step, setStep] = useState<Step>(hasInitialDate ? "loading" : "input");
+  const [targetDate, setTargetDate] = useState(hasInitialDate ? dateParam : "");
   const [error, setError] = useState("");
   const [news, setNews] = useState<DayNews[]>([]);
   const [events, setEvents] = useState<HistoricalEvent[]>([]);
@@ -91,10 +96,8 @@ function TimeMachineContent() {
   const [selectedInvestment, setSelectedInvestment] = useState<string | null>(null);
   const [showComparison, setShowComparison] = useState(false);
   const [activeTab, setActiveTab] = useState<ResultTab>("news");
-  const [isBirthdayMode, setIsBirthdayMode] = useState(false);
+  const [isBirthdayMode] = useState(hasInitialDate && modeParam === "birthday");
   const [carouselIndex, setCarouselIndex] = useState(0);
-
-  const today = new Date().toISOString().split("T")[0];
 
   const tabs: { id: ResultTab; label: string; subtitle: string; icon: typeof Newspaper }[] = [
     { id: "news", label: "그날의 뉴스", subtitle: "무슨 일이 있었나", icon: Newspaper },
@@ -105,30 +108,25 @@ function TimeMachineContent() {
 
   // URL 파라미터로 날짜가 전달되면 자동 로드
   useEffect(() => {
-    const dateParam = searchParams.get("date");
-    const modeParam = searchParams.get("mode");
+    if (!hasInitialDate) return;
+    let cancelled = false;
 
-    if (dateParam && dateParam < today) {
-      setTargetDate(dateParam);
-      setIsBirthdayMode(modeParam === "birthday");
+    Promise.all([
+      fetchTimeMachineData(dateParam),
+      new Promise((r) => setTimeout(r, 2800)),
+    ]).then(([data]) => {
+      if (cancelled) return;
+      setNews(data.news);
+      setEvents(data.historicalEvents);
+      setBirthdays(getFamousBirthdays(dateParam));
+      setSnapshot(getSnapshotByDate(dateParam));
+      setStep("result");
+    });
 
-      // 자동으로 데이터 로드
-      const loadData = async () => {
-        setStep("loading");
-        const [data] = await Promise.all([
-          fetchTimeMachineData(dateParam),
-          new Promise((r) => setTimeout(r, 2800)),
-        ]);
-        setNews(data.news);
-        setEvents(data.historicalEvents);
-        setBirthdays(getFamousBirthdays(dateParam));
-        setSnapshot(getSnapshotByDate(dateParam));
-        setStep("result");
-      };
-
-      loadData();
-    }
-  }, [searchParams]);
+    return () => {
+      cancelled = true;
+    };
+  }, [dateParam, hasInitialDate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -461,7 +459,7 @@ function TimeMachineContent() {
                       </div>
                     )}
                     <div className="border-t border-stone-100 pt-4">
-                      <p className="text-stone-500 text-[13px] text-center italic" style={{ fontFamily: 'Georgia, serif' }}>"{result.tagline}"</p>
+                      <p className="text-stone-500 text-[13px] text-center italic" style={{ fontFamily: 'Georgia, serif' }}>“{result.tagline}”</p>
                     </div>
                   </div>
 

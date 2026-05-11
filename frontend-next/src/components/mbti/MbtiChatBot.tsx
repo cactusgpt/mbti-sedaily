@@ -497,7 +497,7 @@ export function MbtiChatBot({ mbtiGroup = 'SF', onMbtiChange }: MbtiChatBotProps
                 disabled={isLoading}
                 className="flex-1 px-4 py-2.5 bg-gray-100 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50"
                 style={{
-                  // @ts-ignore
+                  // @ts-expect-error — Tailwind ring custom property is not in CSSProperties
                   '--tw-ring-color': currentGroup === 'NT' ? '#3b82f6' : currentGroup === 'NF' ? '#8b5cf6' : currentGroup === 'ST' ? '#22c55e' : '#f97316'
                 }}
               />

@@ -18,9 +18,6 @@ const CAT_IMAGES: Record<string, string> = {
 
 // 고양이 캐릭터 컴포넌트
 export function Character2D({ mood = "neutral", size = "medium", className = "" }: Props) {
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [imageError, setImageError] = useState(false);
-
   const sizeClasses = {
     small: "w-24 h-24",
     medium: "w-40 h-40",
@@ -28,14 +25,20 @@ export function Character2D({ mood = "neutral", size = "medium", className = "" 
   };
 
   const imageSrc = CAT_IMAGES[mood] || CAT_IMAGES.neutral;
+  const [imageStatus, setImageStatus] = useState({
+    src: imageSrc,
+    loaded: false,
+    error: false,
+  });
+
+  const imageLoaded = imageStatus.src === imageSrc && imageStatus.loaded;
+  const imageError = imageStatus.src === imageSrc && imageStatus.error;
 
   // 이미지 프리로드
   useEffect(() => {
-    setImageLoaded(false);
-    setImageError(false);
     const img = new Image();
-    img.onload = () => setImageLoaded(true);
-    img.onerror = () => setImageError(true);
+    img.onload = () => setImageStatus({ src: imageSrc, loaded: true, error: false });
+    img.onerror = () => setImageStatus({ src: imageSrc, loaded: false, error: true });
     img.src = imageSrc;
   }, [imageSrc]);
 

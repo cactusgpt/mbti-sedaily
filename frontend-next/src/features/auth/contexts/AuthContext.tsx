@@ -17,8 +17,11 @@ import { authConfig } from '@/shared/config/auth';
 import { API_URL } from '@/shared/config/api';
 import { authFetch } from '@/shared/lib/authFetch';
 
-// Configure Amplify
-Amplify.configure(authConfig as any);
+// Configure Amplify — authConfig uses `as const` for OAuth literal types
+// (readonly tuples). Amplify expects mutable arrays of those same literals;
+// cast through unknown so we keep the literal-type guarantees in the
+// config file without forcing a wider `any` here.
+Amplify.configure(authConfig as unknown as Parameters<typeof Amplify.configure>[0]);
 
 interface User {
   userId: string;
@@ -31,6 +34,18 @@ interface AuthResult {
   success: boolean;
   error?: string;
   needsConfirmation?: boolean;
+}
+
+interface AuthErrorLike {
+  name?: string;
+  message?: string;
+}
+
+function asAuthError(error: unknown): AuthErrorLike {
+  if (error && typeof error === 'object') {
+    return error as AuthErrorLike;
+  }
+  return { message: typeof error === 'string' ? error : undefined };
 }
 
 interface AuthContextType {
@@ -150,20 +165,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       return { success: false, error: '로그인에 실패했습니다.' };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const authError = asAuthError(error);
       console.error('Email sign in error:', error);
 
-      if (error.name === 'UserNotConfirmedException') {
+      if (authError.name === 'UserNotConfirmedException') {
         return { success: false, needsConfirmation: true };
       }
-      if (error.name === 'NotAuthorizedException') {
+      if (authError.name === 'NotAuthorizedException') {
         return { success: false, error: '이메일 또는 비밀번호가 올바르지 않습니다.' };
       }
-      if (error.name === 'UserNotFoundException') {
+      if (authError.name === 'UserNotFoundException') {
         return { success: false, error: '등록되지 않은 이메일입니다.' };
       }
 
-      return { success: false, error: error.message || '로그인에 실패했습니다.' };
+      return { success: false, error: authError.message || '로그인에 실패했습니다.' };
     }
   };
 
@@ -190,17 +206,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       return { success: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const authError = asAuthError(error);
       console.error('Sign up error:', error);
 
-      if (error.name === 'UsernameExistsException') {
+      if (authError.name === 'UsernameExistsException') {
         return { success: false, error: '이미 등록된 이메일입니다.' };
       }
-      if (error.name === 'InvalidPasswordException') {
+      if (authError.name === 'InvalidPasswordException') {
         return { success: false, error: '비밀번호는 8자 이상, 대소문자, 숫자, 특수문자를 포함해야 합니다.' };
       }
 
-      return { success: false, error: error.message || '회원가입에 실패했습니다.' };
+      return { success: false, error: authError.message || '회원가입에 실패했습니다.' };
     }
   };
 
@@ -214,17 +231,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       return { success: false, error: '인증에 실패했습니다.' };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const authError = asAuthError(error);
       console.error('Confirm sign up error:', error);
 
-      if (error.name === 'CodeMismatchException') {
+      if (authError.name === 'CodeMismatchException') {
         return { success: false, error: '인증 코드가 올바르지 않습니다.' };
       }
-      if (error.name === 'ExpiredCodeException') {
+      if (authError.name === 'ExpiredCodeException') {
         return { success: false, error: '인증 코드가 만료되었습니다. 다시 요청해주세요.' };
       }
 
-      return { success: false, error: error.message || '인증에 실패했습니다.' };
+      return { success: false, error: authError.message || '인증에 실패했습니다.' };
     }
   };
 
@@ -233,9 +251,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await resendSignUpCode({ username: email });
       return { success: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const authError = asAuthError(error);
       console.error('Resend code error:', error);
-      return { success: false, error: error.message || '코드 재전송에 실패했습니다.' };
+      return { success: false, error: authError.message || '코드 재전송에 실패했습니다.' };
     }
   };
 
@@ -244,14 +263,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       await resetPassword({ username: email });
       return { success: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const authError = asAuthError(error);
       console.error('Forgot password error:', error);
 
-      if (error.name === 'UserNotFoundException') {
+      if (authError.name === 'UserNotFoundException') {
         return { success: false, error: '등록되지 않은 이메일입니다.' };
       }
 
-      return { success: false, error: error.message || '비밀번호 재설정 요청에 실패했습니다.' };
+      return { success: false, error: authError.message || '비밀번호 재설정 요청에 실패했습니다.' };
     }
   };
 
@@ -264,20 +284,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         newPassword,
       });
       return { success: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const authError = asAuthError(error);
       console.error('Confirm forgot password error:', error);
 
-      if (error.name === 'CodeMismatchException') {
+      if (authError.name === 'CodeMismatchException') {
         return { success: false, error: '인증 코드가 올바르지 않습니다.' };
       }
-      if (error.name === 'ExpiredCodeException') {
+      if (authError.name === 'ExpiredCodeException') {
         return { success: false, error: '인증 코드가 만료되었습니다. 다시 요청해주세요.' };
       }
-      if (error.name === 'InvalidPasswordException') {
+      if (authError.name === 'InvalidPasswordException') {
         return { success: false, error: '비밀번호는 8자 이상, 대소문자, 숫자, 특수문자를 포함해야 합니다.' };
       }
 
-      return { success: false, error: error.message || '비밀번호 재설정에 실패했습니다.' };
+      return { success: false, error: authError.message || '비밀번호 재설정에 실패했습니다.' };
     }
   };
 

@@ -50,6 +50,13 @@ function getFallbackHistoricalEvents(dateStr: string): HistoricalEvent[] {
 
 const API_READY = true;
 
+interface ApiHistoricalEvent {
+  year: number;
+  title: string;
+  description?: string;
+  images?: string[];
+}
+
 export async function fetchTimeMachineData(date: string): Promise<TimeMachineData> {
   if (!API_READY) {
     return {
@@ -63,7 +70,8 @@ export async function fetchTimeMachineData(date: string): Promise<TimeMachineDat
     const data = await res.json();
     
     // API에서 받은 events를 historicalEvents로 변환
-    const historicalEvents: HistoricalEvent[] = (data.events ?? []).map((ev: any) => ({
+    const events = Array.isArray(data.events) ? data.events as ApiHistoricalEvent[] : [];
+    const historicalEvents: HistoricalEvent[] = events.map((ev) => ({
       year: ev.year,
       title: ev.title,
       description: ev.description ?? "",

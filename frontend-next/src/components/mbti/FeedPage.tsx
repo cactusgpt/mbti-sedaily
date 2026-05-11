@@ -1,16 +1,14 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import type { MbtiGroupId } from "@/shared/data/mbtiGroups";
+import { editorPersonas, type MbtiGroupId } from "@/shared/data/mbtiGroups";
 import type { MbtiVersion } from "@/shared/types/mbti";
 import { API_URL } from "@/shared/config/api";
-import { fetchCommunityPosts, votePost, addComment, createCommunityPost, fetchComments } from "@/shared/lib/communityApi";
+import { fetchCommunityPosts, createCommunityPost } from "@/shared/lib/communityApi";
 import { fetchDailyQuestions, saveQuestionAnswer } from "@/shared/lib/questionApi";
 import type { DailyQuestionItem } from "@/features/question";
 import { ArticleView } from "./ArticleView";
 import { UserMenu, useAuth } from "@/features/auth";
-import { mockArticles } from "@/shared/data/mockArticles";
-import { BarChart3, BookOpen, Lightbulb, Coffee, Coins, Rocket, Globe, Sparkles, Calendar, Newspaper, Users, Camera, TrendingUp } from "lucide-react";
-import { ScrollReveal } from "@/shared/ui/ScrollReveal";
+import { Archive, Brain, MessageCircle, Newspaper, Sparkles } from "lucide-react";
 
 // Feature Tab Components
 import { QuestionTab, dailyQuestions } from "@/features/question";
@@ -91,13 +89,17 @@ interface Props {
   onMbtiChange?: (group: MbtiGroupId) => void;
 }
 
-// MBTI 페르소나 정보
-const personaInfo: Record<MbtiGroupId, { name: string; style: string; color: string }> = {
-  NT: { name: "분석가", style: "데이터와 논리로 본질을 꿰뚫어요", color: "bg-blue-500" },
-  NF: { name: "이야기꾼", style: "사람과 감정의 결을 읽어내요", color: "bg-purple-500" },
-  ST: { name: "실용가", style: "핵심만 쏙쏙, 바로 써먹을 수 있게", color: "bg-green-500" },
-  SF: { name: "친구", style: "편하게 수다 떨듯 알려드려요", color: "bg-orange-500" },
-};
+type FeedTab = "question" | "feed" | "community" | "archive" | "dna";
+
+const validTabs: FeedTab[] = ["question", "feed", "community", "archive", "dna"];
+
+const tabItems: { id: FeedTab; label: string; Icon: typeof Sparkles }[] = [
+  { id: "question", label: "질문", Icon: Sparkles },
+  { id: "feed", label: "피드", Icon: Newspaper },
+  { id: "community", label: "커뮤니티", Icon: MessageCircle },
+  { id: "archive", label: "서랍", Icon: Archive },
+  { id: "dna", label: "DNA", Icon: Brain },
+];
 
 // 아카이빙된 문장 타입
 interface ArchivedSentence {
@@ -177,10 +179,10 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   const { user } = useAuth();
 
   // URL에서 초기 탭 상태 읽기
-  const getInitialTab = useCallback(() => {
+  const getInitialTab = useCallback((): FeedTab => {
     const tabParam = searchParams.get('tab');
-    if (tabParam && ['question', 'feed', 'community', 'archive', 'dna'].includes(tabParam)) {
-      return tabParam as "question" | "feed" | "community" | "archive" | "dna";
+    if (tabParam && validTabs.includes(tabParam as FeedTab)) {
+      return tabParam as FeedTab;
     }
     return "question";
   }, [searchParams]);
@@ -197,7 +199,6 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   // 질문 관련 상태
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, string>>({});
-  const [showQuestions, setShowQuestions] = useState(true);
   const [aiQuestions, setAiQuestions] = useState<DailyQuestionItem[]>([]);
 
   // 아카이빙 관련 상태 - 목업 데이터
@@ -282,10 +283,10 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   const [showArchive, setShowArchive] = useState(false);
 
   // 탭 상태 - URL에서 초기값 읽기
-  const [activeTab, setActiveTabState] = useState<"question" | "feed" | "community" | "archive" | "dna">(getInitialTab);
+  const [activeTab, setActiveTabState] = useState<FeedTab>(getInitialTab);
 
   // 탭 변경 함수 - URL도 함께 업데이트 (replaceState로 히스토리에 안 쌓임)
-  const setActiveTab = useCallback((tab: "question" | "feed" | "community" | "archive" | "dna") => {
+  const setActiveTab = useCallback((tab: FeedTab) => {
     setActiveTabState(tab);
     const params = new URLSearchParams(searchParams.toString());
     params.set('tab', tab);
@@ -297,7 +298,9 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   }, [pathname, searchParams]);
   const [dnaViewMode, setDnaViewMode] = useState<"radar" | "chart">("radar");
   const [dnaSubTab, setDnaSubTab] = useState<"analysis" | "birthday">("analysis");
-  const [birthdayInput, setBirthdayInput] = useState(() => localStorage.getItem("user_birthday") || "");
+  const [birthdayInput, setBirthdayInput] = useState(() =>
+    typeof window === "undefined" ? "" : localStorage.getItem("user_birthday") || ""
+  );
 
   // 펼친 기사 상태
   const [expandedArticles, setExpandedArticles] = useState<Set<string>>(new Set());
@@ -474,7 +477,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
       const { getArticlePodcast, generatePodcast, waitForPodcast } = await import('@/shared/lib/podcastApi');
 
       // 1. Check if podcast already exists
-      let podcast = await getArticlePodcast(firstArticle.news_id, selectedGroup);
+      const podcast = await getArticlePodcast(firstArticle.news_id, selectedGroup);
 
       if (podcast?.audio_url) {
         // Existing podcast — play immediately
@@ -831,7 +834,6 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
       setTimeout(() => setCurrentQuestionIndex(prev => prev + 1), 300);
     } else {
       setTimeout(() => {
-        setShowQuestions(false);
         setActiveTab("feed");
       }, 500);
     }
@@ -876,7 +878,15 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
   };
 
   const currentQuestion = activeQuestionsList[Math.min(currentQuestionIndex, activeQuestionsList.length - 1)];
-  const persona = personaInfo[selectedGroup];
+  const persona = editorPersonas[selectedGroup];
+
+  const handleTabSelect = (tab: FeedTab) => {
+    if (tab === "question") {
+      setCurrentQuestionIndex(0);
+      setSelectedAnswers({});
+    }
+    setActiveTab(tab);
+  };
 
   // 뉴스 DNA 데이터 (예시)
   const newsDNA = {
@@ -898,85 +908,52 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
             <h1 className="text-[20px] font-bold text-gray-900 tracking-tight flex-shrink-0">AI LENS</h1>
 
             {/* 탭 */}
-            <nav className="flex items-center gap-0.5 flex-1 overflow-x-auto scrollbar-hide">
-              <button
-                onClick={() => {
-                  setShowQuestions(true);
-                  setCurrentQuestionIndex(0);
-                  setSelectedAnswers({});
-                  setActiveTab("question");
-                }}
-                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
-                  activeTab === "question"
-                    ? "bg-gray-100 text-gray-900"
-                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                }`}
-              >
-                오늘의 질문
-              </button>
-
-              <button
-                onClick={() => {
-                  setShowQuestions(false);
-                  setActiveTab("feed");
-                }}
-                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
-                  activeTab === "feed"
-                    ? "bg-gray-100 text-gray-900"
-                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                }`}
-              >
-                뉴스피드
-              </button>
-
-              <button
-                onClick={() => setActiveTab("community")}
-                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
-                  activeTab === "community"
-                    ? "bg-gray-100 text-gray-900"
-                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                }`}
-              >
-                커뮤니티
-              </button>
-
-              <button
-                onClick={() => setActiveTab("archive")}
-                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
-                  activeTab === "archive"
-                    ? "bg-gray-100 text-gray-900"
-                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                }`}
-              >
-                <span className="flex items-center gap-1">
-                  내 서랍
-                  {archivedSentences.length > 0 && (
-                    <span className="px-1.5 py-0.5 bg-blue-500 text-white text-[10px] rounded-full min-w-[18px] text-center">
-                      {archivedSentences.length}
-                    </span>
-                  )}
-                </span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab("dna")}
-                className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 ${
-                  activeTab === "dna"
-                    ? "bg-gray-100 text-gray-900"
-                    : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
-                }`}
-              >
-                나의 DNA
-              </button>
+            <nav className="flex items-center gap-0.5 flex-1 overflow-x-auto scrollbar-hide" aria-label="기본 탭">
+              {tabItems.map(({ id, label, Icon }) => {
+                const isActive = activeTab === id;
+                return (
+                  <button
+                    key={id}
+                    onClick={() => handleTabSelect(id)}
+                    aria-current={isActive ? "page" : undefined}
+                    className={`px-2.5 lg:px-4 py-2 text-[12px] lg:text-[14px] font-medium rounded-lg transition-colors duration-200 whitespace-nowrap flex-shrink-0 flex items-center gap-1.5 ${
+                      isActive
+                        ? "bg-gray-100 text-gray-900"
+                        : "text-gray-500 hover:text-gray-900 hover:bg-gray-50"
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5 lg:w-4 lg:h-4" aria-hidden="true" />
+                    {label === "서랍" ? (
+                      <span className="flex items-center gap-1">
+                        내 서랍
+                        {archivedSentences.length > 0 && (
+                          <span className="px-1.5 py-0.5 bg-blue-500 text-white text-[10px] rounded-full min-w-[18px] text-center">
+                            {archivedSentences.length}
+                          </span>
+                        )}
+                      </span>
+                    ) : label === "DNA" ? "나의 DNA" : label === "질문" ? "오늘의 질문" : label === "피드" ? "뉴스피드" : label}
+                  </button>
+                );
+              })}
             </nav>
 
             {/* 우측 메뉴 */}
             <div className="flex items-center gap-3 flex-shrink-0">
-              <div className={`px-3 py-1.5 rounded-full ${persona.color}`}>
-                <span className="text-[13px] font-medium text-white">
-                  {persona.name}
+              <button
+                type="button"
+                onClick={() => handleTabSelect("feed")}
+                title={`현재 에디터: ${persona.name} · ${persona.label}`}
+                className={`hidden sm:flex items-center gap-2 pl-1 pr-3 py-1 rounded-full border border-gray-200 hover:border-gray-300 transition-colors`}
+              >
+                <span
+                  className={`flex items-center justify-center w-6 h-6 rounded-full text-white text-[11px] font-bold ${persona.colorClass}`}
+                  aria-hidden="true"
+                >
+                  {persona.mbti.slice(0, 2)}
                 </span>
-              </div>
+                <span className="text-[13px] font-semibold text-gray-900">{persona.name}</span>
+              </button>
               <UserMenu />
             </div>
           </div>
@@ -986,21 +963,18 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
       {/* 메인 콘텐츠 */}
       <main className="flex-1">
         {/* 질문 모드 - QuestionTab 컴포넌트 */}
-        {showQuestions && activeTab === "question" && (
+        {activeTab === "question" && (
           <QuestionTab
             currentQuestionIndex={currentQuestionIndex}
             selectedAnswers={selectedAnswers}
             onSelectAnswer={handleSelectAnswer}
-            onSkip={() => {
-              setShowQuestions(false);
-              setActiveTab("feed");
-            }}
+            onSkip={() => setActiveTab("feed")}
             questions={aiQuestions}
           />
         )}
 
         {/* 피드 모드 - NewsFeedTab 컴포넌트 */}
-        {activeTab === "feed" && !showQuestions && (
+        {activeTab === "feed" && (
           <NewsFeedTab
             selectedDate={selectedDate}
             setSelectedDate={setSelectedDate}
@@ -1015,6 +989,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
             showAudioPlayer={showAudioPlayer}
             startAudioBriefing={startAudioBriefing}
             onArticleClick={openArticle}
+            persona={persona}
           />
         )}
 
@@ -1201,7 +1176,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                     {communityPosts.filter(p => p.userName === selectedUser.userName).map(post => (
                       <div key={post.id} className="p-4 bg-gray-50 rounded-xl shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:bg-gray-100 hover:shadow-[0_2px_6px_rgba(0,0,0,0.05)] transition-all cursor-pointer">
                         <p className="text-[14px] text-gray-800 leading-relaxed line-clamp-2 mb-2">
-                          "{post.archivedSentence}"
+                          {`"${post.archivedSentence}"`}
                         </p>
                         <div className="flex items-center gap-3 text-[12px] text-gray-400">
                           <span>{post.timeAgo}</span>
@@ -1231,7 +1206,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                         <div key={comment.id} className="p-4 bg-gray-50 rounded-xl shadow-[0_1px_2px_rgba(0,0,0,0.03)]">
                           <p className="text-[14px] text-gray-800 leading-relaxed mb-2">{comment.text}</p>
                           <p className="text-[12px] text-gray-400 line-clamp-1">
-                            "{comment.postSentence.slice(0, 40)}..." 글에 댓글
+                            {`"${comment.postSentence.slice(0, 40)}..."`} 글에 댓글
                           </p>
                         </div>
                       ))}
@@ -1293,7 +1268,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                 </div>
 
                 <div className="p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded-r-lg mb-4">
-                  <p className="text-[15px] text-gray-800">"{selectedPost.archivedSentence}"</p>
+                  <p className="text-[15px] text-gray-800">{`"${selectedPost.archivedSentence}"`}</p>
                   <p className="text-[12px] text-gray-400 mt-2">{selectedPost.articleTitle}</p>
                 </div>
 
@@ -1405,7 +1380,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
           <div className="bg-white rounded-2xl shadow-2xl border border-gray-100 p-4 max-w-[90vw] w-[400px]">
             {/* 선택된 텍스트 미리보기 */}
             <p className="text-[14px] text-gray-600 line-clamp-2 mb-3 leading-relaxed">
-              "{textSelection.text.length > 80 ? textSelection.text.slice(0, 80) + '...' : textSelection.text}"
+              {`"${textSelection.text.length > 80 ? textSelection.text.slice(0, 80) + '...' : textSelection.text}"`}
             </p>
 
             {/* 버튼 영역 */}
@@ -1616,7 +1591,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
                             : "border-gray-100/80 shadow-[0_1px_2px_rgba(0,0,0,0.03)] hover:border-gray-300 hover:shadow-[0_2px_6px_rgba(0,0,0,0.06)]"
                         }`}
                       >
-                        <p className="text-[14px] text-gray-800 line-clamp-2">"{sentence.text}"</p>
+                        <p className="text-[14px] text-gray-800 line-clamp-2">{`"${sentence.text}"`}</p>
                         <p className="text-[12px] text-gray-400 mt-1">{sentence.articleTitle}</p>
                       </button>
                     ))}
@@ -1627,7 +1602,7 @@ export function FeedPage({ selectedGroup, onMbtiChange }: Props) {
               {/* 선택된 문장 미리보기 */}
               {selectedArchiveForPost && (
                 <div className="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-400 rounded-r-lg">
-                  <p className="text-[15px] text-gray-800">"{selectedArchiveForPost.text}"</p>
+                  <p className="text-[15px] text-gray-800">{`"${selectedArchiveForPost.text}"`}</p>
                   <p className="text-[12px] text-gray-400 mt-2">{selectedArchiveForPost.articleTitle}</p>
                 </div>
               )}
